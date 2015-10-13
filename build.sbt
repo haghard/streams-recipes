@@ -1,6 +1,10 @@
-name := "akka-back-pressure"
+import com.typesafe.sbt.SbtGit.git
+import com.typesafe.sbt.SbtScalariform.ScalariformKeys
+import scalariform.formatter.preferences._
 
-version := "1.0"
+name := "stream-recipes"
+
+version := "0.1"
 
 scalaVersion := "2.11.7"
 
@@ -11,6 +15,15 @@ resolvers += "Typesafe Repo" at "http://repo.typesafe.com/typesafe/releases/"
 resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
 
 javacOptions += "-Xmx1G"
+
+scalariformSettings
+
+shellPrompt := { state => "[" + System.getProperty("user.name") + "] " }
+
+useJGit
+enablePlugins(GitVersioning)
+
+git.useGitDescribe := true
 
 libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-stream-experimental" % "1.0",

@@ -1,13 +1,13 @@
 package recipes
 
-import java.net.{InetAddress, InetSocketAddress}
+import java.net.{ InetAddress, InetSocketAddress }
 import java.nio.ByteBuffer
 import java.nio.channels.DatagramChannel
 
 import akka.actor._
-import akka.stream.actor.ActorPublisherMessage.{Cancel, Request}
-import akka.stream.{ActorMaterializerSettings, OverflowStrategy, ActorMaterializer}
-import akka.stream.actor.ActorSubscriberMessage.{OnError, OnComplete, OnNext}
+import akka.stream.actor.ActorPublisherMessage.{ Cancel, Request }
+import akka.stream.{ ActorMaterializerSettings, OverflowStrategy, ActorMaterializer }
+import akka.stream.actor.ActorSubscriberMessage.{ OnError, OnComplete, OnNext }
 import akka.stream.actor._
 import akka.stream.scaladsl._
 import com.typesafe.config.ConfigFactory
@@ -136,7 +136,7 @@ object AkkaRecipes extends App {
 
       // use a broadcast to split the stream
       source ~> broadcast ~> fastSink
-                broadcast ~> slowingDownSink
+      broadcast ~> slowingDownSink
     }
   }
 
@@ -164,8 +164,8 @@ object AkkaRecipes extends App {
 
       // connect source to sink with additional step
       source ~> broadcast ~> fastSink
-                broadcast ~> Flow[Int].buffer(2<<6, OverflowStrategy.dropTail) ~> slowingDownSink1
-                broadcast ~> Flow[Int].buffer(2<<6, OverflowStrategy.dropTail) ~> slowingDownSink2
+      broadcast ~> Flow[Int].buffer(2 << 6, OverflowStrategy.dropTail) ~> slowingDownSink1
+      broadcast ~> Flow[Int].buffer(2 << 6, OverflowStrategy.dropTail) ~> slowingDownSink2
     }
   }
 
@@ -184,12 +184,12 @@ object AkkaRecipes extends App {
 
       // and the sin
       val fastSink = Sink.actorSubscriber(Props(classOf[DelayingSyncActor], "fastSinkWithBalancer", statsD, 12l))
-      val slowingDownSink = Sink.actorSubscriber(Props(classOf[DegradingActor], "slowingDownWithBalancer",statsD, 14l, 1l))
+      val slowingDownSink = Sink.actorSubscriber(Props(classOf[DegradingActor], "slowingDownWithBalancer", statsD, 14l, 1l))
       val balancer = builder.add(Balance[Int](2))
 
       // connect source to sink with additional step
       source ~> balancer ~> fastSink
-                balancer ~> slowingDownSink
+      balancer ~> slowingDownSink
     }
   }
 
@@ -203,7 +203,7 @@ object AkkaRecipes extends App {
 
     val queryStreams = Source() { implicit b ⇒
       import FlowGraph.Implicits._
-      val streams = List("okcStream","houStream","miaStream", "sasStream")
+      val streams = List("okcStream", "houStream", "miaStream", "sasStream")
       val latencies = List(20l, 30l, 40l, 45l).iterator
       val merge = b.add(Merge[Int](streams.size))
       streams.foreach { name ⇒
@@ -242,8 +242,8 @@ object AkkaRecipes extends App {
     }
   }
 
-  import akka.stream.{Attributes, UniformFanOutShape}
-  import akka.stream.scaladsl.FlexiRoute.{DemandFromAll, RouteLogic}
+  import akka.stream.{ Attributes, UniformFanOutShape }
+  import akka.stream.scaladsl.FlexiRoute.{ DemandFromAll, RouteLogic }
 
   /**
    *  Create custom Balance based on FlexiRoute with identical semantic to regular Balance junction
@@ -377,7 +377,7 @@ object AkkaRecipes extends App {
       val zip = b.add(Zip[Int, Int].withAttributes(Attributes.inputBuffer(1, 1)))
       srcFast ~> zip.in0
       srcSlow ~> zip.in1
-                 zip.out ~> Sink.actorSubscriber(Props(classOf[DegradingActor], "sink11", statsD, 0l))
+      zip.out ~> Sink.actorSubscriber(Props(classOf[DegradingActor], "sink11", statsD, 0l))
     }
   }
 
@@ -418,7 +418,7 @@ object AkkaRecipes extends App {
         sendBuffer.limit(sendBuffer.capacity())
         sendBuffer.rewind()
       }
-      
+
       val sendMap = b.add(Flow[Int] map { x => send(s"$name:1|c"); x })
 
       // we use zip to throttle the stream
@@ -426,9 +426,9 @@ object AkkaRecipes extends App {
       val unzip = b.add(Flow[(Tick, Int)].map(_._2))
 
       // setup the message flow
-       tickSource ~> zip.in0
+      tickSource ~> zip.in0
       rangeSource ~> zip.in1
-                     zip.out ~> unzip ~> sendMap
+      zip.out ~> unzip ~> sendMap
 
       sendMap.outlet
     }
@@ -467,11 +467,11 @@ class TopicReader(name: String, val address: InetSocketAddress, delay: Long) ext
     case Request(n) => if (isActive && totalDemand > 0) {
       var n0 = n
 
-      if(progress >= Limit)
+      if (progress >= Limit)
         self ! Cancel
 
       while (n0 > 0) {
-        if(progress % observeGap == 0)
+        if (progress % observeGap == 0)
           println(s"$name: $progress")
 
         progress += 1
@@ -487,7 +487,6 @@ class TopicReader(name: String, val address: InetSocketAddress, delay: Long) ext
       context.system.stop(self)
   }
 }
-
 
 class DelayingActor2(name: String, val address: InetSocketAddress, delay: Long) extends ActorSubscriber with ActorPublisher[Long] with StatsD {
 
@@ -553,20 +552,20 @@ class DelayingSyncActor(name: String, val address: InetSocketAddress, delay: Lon
 }
 
 class BatchActor(name: String, val address: InetSocketAddress, delay: Long, bufferSize: Int) extends ActorSubscriber with StatsD {
-  
+
   private val queue = new mutable.Queue[Int]()
-  
-  override protected val requestStrategy= new MaxInFlightRequestStrategy(bufferSize) {
+
+  override protected val requestStrategy = new MaxInFlightRequestStrategy(bufferSize) {
     override val inFlightInternally = queue.size
   }
-  
+
   def this(name: String, statsD: InetSocketAddress, bufferSize: Int) {
     this(name, statsD, 0, bufferSize)
   }
 
   override def receive: Receive = {
     case OnNext(msg: Int) =>
-      if(queue.size == bufferSize) flush()
+      if (queue.size == bufferSize) flush()
       else queue += msg
 
     case OnComplete =>
@@ -581,7 +580,6 @@ class BatchActor(name: String, val address: InetSocketAddress, delay: Long, buff
     }
   }
 }
-
 
 class DegradingActor(val name: String, val address: InetSocketAddress, delayPerMsg: Long, initialDelay: Long) extends ActorSubscriber with StatsD {
 

@@ -1,11 +1,11 @@
 package recipes
 
-import java.net.{InetAddress, InetSocketAddress}
+import java.net.{ InetAddress, InetSocketAddress }
 import java.util.concurrent.Executors
 import java.util.concurrent.Executors._
 
-import scalaz.stream.{merge, Process, process1, async}
-import scalaz.concurrent.{Strategy, Task}
+import scalaz.stream.{ merge, Process, process1, async }
+import scalaz.concurrent.{ Strategy, Task }
 
 //runMain recipes.ScalazRecipes
 object ScalazRecipes extends App {
@@ -24,7 +24,7 @@ object ScalazRecipes extends App {
   scenario023.runLast.run
 
   /**
-   * 2. Fast publisher, fast consumer in the beginning get slower, no buffer
+   * Fast publisher, fast consumer in the beginning get slower, no buffer
    * - same publisher as step 1. (e.g 50msg/s)
    * - consumer, which gets slower (starts at no delay, increase delay with every message.
    * - Result: publisher and consumer will start at same rate. Publish rate will go down
@@ -39,7 +39,7 @@ object ScalazRecipes extends App {
     val queue = async.boundedQueue[Int](bufferSize)(Sub)
 
     val cPoint = statsDPoint
-    val consumeP = process1.lift[(Long,Int), Unit] { x ⇒
+    val consumeP = process1.lift[(Long, Int), Unit] { x ⇒
       Thread.sleep(initDelay + (x._1 / 1000), x._1 % 1000 toInt)
       (cPoint send s"Consumer2:1|c")
     }
@@ -65,7 +65,7 @@ object ScalazRecipes extends App {
   }
 
   /**
-   * 3. Fast publisher, fast consumer in the beginning get slower
+   * Fast publisher, fast consumer in the beginning get slower
    * - Producer overrides oldest data in circularBuffer without any blocking,
    * - Consumer, which gets slower (starts at no delay, increase delay with every message.
    * - Result: publisher stays at the same rate, consumer starts receive partial data
@@ -78,7 +78,7 @@ object ScalazRecipes extends App {
     val cBuffer = async.circularBuffer[Int](bufferSize)(Sub)
 
     val cPoint = statsDPoint
-    val consumeP = process1.lift[(Long,Int), Unit] { x ⇒
+    val consumeP = process1.lift[(Long, Int), Unit] { x ⇒
       Thread.sleep(initDelay + (x._1 / 1000), x._1 % 1000 toInt)
       (cPoint send s"Consumer3:1|c")
     }
@@ -103,9 +103,8 @@ object ScalazRecipes extends App {
     } |> consumeP
   }
 
-
   /**
-   * 3. Fast publisher, fast consumer in the beginning get slower
+   * Fast publisher, fast consumer in the beginning get slower
    * - Producer publish data into queue.
    * We have dropLastStrategy process that tracks queue size and drop last element once we exceed waterMark
    * - Consumer, which gets slower (starts at no delay, increase delay with every message.
@@ -124,7 +123,7 @@ object ScalazRecipes extends App {
 
     val dropLastStrategy = (queue.size.discrete.filter(_ > waterMark) zip queue.dequeue).drain
 
-    val consumer = process1.lift[(Long,Int), Unit] { x ⇒
+    val consumer = process1.lift[(Long, Int), Unit] { x ⇒
       Thread.sleep(initDelay + (x._1 / 1000), x._1 % 1000 toInt)
       (cPoint send s"Consumer3_1:1|c")
     }
@@ -151,7 +150,7 @@ object ScalazRecipes extends App {
   }
 
   /**
-   * 3. Fast publisher, fast consumer in the beginning get slower
+   * Fast publisher, fast consumer in the beginning get slower
    * - Producer publish data into queue.
    * We have dropLastStrategy process that tracks queue size and drop all buffer once we exceed waterMark
    * - Consumer, which gets slower (starts at no delay, increase delay with every message.
@@ -170,7 +169,7 @@ object ScalazRecipes extends App {
 
     val dropBufferStrategy = (queue.size.discrete.filter(_ > waterMark) zip queue.dequeueBatch(waterMark)).drain
 
-    val consumer = process1.lift[(Long,Int), Unit] { x ⇒
+    val consumer = process1.lift[(Long, Int), Unit] { x ⇒
       Thread.sleep(initDelay + (x._1 / 1000), x._1 % 1000 toInt)
       (cPoint send s"Consumer3_2:1|c")
     }
