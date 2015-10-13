@@ -55,13 +55,13 @@ object ScalazRecipes extends App {
         .onComplete(Process.eval_(queue.close)).run[Task]
     }(Pub).runAsync(_ ⇒ println("Publisher2 is done"))
 
-    queue.dequeue |> (process1.stateScan(0l) { number: Int =>
+    queue.dequeue.stateScan(0l) { number: Int =>
       for {
         latency <- scalaz.State.get[Long]
         updatedLatency = latency + delayPerMsg
         _ <- scalaz.State.put(updatedLatency)
       } yield (updatedLatency, number)
-    }) |> consumeP
+    } |> consumeP
   }
 
   /**
