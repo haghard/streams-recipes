@@ -1,8 +1,3 @@
-import com.scalapenos.sbt.prompt.SbtPrompt.autoImport._
-import com.typesafe.sbt.SbtGit.git
-import com.typesafe.sbt.SbtScalariform.ScalariformKeys
-import scalariform.formatter.preferences._
-import com.scalapenos.sbt.prompt._
 import SbtPrompt.autoImport._
 
 name := "stream-recipes"
