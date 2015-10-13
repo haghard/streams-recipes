@@ -1,6 +1,9 @@
+import com.scalapenos.sbt.prompt.SbtPrompt.autoImport._
 import com.typesafe.sbt.SbtGit.git
 import com.typesafe.sbt.SbtScalariform.ScalariformKeys
 import scalariform.formatter.preferences._
+import com.scalapenos.sbt.prompt._
+import SbtPrompt.autoImport._
 
 name := "stream-recipes"
 
@@ -18,12 +21,12 @@ javacOptions += "-Xmx1G"
 
 scalariformSettings
 
-shellPrompt := { state => "[" + System.getProperty("user.name") + "] " }
+//shellPrompt := { state => "[" + System.getProperty("user.name") + "] " }
+//useJGit
+//enablePlugins(GitVersioning)
+//git.useGitDescribe := true
 
-useJGit
-enablePlugins(GitVersioning)
-
-git.useGitDescribe := true
+promptTheme := ScalapenosTheme
 
 libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-stream-experimental" % "1.0",
