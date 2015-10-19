@@ -40,8 +40,16 @@ object AkkaRecipes extends App {
     """.stripMargin)
 
   implicit val system = ActorSystem("Sys", ConfigFactory.empty().withFallback(config))
+
+  val decider: akka.stream.Supervision.Decider = {
+    case ex: Throwable =>
+      println(ex.getMessage)
+      akka.stream.Supervision.Stop
+  }
+
   val Settings = ActorMaterializerSettings(system)
     .withInputBuffer(32, 64)
+    .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher")
 
   implicit val materializer = ActorMaterializer(Settings)
@@ -49,7 +57,7 @@ object AkkaRecipes extends App {
   val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.134"), 8125)
   case class Tick()
 
-  scenario3.run()
+  scenario13.run()(materializer)
 
   /**
    * Fast publisher, Faster consumer
@@ -395,6 +403,25 @@ object AkkaRecipes extends App {
       srcFast ~> zip.in0
       srcSlow ~> zip.in1
       zip.out ~> Sink.actorSubscriber(Props(classOf[DegradingActor], "sink12", statsD, 0l))
+    }
+  }
+
+  //uncontrolled source
+  def scenario13: RunnableGraph[Unit] = {
+    FlowGraph.closed() { implicit b ⇒
+      import FlowGraph.Implicits._
+
+      val (actorRef, publisher) =
+        Source.actorRef[Int](200, OverflowStrategy.dropTail) //OverflowStrategy.fail
+          .toMat(Sink.publisher)(Keep.both).run()
+
+      var i = 0
+      system.scheduler.schedule(1 second, 20 milliseconds) {
+        i += 1
+        if (i < Int.MaxValue) actorRef ! i
+      }(system.dispatchers.lookup("akka.flow-dispatcher"))
+
+      Source(publisher) ~> Sink.actorSubscriber(Props(classOf[DegradingActor], "sink13", statsD, 13l))
     }
   }
 
