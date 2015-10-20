@@ -25,5 +25,6 @@ promptTheme := ScalapenosTheme
 
 libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-stream-experimental" % "1.0",
+  //"com.typesafe.akka" %% "akka-http-spray-json-experimental" % "1.0",
   "org.scalaz.stream" %% "scalaz-stream" % "0.8"
 )

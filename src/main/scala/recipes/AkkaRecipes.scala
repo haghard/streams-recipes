@@ -6,13 +6,15 @@ import java.nio.channels.DatagramChannel
 
 import akka.actor._
 import akka.stream.actor.ActorPublisherMessage.{ Cancel, Request }
-import akka.stream.{SourceShape, ActorMaterializerSettings, OverflowStrategy, ActorMaterializer}
+import akka.stream.{ SourceShape, ActorMaterializerSettings, OverflowStrategy, ActorMaterializer }
 import akka.stream.actor.ActorSubscriberMessage.{ OnError, OnComplete, OnNext }
 import akka.stream.actor._
 import akka.stream.scaladsl._
 import com.typesafe.config.ConfigFactory
+import recipes.BatchProducer.Item
 import scala.collection.mutable
 import scala.concurrent.duration._
+import scala.concurrent.forkjoin.ThreadLocalRandom
 import scala.language.postfixOps
 
 //runMain recipes.AkkaRecipes
@@ -57,7 +59,11 @@ object AkkaRecipes extends App {
   val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.134"), 8125)
   case class Tick()
 
-  scenario13.run()(materializer)
+  val mat = ActorMaterializer(ActorMaterializerSettings(system)
+    .withInputBuffer(1, 1)
+    .withSupervisionStrategy(decider)
+    .withDispatcher("akka.flow-dispatcher"))
+  scenario14.run()(mat)
 
   /**
    * Fast publisher, Faster consumer
@@ -216,8 +222,9 @@ object AkkaRecipes extends App {
 
     val multiSource = FlowGraph.partial() { implicit b =>
       val merger = b.add(Merge[String](sources.size))
-      sources.zipWithIndex.foreach { case (src, idx) =>
-        b.add(src) ~> merger.in(idx)
+      sources.zipWithIndex.foreach {
+        case (src, idx) =>
+          b.add(src) ~> merger.in(idx)
       }
       SourceShape(merger.out)
     }
@@ -438,6 +445,34 @@ object AkkaRecipes extends App {
   }
 
   /**
+   * Batched source with external effect as an Actor through Flow and degrading sink
+   * The whole pipeline is going to slow down up to sink's rate
+   * http://fehmicansaglam.net/connecting-dots-with-akka-stream/
+   */
+  def scenario14: RunnableGraph[Unit] = {
+    val batchedSource = Source.actorPublisher[Vector[Item]](BatchProducer.props)
+    val sink = Sink.actorSubscriber[Int](Props(classOf[DegradingActor], "sink14", statsD, 20l))
+
+
+    FlowGraph.closed() { implicit b ⇒
+      import FlowGraph.Implicits._
+      val conductor = Flow[Item].buffer(1, OverflowStrategy.backpressure).map(r => r.num)
+      /*
+      val parallelism = 4
+      val externalRequestFlow = Flow[String].mapAsyncUnordered(parallelism) { query =>
+        Http().singleRequest {
+          HttpRequest(uri = Uri(...).withQuery("query" -> query))
+        }
+      }.mapAsyncUnordered(parallelism) { response =>
+        //Unmarshal(response.entity).to[ExternalItem]
+      }.withAttributes(supervisionStrategy(resumingDecider))
+      */
+
+      (batchedSource mapConcat identity) ~> conductor ~> sink
+    }
+  }
+
+  /**
    * Create a source which is throttled to a number of message per second.
    */
   def throttledSource(statsD: InetSocketAddress, delay: FiniteDuration, interval: FiniteDuration, numberOfMessages: Int, name: String): Source[Int, Unit] = {
@@ -623,6 +658,7 @@ class BatchActor(name: String, val address: InetSocketAddress, delay: Long, buff
 class DegradingActor(val name: String, val address: InetSocketAddress, delayPerMsg: Long, initialDelay: Long) extends ActorSubscriber with StatsD {
 
   override protected val requestStrategy: RequestStrategy = OneByOneRequestStrategy
+  //override protected val requestStrategy: RequestStrategy = WatermarkRequestStrategy(10)
 
   // default delay is 0
   var delay = 0l
@@ -639,6 +675,7 @@ class DegradingActor(val name: String, val address: InetSocketAddress, delayPerM
     case OnNext(msg: Int) =>
       delay += delayPerMsg
       Thread.sleep(initialDelay + (delay / 1000), delay % 1000 toInt)
+      println(msg)
       send(s"$name:1|c")
 
     case OnNext(msg: (Int, Int)) =>
@@ -649,4 +686,56 @@ class DegradingActor(val name: String, val address: InetSocketAddress, delayPerM
       println(s"Complete DegradingActor")
       context.system.stop(self)
   }
+}
+
+class BatchProducer extends ActorPublisher[Vector[Item]] /*with spray.json.DefaultJsonProtocol*/ {
+  import BatchProducer._
+  import scala.concurrent.duration._
+  val rnd = ThreadLocalRandom.current()
+
+  override def receive = run(0l)
+
+  private def run(id: Long): Receive = {
+    case Request(n) => (context become requesting(id))
+    case Cancel => context.stop(self)
+  }
+
+  def requesting(id: Long): Receive = {
+    //Making external call starting from id
+
+    /*Http(context.system).singleRequest(HttpRequest(...)).flatMap { response =>
+      Unmarshal(response.entity).to[Result]
+    }.pipeTo(self)*/
+
+    context.system.scheduler.scheduleOnce(100 millis) {
+      var i = 0
+      val batch = Vector.fill(rnd.nextInt(1, 10)) { i += 1; Item(i) }
+      self ! Result(id + 1, batch.size, batch)
+    }(context.system.dispatchers.lookup("akka.flow-dispatcher"))
+
+    {
+      case Result(lastId, size, items) =>
+        println(s"produce:$lastId - $size")
+        onNext(items)
+
+        if (lastId == 0) onCompleteThenStop() //No items left.
+        else if (totalDemand > 0) (context become requesting(lastId))
+        else (context become run(lastId))
+
+      case Cancel => context.stop(self)
+    }
+  }
+}
+
+/*object Protocols extends DefaultJsonProtocol {
+  implicit val producerItemFormat = jsonFormat1(ProducerItem)
+  implicit val externalItemFormat = jsonFormat1(ExternalItem)
+  implicit val consumerItemFormat = jsonFormat1(ConsumerItem)
+}*/
+
+object BatchProducer {
+  case class Result(lastId: Long, size: Int, items: Vector[Item])
+  case class Item(num: Int)
+
+  def props: Props = Props[BatchProducer].withDispatcher("akka.flow-dispatcher")
 }
