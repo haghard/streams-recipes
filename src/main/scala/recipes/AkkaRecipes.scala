@@ -448,11 +448,16 @@ object AkkaRecipes extends App {
    * Batched source with external effect as an Actor through Flow and degrading sink
    * The whole pipeline is going to slow down up to sink's rate
    * http://fehmicansaglam.net/connecting-dots-with-akka-stream/
+   *
+   * In this scenario let us assume that we are reading a bulk of items from an internal system,
+   * making a request for each item to an external service,
+   * then sending an event to a stream (e.g. Kafka and Kinesis) or don't sent
+   * for each item received from the external service.
+   * Each stage should support non-blocking back pressure.
    */
   def scenario14: RunnableGraph[Unit] = {
     val batchedSource = Source.actorPublisher[Vector[Item]](BatchProducer.props)
-    val sink = Sink.actorSubscriber[Int](Props(classOf[DegradingActor], "sink14", statsD, 20l))
-
+    val sink = Sink.actorSubscriber[Int](Props(classOf[DegradingActor], "sink14", statsD, 10l))
 
     FlowGraph.closed() { implicit b ⇒
       import FlowGraph.Implicits._
