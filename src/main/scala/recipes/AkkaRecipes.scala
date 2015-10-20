@@ -6,7 +6,7 @@ import java.nio.channels.DatagramChannel
 
 import akka.actor._
 import akka.stream.actor.ActorPublisherMessage.{ Cancel, Request }
-import akka.stream.{ ActorMaterializerSettings, OverflowStrategy, ActorMaterializer }
+import akka.stream.{SourceShape, ActorMaterializerSettings, OverflowStrategy, ActorMaterializer}
 import akka.stream.actor.ActorSubscriberMessage.{ OnError, OnComplete, OnNext }
 import akka.stream.actor._
 import akka.stream.scaladsl._
@@ -208,13 +208,24 @@ object AkkaRecipes extends App {
    * @return
    */
   def scenario7: RunnableGraph[Unit] = {
+    import FlowGraph.Implicits._
+    val latencies = List(20l, 30l, 40l, 45l).iterator
+    val sources = List("okcStream", "houStream", "miaStream", "sasStream").map { name ⇒
+      Source.actorPublisher(Props(classOf[TopicReader], name, statsD, latencies.next()))
+    }
+
+    val multiSource = FlowGraph.partial() { implicit b =>
+      val merger = b.add(Merge[String](sources.size))
+      sources.zipWithIndex.foreach { case (src, idx) =>
+        b.add(src) ~> merger.in(idx)
+      }
+      SourceShape(merger.out)
+    }
 
     val queryStreams = Source() { implicit b ⇒
       import FlowGraph.Implicits._
-      val streams = List("okcStream", "houStream", "miaStream", "sasStream")
-      val latencies = List(20l, 30l, 40l, 45l).iterator
-      val merge = b.add(Merge[Int](streams.size))
-      streams.foreach { name ⇒
+      val merge = b.add(Merge[Int](sources.size))
+      sources.foreach { name ⇒
         Source.actorPublisher(Props(classOf[TopicReader], name, statsD, latencies.next())) ~> merge
       }
       merge.out
@@ -246,6 +257,7 @@ object AkkaRecipes extends App {
       sasSource ~> merge
                    merge ~> fastSink*/
 
+      //multiSource ~> fastSink
       queryStreams ~> fastSink
     }
   }
