@@ -12,7 +12,7 @@ resolvers += "Typesafe Repo" at "http://repo.typesafe.com/typesafe/releases/"
 
 resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
 
-javacOptions += "-Xmx1G"
+javacOptions += "-Xmx2G"
 
 scalariformSettings
 
