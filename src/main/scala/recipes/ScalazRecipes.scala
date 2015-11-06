@@ -13,7 +13,7 @@ object ScalazRecipes extends App {
 
   val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.134"), 8125)
 
-  def statsDPoint = new StatsD {  override val address = statsD }
+  def statsDPoint = new StatsD { override val address = statsD }
 
   def sleep(latency: Long) = Process.repeatEval(Task.delay(Thread.sleep(latency)))
 
@@ -133,7 +133,7 @@ object ScalazRecipes extends App {
     }
 
     //Publisher
-    Task.fork { ((Process.emitAll(1 to 10000) zip sleep(producerRate)) |> publisher).onComplete(Process.eval_(queue.close)).run[Task]}(Pub)
+    Task.fork { ((Process.emitAll(1 to 10000) zip sleep(producerRate)) |> publisher).onComplete(Process.eval_(queue.close)).run[Task] }(Pub)
       .runAsync(_ ⇒ println("Publisher3_2 has done"))
 
     val subscriber = queue.dequeue.stateScan(0l) { number: Int =>
@@ -179,7 +179,7 @@ object ScalazRecipes extends App {
     }
 
     //Publisher
-    Task.fork { ((Process.emitAll(1 to 10000) zip sleep(producerRate)) |> publisher).onComplete(Process.eval_(queue.close)).run[Task]}(Pub)
+    Task.fork { ((Process.emitAll(1 to 10000) zip sleep(producerRate)) |> publisher).onComplete(Process.eval_(queue.close)).run[Task] }(Pub)
       .runAsync(_ ⇒ println("Publisher3_2 has done"))
 
     val subscriber = queue.dequeue.stateScan(0l) { number: Int =>
