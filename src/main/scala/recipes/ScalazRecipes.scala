@@ -4,7 +4,7 @@ import java.net.{ InetAddress, InetSocketAddress }
 import java.util.concurrent.Executors
 import java.util.concurrent.Executors._
 
-import scalaz.stream.{ merge, Process, process1, async }
+import scalaz.stream.{ Process, process1, async }
 import scalaz.stream.merge._
 import scalaz.concurrent.{ Strategy, Task }
 
@@ -13,16 +13,14 @@ object ScalazRecipes extends App {
 
   val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.134"), 8125)
 
-  def statsDPoint = new StatsD {
-    override val address = statsD
-  }
+  def statsDPoint = new StatsD {  override val address = statsD }
 
   def sleep(latency: Long) = Process.repeatEval(Task.delay(Thread.sleep(latency)))
 
   val Pub = newSingleThreadExecutor()
   val Sub = Strategy.Executor(Executors.newFixedThreadPool(4))
 
-  scenario023.runLast.run
+  scenario013_2.runLast.run
 
   /**
    * Fast publisher, fast consumer in the beginning get slower, no buffer
@@ -134,10 +132,9 @@ object ScalazRecipes extends App {
       (pPoint send s"Publisher3_1:1|c")
     }
 
-    Task.fork {
-      ((Process.emitAll(1 to 10000) zip sleep(producerRate)) |> publisher)
-        .onComplete(Process.eval_(queue.close)).run[Task]
-    }(Pub).runAsync(_ ⇒ println("Publisher3_2 has done"))
+    //Publisher
+    Task.fork { ((Process.emitAll(1 to 10000) zip sleep(producerRate)) |> publisher).onComplete(Process.eval_(queue.close)).run[Task]}(Pub)
+      .runAsync(_ ⇒ println("Publisher3_2 has done"))
 
     val subscriber = queue.dequeue.stateScan(0l) { number: Int =>
       for {
@@ -158,7 +155,7 @@ object ScalazRecipes extends App {
    * - Consumer, which gets slower (starts at no delay, increase delay with every message.
    * - Result: publisher stays at the same rate, consumer starts receive partial data
    */
-  def scenario023: Process[Task, Unit] = {
+  def scenario013_2: Process[Task, Unit] = {
     val initDelay = 0
     val delayPerMsg = 20l
     val bufferSize = 1 << 6
@@ -181,10 +178,9 @@ object ScalazRecipes extends App {
       (pPoint send s"Publisher3_2:1|c")
     }
 
-    Task.fork {
-      ((Process.emitAll(1 to 10000) zip sleep(producerRate)) |> publisher)
-        .onComplete(Process.eval_(queue.close)).run[Task]
-    }(Pub).runAsync(_ ⇒ println("Publisher3_2 has done"))
+    //Publisher
+    Task.fork { ((Process.emitAll(1 to 10000) zip sleep(producerRate)) |> publisher).onComplete(Process.eval_(queue.close)).run[Task]}(Pub)
+      .runAsync(_ ⇒ println("Publisher3_2 has done"))
 
     val subscriber = queue.dequeue.stateScan(0l) { number: Int =>
       for {
