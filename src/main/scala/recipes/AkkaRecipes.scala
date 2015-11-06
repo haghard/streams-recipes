@@ -27,8 +27,8 @@ object AkkaRecipes extends App {
       |    type = Dispatcher
       |    executor = "fork-join-executor"
       |    fork-join-executor {
-      |      parallelism-min = 4
-      |      parallelism-max = 8
+      |      parallelism-min = 8
+      |      parallelism-max = 16
       |    }
       |  }
       |  blocking-dispatcher {
@@ -64,6 +64,13 @@ object AkkaRecipes extends App {
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher"))
   scenario14.run()(mat)
+
+  /*
+  val src = Source(() => List(1, 2, 3, 4).iterator)
+  val flow = Flow.wrap(Sink.ignore, src)(Keep.none)
+  (Source(() => List(1, 2, 3, 4, 5, 6).iterator) via flow)
+    .runWith(Sink.foreach(println(_)))(materializer)
+  */
 
   /**
    * Fast publisher, Faster consumer
@@ -265,7 +272,8 @@ object AkkaRecipes extends App {
                    merge ~> fastSink*/
 
       //multiSource ~> fastSink
-      queryStreams ~> fastSink
+      Source.wrap(multiSource) ~> fastSink
+      //queryStreams ~> fastSink
     }
   }
 
@@ -451,7 +459,7 @@ object AkkaRecipes extends App {
    *
    * In this scenario let us assume that we are reading a bulk of items from an internal system,
    * making a request for each item to an external service,
-   * then sending an event to a stream (e.g. Kafka and Kinesis) or don't sent
+   * then sending an event to a stream (e.g. Kafka) or don't sent
    * for each item received from the external service.
    * Each stage should support non-blocking back pressure.
    */
@@ -459,9 +467,15 @@ object AkkaRecipes extends App {
     val batchedSource = Source.actorPublisher[Vector[Item]](BatchProducer.props)
     val sink = Sink.actorSubscriber[Int](Props(classOf[DegradingActor], "sink14", statsD, 10l))
 
+    val src = Source(() => List(1, 2, 3, 4).iterator)
+    //val flow = Flow[Int].map(_*2)
+
+    //(src via flow)
+    Flow.wrap(Sink.ignore, src)(Keep.right)
+
     FlowGraph.closed() { implicit b ⇒
       import FlowGraph.Implicits._
-      val conductor = Flow[Item].buffer(1, OverflowStrategy.backpressure).map(r => r.num)
+      val external = Flow[Item].buffer(1, OverflowStrategy.backpressure).map(r => r.num)
       /*
       val parallelism = 4
       val externalRequestFlow = Flow[String].mapAsyncUnordered(parallelism) { query =>
@@ -473,7 +487,7 @@ object AkkaRecipes extends App {
       }.withAttributes(supervisionStrategy(resumingDecider))
       */
 
-      (batchedSource mapConcat identity) ~> conductor ~> sink
+      (batchedSource mapConcat identity) ~> external ~> sink
     }
   }
 

@@ -5,6 +5,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.Executors._
 
 import scalaz.stream.{ merge, Process, process1, async }
+import scalaz.stream.merge._
 import scalaz.concurrent.{ Strategy, Task }
 
 //runMain recipes.ScalazRecipes
@@ -106,7 +107,7 @@ object ScalazRecipes extends App {
   /**
    * Fast publisher, fast consumer in the beginning get slower
    * - Producer publish data into queue.
-   * We have dropLastStrategy process that tracks queue size and drop last element once we exceed waterMark
+   * We have dropLastStrategy process that tracks queue size and drop LAST ELEMENT once we exceed waterMark
    * - Consumer, which gets slower (starts at no delay, increase delay with every message.
    * - Result: publisher stays at the same rate, consumer starts receive partial data
    */
@@ -138,7 +139,7 @@ object ScalazRecipes extends App {
         .onComplete(Process.eval_(queue.close)).run[Task]
     }(Pub).runAsync(_ ⇒ println("Publisher3_2 has done"))
 
-    val flow = queue.dequeue.stateScan(0l) { number: Int =>
+    val subscriber = queue.dequeue.stateScan(0l) { number: Int =>
       for {
         latency <- scalaz.State.get[Long]
         updatedLatency = latency + delayPerMsg
@@ -146,13 +147,14 @@ object ScalazRecipes extends App {
       } yield (updatedLatency, number)
     } |> consumer
 
-    merge.mergeN(Process(flow, dropLastStrategy))(Sub)
+    mergeN(Process(subscriber, dropLastStrategy))(Sub)
   }
 
   /**
+   * It differs from scenario013 only in dropping the whole BUFFER
    * Fast publisher, fast consumer in the beginning get slower
    * - Producer publish data into queue.
-   * We have dropLastStrategy process that tracks queue size and drop all buffer once we exceed waterMark
+   * We have dropLastStrategy process that tracks queue size and drop ALL BUFFER once we exceed waterMark
    * - Consumer, which gets slower (starts at no delay, increase delay with every message.
    * - Result: publisher stays at the same rate, consumer starts receive partial data
    */
@@ -184,7 +186,7 @@ object ScalazRecipes extends App {
         .onComplete(Process.eval_(queue.close)).run[Task]
     }(Pub).runAsync(_ ⇒ println("Publisher3_2 has done"))
 
-    val flow = queue.dequeue.stateScan(0l) { number: Int =>
+    val subscriber = queue.dequeue.stateScan(0l) { number: Int =>
       for {
         latency <- scalaz.State.get[Long]
         updatedLatency = latency + delayPerMsg
@@ -192,6 +194,6 @@ object ScalazRecipes extends App {
       } yield (updatedLatency, number)
     } |> consumer
 
-    merge.mergeN(Process(flow, dropBufferStrategy))(Sub)
+    mergeN(Process(subscriber, dropBufferStrategy))(Sub)
   }
 }
