@@ -10,6 +10,7 @@ import scalaz.concurrent.{ Strategy, Task }
 
 //runMain recipes.ScalazRecipes
 object ScalazRecipes extends App {
+  val limit = 20000
 
   val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.134"), 8125)
 
@@ -50,8 +51,7 @@ object ScalazRecipes extends App {
     }
 
     Task.fork {
-      ((Process.emitAll(1 to 10000) zip sleep(producerRate)) |> publishP)
-        .onComplete(Process.eval_(queue.close)).run[Task]
+      ((Process.emitAll(1 to limit) zip sleep(producerRate)) |> publishP).onComplete(Process.eval_(queue.close)).run[Task]
     }(Pub).runAsync(_ ⇒ println("Publisher2 is done"))
 
     queue.dequeue.stateScan(0l) { number: Int =>
@@ -89,8 +89,7 @@ object ScalazRecipes extends App {
     }
 
     Task.fork {
-      ((Process.emitAll(1 to 10000) zip sleep(producerRate)) |> publishP)
-        .onComplete(Process.eval_(cBuffer.close)).run[Task]
+      ((Process.emitAll(1 to limit) zip sleep(producerRate)) |> publishP).onComplete(Process.eval_(cBuffer.close)).run[Task]
     }(Pub).runAsync(_ ⇒ println("Publisher3 is done"))
 
     cBuffer.dequeue.stateScan(0l) { number: Int =>
@@ -133,8 +132,9 @@ object ScalazRecipes extends App {
     }
 
     //Publisher
-    Task.fork { ((Process.emitAll(1 to 10000) zip sleep(producerRate)) |> publisher).onComplete(Process.eval_(queue.close)).run[Task] }(Pub)
-      .runAsync(_ ⇒ println("Publisher3_2 has done"))
+    Task.fork {
+      ((Process.emitAll(1 to 10000) zip sleep(producerRate)) |> publisher).onComplete(Process.eval_(queue.close)).run[Task]
+    }(Pub).runAsync(_ ⇒ println("Publisher3_2 has done"))
 
     val subscriber = queue.dequeue.stateScan(0l) { number: Int =>
       for {
@@ -179,8 +179,9 @@ object ScalazRecipes extends App {
     }
 
     //Publisher
-    Task.fork { ((Process.emitAll(1 to 10000) zip sleep(producerRate)) |> publisher).onComplete(Process.eval_(queue.close)).run[Task] }(Pub)
-      .runAsync(_ ⇒ println("Publisher3_2 has done"))
+    Task.fork {
+      ((Process.emitAll(1 to 10000) zip sleep(producerRate)) |> publisher).onComplete(Process.eval_(queue.close)).run[Task]
+    }(Pub).runAsync(_ ⇒ println("Publisher3_2 has done"))
 
     val subscriber = queue.dequeue.stateScan(0l) { number: Int =>
       for {
