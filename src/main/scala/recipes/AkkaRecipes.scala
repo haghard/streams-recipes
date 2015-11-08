@@ -5,10 +5,12 @@ import java.nio.ByteBuffer
 import java.nio.channels.DatagramChannel
 
 import akka.actor._
+import akka.routing.{ ActorRefRoutee, Router, RoundRobinRoutingLogic }
 import akka.stream._
 import akka.stream.actor._
 import akka.stream.scaladsl._
 import recipes.BatchProducer.Item
+import recipes.WorkerRouter.DBObject
 import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.language.postfixOps
@@ -74,7 +76,7 @@ object AkkaRecipes extends App {
     .runWith(Sink.foreach(println(_)))(materializer)
   */
 
-  RunnableGraph.fromGraph(scenario13).run()
+  RunnableGraph.fromGraph(scenario15).run()
 
   /**
    * Fast publisher, Faster consumer
@@ -475,6 +477,30 @@ object AkkaRecipes extends App {
   }
 
   /**
+   * Router pulls from the DbCursorPublisher and runs parallel processing for records
+   * Router dictates rate to publisher
+   *                                                  Parallel
+   *                                                  +------+
+   *                                               +--|Worker|--+
+   *                                               |  +------+  |
+   * +-----------------+     +------------+        |  +------+  |  +-----------+
+   * |DbCursorPublisher|-----|WorkerRouter|--------|--|Worker|-----|RecordsSink|
+   * +-----------------+     +------------+        |  +------+  |  +-----------+
+   *                                               |  +------+  |
+   *                                               +--|Worker|--+
+   *                                                  +------+
+   */
+  def scenario15: Graph[ClosedShape, Unit] = {
+    FlowGraph.create() { implicit b ⇒
+      import FlowGraph.Implicits._
+      val out = sys.actorOf(Props(classOf[RecordsSink], "sink15", statsD).withDispatcher("akka.flow-dispatcher"), "sink15")
+      val src = Source.actorPublisher[Long](Props(classOf[DbCursorPublisher], "source15", 20000l, statsD)).map(r => DBObject(r, out))
+      src ~> Sink.actorSubscriber(WorkerRouter.props)
+      ClosedShape
+    }
+  }
+
+  /**
    * Create a source which is throttled to a number of message per second.
    */
   def throttledSource(statsD: InetSocketAddress, delay: FiniteDuration, interval: FiniteDuration, numberOfMessages: Int, name: String): Source[Int, Unit] = {
@@ -530,6 +556,82 @@ trait StatsD {
   }
 }
 
+object WorkerRouter {
+  case class DBObject(id: Long, replyTo: ActorRef)
+  case class Work(id: Long)
+  case class Reply(id: Long)
+  case class Done(id: Long)
+
+  def props: Props = Props(new WorkerRouter).withDispatcher("akka.flow-dispatcher")
+}
+
+class WorkerRouter extends ActorSubscriber with ActorLogging {
+  import WorkerRouter._
+  val MaxInFlight = 32
+  var requestors = Map.empty[Long, ActorRef]
+  val n = Runtime.getRuntime.availableProcessors() / 2
+
+  val workers = (1 to n)
+    .map(i => s"worker-$i")
+    .map(name => context.actorOf(Props(classOf[Worker], name).withDispatcher("akka.flow-dispatcher"), name))
+
+  var router = Router(RoundRobinRoutingLogic(),
+    workers.map { r =>
+      (context watch r)
+      ActorRefRoutee(r)
+    }
+  )
+
+  override val requestStrategy = new MaxInFlightRequestStrategy(MaxInFlight) {
+    override def inFlightInternally = requestors.size
+  }
+
+  override def receive = {
+    case Terminated(routee) =>
+      router = (router removeRoutee routee)
+      /*
+      if we needed recreate route we would do this
+      val resurrected = context.actorOf(Props[Worker].withDispatcher("akka.flow-dispatcher"))
+      (context watch resurrected)
+      (router addRoutee resurrected)
+      */
+
+      if (router.routees.size == 0) {
+        log.info("All routees have been stopped")
+        (context stop self)
+      }
+
+    case OnNext(DBObject(id, requestor)) =>
+      requestors += (id -> requestor)
+      (router route (Work(id), self))
+    case Reply(id) =>
+      requestors(id) ! Done(id)
+      requestors -= id
+    case OnComplete =>
+      log.info("worker-router has received OnComplete")
+      workers.foreach { r => (context stop r) }
+
+    case OnError(ex) => log.info("OnError {}", ex.getMessage)
+  }
+}
+
+class Worker(name: String) extends Actor with ActorLogging {
+  import WorkerRouter._
+  override def receive = {
+    case Work(id) =>
+      //log.info("{} got a job {}", name, id)
+      Thread.sleep(ThreadLocalRandom.current().nextInt(100, 150))
+      sender() ! Reply(id)
+  }
+}
+
+class RecordsSink(name: String, val address: InetSocketAddress) extends Actor with ActorLogging with StatsD {
+  override def receive = {
+    case WorkerRouter.Done(id) =>
+      send(s"$name:1|c")
+  }
+}
+
 /**
  * Same is throttledSource
  * @param name
@@ -570,8 +672,8 @@ class DelayingActor2(name: String, val address: InetSocketAddress, delay: Long) 
 
   val queue = mutable.Queue[Long]()
 
-  override protected val requestStrategy: RequestStrategy = new MaxInFlightRequestStrategy(10) {
-    override val inFlightInternally = queue.size
+  override protected val requestStrategy = new MaxInFlightRequestStrategy(10) {
+    override def inFlightInternally = queue.size
   }
 
   def this(name: String, statsD: InetSocketAddress) {
@@ -634,7 +736,7 @@ class BatchActor(name: String, val address: InetSocketAddress, delay: Long, buff
   private val queue = new mutable.Queue[Int]()
 
   override protected val requestStrategy = new MaxInFlightRequestStrategy(bufferSize) {
-    override val inFlightInternally = queue.size
+    override def inFlightInternally = queue.size
   }
 
   def this(name: String, statsD: InetSocketAddress, bufferSize: Int) {
@@ -692,7 +794,33 @@ class DegradingActor(val name: String, val address: InetSocketAddress, delayPerM
   }
 }
 
-class BatchProducer extends ActorPublisher[Vector[Item]] /*with spray.json.DefaultJsonProtocol*/ {
+class DbCursorPublisher(name: String, val end: Long, val address: InetSocketAddress) extends ActorPublisher[Long] with StatsD with ActorLogging {
+  var limit = 0l
+  var seqN = 0l
+  val showPeriod = 50
+
+  override def receive: Receive = {
+    case Request(n) if (isActive && totalDemand > 0) =>
+      if (seqN >= end)
+        onCompleteThenStop()
+
+      limit = n
+      while (limit > 0) {
+        seqN += 1
+        limit -= 1
+        //log.info("fetch {}", seqN)
+        if (limit % showPeriod == 0) {
+          log.info("Cursor {}", seqN)
+          Thread.sleep(200) //cursor buffer
+        }
+        onNext(seqN)
+        send(s"$name:1|c")
+      }
+    case Cancel => (context stop self)
+  }
+}
+
+class BatchProducer extends ActorPublisher[Vector[Item]] with ActorLogging /*with spray.json.DefaultJsonProtocol*/ {
   import BatchProducer._
   import scala.concurrent.duration._
   val rnd = ThreadLocalRandom.current()
@@ -705,6 +833,7 @@ class BatchProducer extends ActorPublisher[Vector[Item]] /*with spray.json.Defau
   }
 
   def requesting(id: Long): Receive = {
+    log.info("requesting {}", id)
     //Making external call starting from id
     /*Http(context.system).singleRequest(HttpRequest(...)).flatMap { response =>
       Unmarshal(response.entity).to[Result]
@@ -729,7 +858,6 @@ class BatchProducer extends ActorPublisher[Vector[Item]] /*with spray.json.Defau
     }
   }
 }
-
 
 object BatchProducer {
   case class Result(lastId: Long, size: Int, items: Vector[Item])
