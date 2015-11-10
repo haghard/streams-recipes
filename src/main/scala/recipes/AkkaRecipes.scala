@@ -3,6 +3,7 @@ package recipes
 import java.net.{ InetAddress, InetSocketAddress }
 import java.nio.ByteBuffer
 import java.nio.channels.DatagramChannel
+import java.util.concurrent.atomic.AtomicInteger
 
 import akka.actor._
 import akka.routing.{ ActorRefRoutee, Router, RoundRobinRoutingLogic }
@@ -18,6 +19,7 @@ import com.typesafe.config.ConfigFactory
 import scala.concurrent.forkjoin.ThreadLocalRandom
 import akka.stream.actor.ActorPublisherMessage.{ Cancel, Request }
 import akka.stream.actor.ActorSubscriberMessage.{ OnError, OnComplete, OnNext }
+import scala.util.{ Failure, Success }
 
 //runMain recipes.AkkaRecipes
 object AkkaRecipes extends App {
@@ -76,7 +78,7 @@ object AkkaRecipes extends App {
     .runWith(Sink.foreach(println(_)))(materializer)
   */
 
-  RunnableGraph.fromGraph(scenario9_0).run()
+  RunnableGraph.fromGraph(scenario13_1).run()
 
   /**
    * Fast publisher, Faster consumer
@@ -441,21 +443,62 @@ object AkkaRecipes extends App {
     }
   }
 
-  //uncontrolled source
+  /**
+    * External source
+    * In 2.0 for this purpose you should can use  [[Source.queue.offer]]
+    */
   def scenario13: Graph[ClosedShape, Unit] = {
     FlowGraph.create() { implicit b ⇒
       import FlowGraph.Implicits._
-
+      //no backpressure there, just dropping
       val (actorRef, publisher) = Source.actorRef[Int](200, OverflowStrategy.dropTail)
         .toMat(Sink.publisher[Int](false))(Keep.both).run()
 
-      var i = 0
+      val i = new AtomicInteger()
       sys.scheduler.schedule(1 second, 20 milliseconds) {
-        i += 1
-        if (i < Int.MaxValue) actorRef ! i
+        i.getAndIncrement()
+        if (i.get() < Int.MaxValue) actorRef ! i
       }(sys.dispatchers.lookup("akka.flow-dispatcher"))
 
       Source(publisher) ~> Sink.actorSubscriber(Props(classOf[DegradingActor], "degradingSink13", statsD, 13l))
+      ClosedShape
+    }
+  }
+
+  /**
+    * External Producer through Source.queue
+    *
+    */
+  def scenario13_1: Graph[ClosedShape, Unit] = {
+    implicit val Ex = sys.dispatchers.lookup("akka.flow-dispatcher")
+    implicit val Prod = sys.dispatchers.lookup("akka.blocking-dispatcher")
+
+    val pubStatsD = new StatsD { override val address = statsD }
+    val (queue, publisher) = Source.queue[Option[Int]](128, OverflowStrategy.backpressure)
+      .takeWhile(_.isDefined).map(_.get)
+      .toMat(Sink.publisher[Int](false))(Keep.both).run()
+
+    val pName = "source_13_1:1|c"
+    def externalProducer(q: SourceQueue[Option[Int]], i: Int): Unit = {
+      if (i < 500000)
+        sys.scheduler.scheduleOnce(5 milliseconds) {
+          (queue offer (Option(i))).onComplete {
+            _ match {
+              case Success(r) =>
+                (pubStatsD send pName)
+                externalProducer(q, i + 1)
+              case Failure(ex) => externalProducer(q, i)
+            }
+          }(Prod)
+        }(Prod)
+      else queue.offer(None).onComplete(_ => (pubStatsD send pName))(Prod)
+    }
+
+    externalProducer(queue, 0)
+
+    FlowGraph.create() { implicit b ⇒
+      import FlowGraph.Implicits._
+      Source(publisher) ~> Sink.actorSubscriber(Props(classOf[DegradingActor], "degradingSink13_1", statsD, 3l))
       ClosedShape
     }
   }
