@@ -76,7 +76,7 @@ object AkkaRecipes extends App {
     .runWith(Sink.foreach(println(_)))(materializer)
   */
 
-  RunnableGraph.fromGraph(scenario15).run()
+  RunnableGraph.fromGraph(scenario9_0).run()
 
   /**
    * Fast publisher, Faster consumer
@@ -292,7 +292,7 @@ object AkkaRecipes extends App {
 
     val source = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "fastProducer8")
 
-    def nested(sleep: Long) = Flow[Int].buffer(bufferSize, OverflowStrategy.backpressure).map { r => Thread.sleep(sleep); r }
+    def action(sleep: Long) = Flow[Int].buffer(bufferSize, OverflowStrategy.backpressure).map { r => Thread.sleep(sleep); r }
 
     def buffAttributes = Attributes.inputBuffer(initial = bufferSize, max = bufferSize)
 
@@ -303,7 +303,7 @@ object AkkaRecipes extends App {
       val merge = b.add(Merge[Int](parallelism).withAttributes(buffAttributes))
       source ~> balancer
       latencies.foreach { l =>
-        balancer ~> nested(l) ~> merge
+        balancer ~> action(l) ~> merge
       }
 
       merge ~> sink
@@ -312,7 +312,25 @@ object AkkaRecipes extends App {
   }
 
   /**
-   * A Fast source with collapsed result and a constant sink.
+   * A Fast source with conflate flow that buffer incoming message and produce single element
+   */
+  def scenario9_0: Graph[ClosedShape, Unit] = {
+    val source = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "fastProducer9_0")
+    val sink = Sink.actorSubscriber(Props(classOf[DegradingActor], "sink9_0", statsD, 0l))
+
+    val conflate: Flow[Int, Int, Unit] =
+      Flow[Int].conflate(List(_))((acc, element) => element :: acc)
+        .mapConcat(identity)
+
+    FlowGraph.create() { implicit b ⇒
+      import FlowGraph.Implicits._
+      ((source via conflate) via throttledFlow(500 milliseconds)) ~> sink
+      ClosedShape
+    }
+  }
+
+  /**
+   * A Fast source with collapsed result and a fast sink.
    * No buffer is required
    *
    * Allow to progress top flow independently from bottom
@@ -755,7 +773,7 @@ class BatchActor(name: String, val address: InetSocketAddress, delay: Long, buff
 
   private def flush() = {
     while (!queue.isEmpty) {
-      val _ = queue.dequeue()
+      val _ = queue.dequeue
       send(s"$name:1|c")
     }
   }
