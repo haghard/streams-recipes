@@ -58,7 +58,7 @@ object AkkaRecipes extends App {
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher")
 
-  implicit val materializer = ActorMaterializer(Settings)
+  implicit val Mat = ActorMaterializer(Settings)
 
   val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.134"), 8125)
   case class Tick()
@@ -78,7 +78,7 @@ object AkkaRecipes extends App {
     .runWith(Sink.foreach(println(_)))(materializer)
   */
 
-  RunnableGraph.fromGraph(scenario13_1).run()
+  RunnableGraph.fromGraph(scenario13_1).run()(Mat)
 
   /**
    * Fast publisher, Faster consumer
@@ -444,9 +444,9 @@ object AkkaRecipes extends App {
   }
 
   /**
-    * External source
-    * In 2.0 for this purpose you should can use  [[Source.queue.offer]]
-    */
+   * External source
+   * In 2.0 for this purpose you should can use  [[Source.queue.offer]]
+   */
   def scenario13: Graph[ClosedShape, Unit] = {
     FlowGraph.create() { implicit b ⇒
       import FlowGraph.Implicits._
@@ -466,9 +466,8 @@ object AkkaRecipes extends App {
   }
 
   /**
-    * External Producer through Source.queue
-    *
-    */
+   * External Producer through Source.queue
+   */
   def scenario13_1: Graph[ClosedShape, Unit] = {
     implicit val Ex = sys.dispatchers.lookup("akka.flow-dispatcher")
     implicit val Prod = sys.dispatchers.lookup("akka.blocking-dispatcher")
@@ -478,27 +477,25 @@ object AkkaRecipes extends App {
       .takeWhile(_.isDefined).map(_.get)
       .toMat(Sink.publisher[Int](false))(Keep.both).run()
 
-    val pName = "source_13_1:1|c"
-    def externalProducer(q: SourceQueue[Option[Int]], i: Int): Unit = {
-      if (i < 500000)
-        sys.scheduler.scheduleOnce(5 milliseconds) {
-          (queue offer (Option(i))).onComplete {
-            _ match {
-              case Success(r) =>
-                (pubStatsD send pName)
-                externalProducer(q, i + 1)
-              case Failure(ex) => externalProducer(q, i)
-            }
-          }(Prod)
+    def externalProducer(q: SourceQueue[Option[Int]], pName: String, i: Int): Unit = {
+      if (i < Int.MaxValue)
+        (queue.offer(Option(i))).onComplete {
+          _ match {
+            case Success(r) =>
+              (pubStatsD send pName)
+              externalProducer(q, pName, i + 1)
+            case Failure(ex) => externalProducer(q, pName,i) //retry
+          }
         }(Prod)
       else queue.offer(None).onComplete(_ => (pubStatsD send pName))(Prod)
     }
 
-    externalProducer(queue, 0)
+    val pName = "source_13_1:1|c"
+    externalProducer(queue, pName, 0)
 
     FlowGraph.create() { implicit b ⇒
       import FlowGraph.Implicits._
-      Source(publisher) ~> Sink.actorSubscriber(Props(classOf[DegradingActor], "degradingSink13_1", statsD, 3l))
+      Source(publisher) ~> Sink.actorSubscriber(Props(classOf[DegradingActor], "degradingSink13_1", statsD, 1l))
       ClosedShape
     }
   }
@@ -517,6 +514,7 @@ object AkkaRecipes extends App {
   def scenario14: Graph[ClosedShape, Unit] = {
     val batchedSource = Source.actorPublisher[Vector[Item]](BatchProducer.props)
     val sink = Sink.actorSubscriber[Int](Props(classOf[DegradingActor], "degradingSink14", statsD, 10l))
+    val external = Flow[Item].buffer(1, OverflowStrategy.backpressure).map(r => r.num)
 
     FlowGraph.create() { implicit b ⇒
       import FlowGraph.Implicits._
@@ -531,7 +529,6 @@ object AkkaRecipes extends App {
       }.withAttributes(supervisionStrategy(resumingDecider))
       */
 
-      val external = Flow[Item].buffer(1, OverflowStrategy.backpressure).map(r => r.num)
       (batchedSource mapConcat identity) ~> external ~> sink
       ClosedShape
     }
