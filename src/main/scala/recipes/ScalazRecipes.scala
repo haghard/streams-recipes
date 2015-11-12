@@ -1,7 +1,8 @@
 package recipes
 
 import java.net.{ InetAddress, InetSocketAddress }
-import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.{ ThreadFactory, ForkJoinPool, Executors }
 import java.util.concurrent.Executors._
 
 import scalaz.stream.{ Process, process1, async }
@@ -10,99 +11,111 @@ import scalaz.concurrent.{ Strategy, Task }
 
 //runMain recipes.ScalazRecipes
 object ScalazRecipes extends App {
-  val limit = 20000
+  import scala.concurrent.duration._
+
+  case class StreamThreadFactory(name: String) extends ThreadFactory {
+    private def namePrefix = name + "-thread"
+    private val threadNumber = new AtomicInteger(1)
+    private val group: ThreadGroup = Thread.currentThread().getThreadGroup
+    override def newThread(r: Runnable) = new Thread(this.group, r,
+      s"$namePrefix-${threadNumber.getAndIncrement()}", 0L)
+  }
+
+  val limit = Int.MaxValue
 
   val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.134"), 8125)
 
-  def statsDPoint = new StatsD { override val address = statsD }
+  def statsDInstance = new StatsD { override val address = statsD }
 
   def sleep(latency: Long) = Process.repeatEval(Task.delay(Thread.sleep(latency)))
 
-  val Pub = newSingleThreadExecutor()
-  val Sub = Strategy.Executor(Executors.newFixedThreadPool(4))
+  val Pub = newFixedThreadPool(1, StreamThreadFactory("pub"))
+  val Sub = Strategy.Executor(newFixedThreadPool(4, StreamThreadFactory("sub")))
 
-  scenario013_2.runLast.run
+  //scenario013_2.runLast.run
+  scenario03.runLast.run
 
-  /**
-   * Fast publisher, fast consumer in the beginning get slower, no buffer
-   * - same publisher as step 1. (e.g 50msg/s)
-   * - consumer, which gets slower (starts at no delay, increase delay with every message.
-   * - Result: publisher and consumer will start at same rate. Publish rate will go down
-   * together with publisher rate.
-   *
-   */
-  def scenario02: Process[Task, Unit] = {
-    val initDelay = 0
-    val delayPerMsg = 20l
-    val bufferSize = 1 << 5
-    val producerRate = 20
-    val queue = async.boundedQueue[Int](bufferSize)(Sub)
-
-    val cPoint = statsDPoint
-    val consumeP = process1.lift[(Long, Int), Unit] { x ⇒
-      Thread.sleep(initDelay + (x._1 / 1000), x._1 % 1000 toInt)
-      (cPoint send s"Consumer2:1|c")
-    }
-
-    val pPoint = statsDPoint
-    val publishP = process1.lift[(Int, Unit), Unit] { x ⇒
-      (queue enqueueOne (x._1) run)
-      (pPoint send s"Publisher2:1|c")
-    }
-
-    Task.fork {
-      ((Process.emitAll(1 to limit) zip sleep(producerRate)) |> publishP).onComplete(Process.eval_(queue.close)).run[Task]
-    }(Pub).runAsync(_ ⇒ println("Publisher2 is done"))
-
-    queue.dequeue.stateScan(0l) { number: Int =>
-      for {
-        latency <- scalaz.State.get[Long]
-        updatedLatency = latency + delayPerMsg
-        _ <- scalaz.State.put(updatedLatency)
-      } yield (updatedLatency, number)
-    } |> consumeP
+  def naturals: Process[Task, Int] = {
+    def go(i: Int): Process[Task, Int] =
+      Process.await(Task.now(i))(i ⇒ Process.emit(i) ++ go(i + 1))
+    go(0)
   }
 
   /**
-   * Fast publisher, fast consumer in the beginning get slower
-   * - Producer overrides oldest data in circularBuffer without any blocking,
-   * - Consumer, which gets slower (starts at no delay, increase delay with every message.
-   * - Result: publisher stays at the same rate, consumer starts receive partial data
-   */
-  def scenario03: Process[Task, Unit] = {
-    val initDelay = 0
-    val delayPerMsg = 20l
-    val bufferSize = 1 << 5
-    val producerRate = 30
-    val cBuffer = async.circularBuffer[Int](bufferSize)(Sub)
-
-    val cPoint = statsDPoint
-    val consumeP = process1.lift[(Long, Int), Unit] { x ⇒
-      Thread.sleep(initDelay + (x._1 / 1000), x._1 % 1000 toInt)
-      (cPoint send s"Consumer3:1|c")
-    }
-
-    val pPoint = statsDPoint
-    val publishP = process1.lift[(Int, Unit), Unit] { x ⇒
-      (cBuffer enqueueOne (x._1) run)
-      (pPoint send s"Publisher3:1|c")
-    }
+    * Fast publisher and fast consumer in the beginning,
+    * consumer gets slower, increase delay with every message.
+    * We use boundedQueue in between which makes producer slower in case no space in queue (blocking)
+    * Result: Publisher and consumer will start at same rate. Publisher's rate will go down together with consumer.
+    */
+  def scenario02: Process[Task, Unit] = {
+    val delayPerMsg = 1l
+    val bufferSize = 1 << 7
+    val sourceDelay = 10
+    val showLimit = 10000
+    val queue = async.boundedQueue[Int](bufferSize)(Sub)
 
     Task.fork {
-      ((Process.emitAll(1 to limit) zip sleep(producerRate)) |> publishP).onComplete(Process.eval_(cBuffer.close)).run[Task]
-    }(Pub).runAsync(_ ⇒ println("Publisher3 is done"))
+      val pPoint = statsDInstance
+      ((naturals zip sleep(sourceDelay)) |> process1.lift { x ⇒
+        (queue enqueueOne(x._1) run) //backpressure
+        (pPoint send "scalaz-source2:1|c")
+      }).onComplete(Process.eval_(queue.close)).run[Task]
+    }(Pub).runAsync(_ ⇒ ())
+
+    val cPoint = statsDInstance
+    queue.dequeue.stateScan(0l) { number: Int =>
+      for {
+        latency <- scalaz.State.get[Long]
+        increased = latency + delayPerMsg
+        _ <- scalaz.State.put(increased)
+      } yield (increased, number)
+    } |> process1.lift { x ⇒
+      val latency = 0 + (x._1 / 1000)
+      if (x._2 % showLimit == 0)
+        println(latency)
+      Thread.sleep(latency, x._1 % 1000 toInt)
+      (cPoint send "scalaz-sink2:1|c")
+    }
+  }
+
+  /**
+   * Fast publisher and fast consumer in the beginning, consumer gets slower, increase delay with every message.
+   * We use circular buffer in between that leads to overriding oldest messages
+   * Result: publisher stays at the original rate and starts override oldest messages, consumer is getting slower
+   */
+  def scenario03: Process[Task, Unit] = {
+    val delayPerMsg = 1l
+    val bufferSize = 1 << 7
+    val sourceDelay = 10
+    val showLimit = 10000
+    val cBuffer = async.circularBuffer[Int](bufferSize)(Sub)
+    val cPoint = statsDInstance
+
+    Task.fork {
+      val pPoint = statsDInstance
+      ((naturals zip sleep(sourceDelay)) |> process1.lift[(Int, Unit), Unit] { x ⇒
+        (cBuffer enqueueOne (x._1) run)
+        (pPoint send "scalaz-source3:1|c")
+      }).onComplete(Process.eval_(cBuffer.close)).run[Task]
+    }(Pub).runAsync(_ ⇒ ())
 
     cBuffer.dequeue.stateScan(0l) { number: Int =>
       for {
         latency <- scalaz.State.get[Long]
-        updatedLatency = latency + delayPerMsg
-        _ <- scalaz.State.put(updatedLatency)
-      } yield (updatedLatency, number)
-    } |> consumeP
+        increased = latency + delayPerMsg
+        _ <- scalaz.State.put(increased)
+      } yield (increased, number)
+    } |> process1.lift { x ⇒
+      val latency = 0 + (x._1 / 1000)
+      if (x._2 % showLimit == 0)
+        println(latency)
+      Thread.sleep(latency, x._1 % 1000 toInt)
+      (cPoint send "scalaz-sink3:1|c")
+    }
   }
 
   /**
-   * Fast publisher, fast consumer in the beginning get slower
+   * Fast publisher, fast consumer in the beginning later getting slower
    * - Producer publish data into queue.
    * We have dropLastStrategy process that tracks queue size and drop LAST ELEMENT once we exceed waterMark
    * - Consumer, which gets slower (starts at no delay, increase delay with every message.
@@ -116,8 +129,8 @@ object ScalazRecipes extends App {
     val producerRate = 30
     val queue = async.boundedQueue[Int](bufferSize)(Sub)
 
-    val cPoint = statsDPoint
-    val pPoint = statsDPoint
+    val cPoint = statsDInstance
+    val pPoint = statsDInstance
 
     val dropLastStrategy = (queue.size.discrete.filter(_ > waterMark) zip queue.dequeue).drain
 
@@ -139,9 +152,9 @@ object ScalazRecipes extends App {
     val subscriber = queue.dequeue.stateScan(0l) { number: Int =>
       for {
         latency <- scalaz.State.get[Long]
-        updatedLatency = latency + delayPerMsg
-        _ <- scalaz.State.put(updatedLatency)
-      } yield (updatedLatency, number)
+        increased = latency + delayPerMsg
+        _ <- scalaz.State.put(increased)
+      } yield (increased, number)
     } |> consumer
 
     mergeN(Process(subscriber, dropLastStrategy))(Sub)
@@ -163,8 +176,8 @@ object ScalazRecipes extends App {
     val producerRate = 30
     val queue = async.boundedQueue[Int](bufferSize)(Sub)
 
-    val cPoint = statsDPoint
-    val pPoint = statsDPoint
+    val cPoint = statsDInstance
+    val pPoint = statsDInstance
 
     val dropBufferStrategy = (queue.size.discrete.filter(_ > waterMark) zip queue.dequeueBatch(waterMark)).drain
 
@@ -186,9 +199,9 @@ object ScalazRecipes extends App {
     val subscriber = queue.dequeue.stateScan(0l) { number: Int =>
       for {
         latency <- scalaz.State.get[Long]
-        updatedLatency = latency + delayPerMsg
-        _ <- scalaz.State.put(updatedLatency)
-      } yield (updatedLatency, number)
+        increased = latency + delayPerMsg
+        _ <- scalaz.State.put(increased)
+      } yield (increased, number)
     } |> consumer
 
     mergeN(Process(subscriber, dropBufferStrategy))(Sub)

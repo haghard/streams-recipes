@@ -78,78 +78,75 @@ object AkkaRecipes extends App {
     .runWith(Sink.foreach(println(_)))(materializer)
   */
 
-  RunnableGraph.fromGraph(scenario13_1).run()(Mat)
+  RunnableGraph.fromGraph(scenario3).run()(Mat)
 
   /**
    * Fast publisher, Faster consumer
-   * - publisher with a map to send, and a throttler
-   * - Result: publisher and consumer rates should be equal.
+   * Result: publisher and consumer stay on the sane rate.
    */
   def scenario1: Graph[ClosedShape, Unit] = {
     FlowGraph.create() { implicit builder =>
       import FlowGraph.Implicits._
       // get the elements for this flow.
-      val fastSource = throttledSource(statsD, 1 second, 20 milliseconds, 10000, "source1")
-      val fastSink = Sink.actorSubscriber(SyncActor.props2("sink1", statsD))
+      val fastSource = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source1")
+      val fastSink = Sink.actorSubscriber(SyncActor.props2("akka-sink1", statsD))
       fastSource ~> fastSink
       ClosedShape
     }
   }
 
   /**
-   * Fast publisher, fast consumer in the beginning get slower, no buffer
-   * - same publisher as step 1.
-   * - consumer, which gets slower (starts at no delay, increase delay with every message.
-   * - Result: publisher and consumer will start at same rate. Publish rate will go down
-   * together with publisher rate.
-   *
+   * Fast publisher and fast consumer in the beginning,
+   * consumer gets slower, increase delay with every message.
+   * We use buffer with OverflowStrategy.backpressure in between which makes producer slower
+   * Result: Publisher and consumer will start at same rate. Publisher's rate will go down together with consumer.
    */
   def scenario2: Graph[ClosedShape, Unit] = {
     FlowGraph.create() { implicit builder =>
       import FlowGraph.Implicits._
-      val fastSource = throttledSource(statsD, 1 second, 20 milliseconds, 20000, "source2")
-      val degradingSink = Sink.actorSubscriber(DegradingActor.props2("sink2", statsD, 10l))
-      fastSource ~> degradingSink
+      val fastSource = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source2")
+      val degradingSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink2", statsD, 1l))
+      val buffer = Flow[Int].buffer(1 << 7, OverflowStrategy.backpressure)
+      fastSource ~> buffer ~> degradingSink
       ClosedShape
     }
   }
 
   /**
-   * Fast publisher, fast consumer in the beginning get slower, with drop buffer
-   * - same publisher as step 1.
-   * - consumer, which gets slower (starts at no delay, increase delay with every message.
-   * - Result: publisher stays at the same rate, consumer starts dropping messages
+   * Fast publisher and fast consumer in the beginning,
+   * consumer gets slower, increase delay with every message.
+   * We use buffer with OverflowStrategy.dropHead in between which leads to dropping oldest messages
+   * Result: publisher stays at the original rate and starts drop oldest messages, consumer is getting slower
    */
   def scenario3: Graph[ClosedShape, Unit] = {
     FlowGraph.create() { implicit builder =>
       import FlowGraph.Implicits._
-      val source = throttledSource(statsD, 1 second, 20 milliseconds, 10000, "fastProducer3")
-      val slowingSink = Sink.actorSubscriber(DegradingActor.props2("degradingSink3", statsD, 20l))
-
-      val buffer = Flow[Int].buffer(1000, OverflowStrategy.dropHead)
-      //val buffer = Flow[Int].buffer(1000, OverflowStrategy.backpressure)
-
+      val source = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source3")
+      val slowingSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink3", statsD, 1l))
+      //OverflowStrategy.dropHead will drop the oldest waiting job
+      //OverflowStrategy.dropTail will drop the youngest waiting job
+      val buffer = Flow[Int].buffer(1 << 7, OverflowStrategy.dropHead)
       source ~> buffer ~> slowingSink
       ClosedShape
     }
   }
 
   /**
-   * Fast publisher, 2 fast consumers, one consumer which gets slower
+   * Fast publisher, 2 fast consumers, one consumer gets slower over time
    * Result: publisher rate and all consumer rates go down at the same time
    */
   def scenario4: Graph[ClosedShape, Unit] = {
     FlowGraph.create() { implicit builder =>
       import FlowGraph.Implicits._
-      val source = throttledSource(statsD, 1 second, 20 milliseconds, 9000, "fastProducer")
+      val source = throttledSource(statsD, 1 second, 20 milliseconds, Int.MaxValue, "akka-source4")
 
-      val fastSink = Sink.actorSubscriber(SyncActor.props("fastSink4", statsD, 0l))
-      val degradingSink = Sink.actorSubscriber(DegradingActor.props2("degradingSink4", statsD, 20l))
+      val fastSink = Sink.actorSubscriber(SyncActor.props("akka-sink4_0", statsD, 0l))
+      val slowSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink4_1", statsD, 10l))
 
       val broadcast = builder.add(Broadcast[Int](2))
 
       source ~> broadcast ~> fastSink
-      broadcast ~> degradingSink
+                broadcast ~> slowSink
       ClosedShape
     }
   }
@@ -735,7 +732,7 @@ object PubSubSink {
     Props(new PubSubSink(name, address)).withDispatcher("akka.flow-dispatcher")
 }
 
-class PubSubSink private(name: String, val address: InetSocketAddress, delay: Long) extends ActorSubscriber with ActorPublisher[Long] with StatsD {
+class PubSubSink private (name: String, val address: InetSocketAddress, delay: Long) extends ActorSubscriber with ActorPublisher[Long] with StatsD {
   private val queue = mutable.Queue[Long]()
 
   override protected val requestStrategy = new MaxInFlightRequestStrategy(10) {
@@ -754,7 +751,7 @@ class PubSubSink private(name: String, val address: InetSocketAddress, delay: Lo
       reply
 
     case OnComplete =>
-      println(s"Complete PubSubSink")
+      println("PubSubSink OnComplete")
       (context stop self)
 
     case OnError(ex) ⇒
@@ -780,13 +777,13 @@ class PubSubSink private(name: String, val address: InetSocketAddress, delay: Lo
 
 object SyncActor {
   def props(name: String, address: InetSocketAddress, delay: Long) =
-    Props(new SyncActor(name,address, delay)).withDispatcher("akka.flow-dispatcher")
+    Props(new SyncActor(name, address, delay)).withDispatcher("akka.flow-dispatcher")
 
   def props2(name: String, address: InetSocketAddress) =
     Props(new SyncActor(name, address)).withDispatcher("akka.flow-dispatcher")
 }
 
-class SyncActor private(name: String, val address: InetSocketAddress, delay: Long) extends ActorSubscriber with StatsD {
+class SyncActor private (name: String, val address: InetSocketAddress, delay: Long) extends ActorSubscriber with StatsD {
   override protected val requestStrategy: RequestStrategy = OneByOneRequestStrategy
 
   private def this(name: String, statsD: InetSocketAddress) {
@@ -813,7 +810,7 @@ object BatchActor {
     Props(new BatchActor(name, address, bufferSize)).withDispatcher("akka.flow-dispatcher")
 }
 
-class BatchActor private(name: String, val address: InetSocketAddress, delay: Long, bufferSize: Int) extends ActorSubscriber with StatsD {
+class BatchActor private (name: String, val address: InetSocketAddress, delay: Long, bufferSize: Int) extends ActorSubscriber with StatsD {
   private val queue = new mutable.Queue[Int]()
 
   override protected val requestStrategy = new MaxInFlightRequestStrategy(bufferSize) {
@@ -844,13 +841,13 @@ class BatchActor private(name: String, val address: InetSocketAddress, delay: Lo
 
 object DegradingActor {
   def props(name: String, address: InetSocketAddress, delayPerMsg: Long, initialDelay: Long) =
-    Props(classOf[DegradingActor], name, address, delayPerMsg, initialDelay).withDispatcher("akka.flow-dispatcher")
+    Props(new DegradingActor(name, address, delayPerMsg, initialDelay)).withDispatcher("akka.flow-dispatcher")
 
   def props2(name: String, address: InetSocketAddress, delayPerMsg: Long) =
-    Props(classOf[DegradingActor], name, address, delayPerMsg).withDispatcher("akka.flow-dispatcher")
+    Props(new DegradingActor(name, address, delayPerMsg)).withDispatcher("akka.flow-dispatcher")
 }
 
-class DegradingActor private(val name: String, val address: InetSocketAddress, delayPerMsg: Long, initialDelay: Long) extends ActorSubscriber with StatsD {
+class DegradingActor private (val name: String, val address: InetSocketAddress, delayPerMsg: Long, initialDelay: Long) extends ActorSubscriber with StatsD {
   override protected val requestStrategy: RequestStrategy = OneByOneRequestStrategy
   // default delay is 0
   var delay = 0l
