@@ -469,29 +469,30 @@ object AkkaRecipes extends App {
    * External Producer through Source.queue
    */
   def scenario13_1: Graph[ClosedShape, Unit] = {
-    implicit val Ex = sys.dispatchers.lookup("akka.flow-dispatcher")
-    implicit val Prod = sys.dispatchers.lookup("akka.blocking-dispatcher")
+    implicit val Ctx = sys.dispatchers.lookup("akka.flow-dispatcher")
+    implicit val ExtCtx = sys.dispatchers.lookup("akka.blocking-dispatcher")
 
     val pubStatsD = new StatsD { override val address = statsD }
-    val (queue, publisher) = Source.queue[Option[Int]](128, OverflowStrategy.backpressure)
+    val (queue, publisher) = Source.queue[Option[Int]](1 >>> 6, OverflowStrategy.backpressure)
       .takeWhile(_.isDefined).map(_.get)
       .toMat(Sink.publisher[Int](false))(Keep.both).run()
 
     def externalProducer(q: SourceQueue[Option[Int]], pName: String, i: Int): Unit = {
       if (i < Int.MaxValue)
-        (queue.offer(Option(i))).onComplete {
+        (q.offer(Option(i))).onComplete {
           _ match {
             case Success(r) =>
               (pubStatsD send pName)
               externalProducer(q, pName, i + 1)
-            case Failure(ex) => externalProducer(q, pName,i) //retry
+            case Failure(ex) =>
+              println(ex.getMessage)
+              sys.scheduler.scheduleOnce(1 seconds)(externalProducer(q, pName, i))(ExtCtx) //retry
           }
-        }(Prod)
-      else queue.offer(None).onComplete(_ => (pubStatsD send pName))(Prod)
+        }(ExtCtx)
+      else q.offer(None).onComplete(_ => (pubStatsD send pName))(ExtCtx)
     }
 
-    val pName = "source_13_1:1|c"
-    externalProducer(queue, pName, 0)
+    externalProducer(queue, "source_13_1:1|c", 0)
 
     FlowGraph.create() { implicit b ⇒
       import FlowGraph.Implicits._
@@ -820,12 +821,10 @@ class BatchActor(name: String, val address: InetSocketAddress, delay: Long, buff
 }
 
 class DegradingActor(val name: String, val address: InetSocketAddress, delayPerMsg: Long, initialDelay: Long) extends ActorSubscriber with StatsD {
-
   override protected val requestStrategy: RequestStrategy = OneByOneRequestStrategy
-  //override protected val requestStrategy: RequestStrategy = WatermarkRequestStrategy(10)
-
   // default delay is 0
   var delay = 0l
+  var cnt = 0l
 
   def this(name: String, statsD: InetSocketAddress) {
     this(name, statsD, 0, 0)
@@ -838,8 +837,11 @@ class DegradingActor(val name: String, val address: InetSocketAddress, delayPerM
   override def receive: Receive = {
     case OnNext(msg: Int) =>
       delay += delayPerMsg
-      Thread.sleep(initialDelay + (delay / 1000), delay % 1000 toInt)
-      //println(msg)
+      cnt += 1
+      val latency = initialDelay + (delay / 1000)
+      Thread.sleep(latency, (delay % 1000).toInt)
+      if (cnt % 10000 == 0)
+        println(latency)
       send(s"$name:1|c")
 
     case OnNext(msg: (Int, Int)) =>
@@ -848,7 +850,7 @@ class DegradingActor(val name: String, val address: InetSocketAddress, delayPerM
 
     case OnComplete =>
       println(s"Complete DegradingActor")
-      context.system.stop(self)
+      (context stop self)
   }
 }
 
