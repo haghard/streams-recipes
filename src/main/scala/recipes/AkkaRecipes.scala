@@ -138,11 +138,9 @@ object AkkaRecipes extends App {
   def scenario4: Graph[ClosedShape, Unit] = {
     FlowGraph.create() { implicit builder =>
       import FlowGraph.Implicits._
-      val source = throttledSource(statsD, 1 second, 20 milliseconds, Int.MaxValue, "akka-source4")
-
+      val source = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source4")
       val fastSink = Sink.actorSubscriber(SyncActor.props("akka-sink4_0", statsD, 0l))
       val slowSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink4_1", statsD, 10l))
-
       val broadcast = builder.add(Broadcast[Int](2))
 
       source ~> broadcast ~> fastSink
