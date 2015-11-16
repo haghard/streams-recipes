@@ -61,7 +61,6 @@ object AkkaRecipes extends App {
   implicit val Mat = ActorMaterializer(Settings)
 
   val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.134"), 8125)
-  case class Tick()
 
   /*
   val mat = ActorMaterializer(ActorMaterializerSettings.create(system=sys)
@@ -144,7 +143,7 @@ object AkkaRecipes extends App {
       val broadcast = builder.add(Broadcast[Int](2))
 
       source ~> broadcast ~> fastSink
-                broadcast ~> slowSink
+      broadcast ~> slowSink
       ClosedShape
     }
   }
@@ -255,24 +254,16 @@ object AkkaRecipes extends App {
     }
   }
 
-  //import akka.stream.{ Attributes, UniformFanOutShape }
-  //import akka.stream.scaladsl.FlexiRoute.{ DemandFromAll, RouteLogic }
-
+  //https://github.com/akka/akka/blob/releasing-akka-stream-and-http-experimental-2.0-M1/akka-stream/src/main/scala/akka/stream/scaladsl/Graph.scala#L254
   /*
-  case class RoundRobinBalance[T](size: Int) extends FlexiRoute[T, UniformFanOutShape[T, T]](
-    new UniformFanOutShape(size), Attributes.name(s"RoundRobinBalance-for-$size")) {
-    private var cursor = -1
-    private var index = 0
-    override def createRouteLogic(s: UniformFanOutShape[T, T]) = new RouteLogic[T] {
-      override def initialState = State[Unit](DemandFromAll((0 to (size - 1)).map(s.out(_)))) { (ctx, out, in) =>
-        if (cursor == Int.MaxValue) cursor = -1
-        cursor += 1
-        index = cursor % size
-        ctx.emit(s.out(index))(in)
-        SameState
+  case class RoundRobinBalance[T](outputPorts: Int) extends GraphStage[UniformFanOutShape[T, T]] {
+    val in: Inlet[T] = Inlet[T]("rr.in")
+    val out: immutable.IndexedSeq[Outlet[T]] = Vector.tabulate(outputPorts)(i ⇒ Outlet[T]("rr.out" + i))
+    override val shape: UniformFanOutShape[T, T] = UniformFanOutShape[T, T](in, out: _*)
+    override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
+      new GraphStageLogic(shape) {
+
       }
-      override def initialCompletionHandling = eagerClose
-    }
   }*/
 
   /**
@@ -355,9 +346,9 @@ object AkkaRecipes extends App {
     Flow.fromGraph(
       FlowGraph.create() { implicit b ⇒
         import FlowGraph.Implicits._
-        val zip = b.add(ZipWith[T, Tick, T](Keep.left).withAttributes(Attributes.inputBuffer(1, 1)))
+        val zip = b.add(ZipWith[T, Unit, T](Keep.left).withAttributes(Attributes.inputBuffer(1, 1)))
         val dropOne = b.add(Flow[T].drop(1))
-        Source.tick(Duration.Zero, interval, Tick()) ~> zip.in1
+        Source.tick(Duration.Zero, interval, ()) ~> zip.in1
         zip.out ~> dropOne.inlet
         FlowShape(zip.in0, dropOne.outlet)
       }
@@ -370,8 +361,8 @@ object AkkaRecipes extends App {
     Flow.fromGraph(
       FlowGraph.create() { implicit b ⇒
         import FlowGraph.Implicits._
-        val zip = b.add(Zip[T, Tick]().withAttributes(Attributes.inputBuffer(1, 1)))
-        Source.tick(interval, interval, Tick()) ~> zip.in1
+        val zip = b.add(Zip[T, Unit]().withAttributes(Attributes.inputBuffer(1, 1)))
+        Source.tick(interval, interval, ()) ~> zip.in1
         FlowShape(zip.in0, zip.out)
       }
     ).map(_._1)
@@ -565,11 +556,11 @@ object AkkaRecipes extends App {
         val channel = DatagramChannel.open()
 
         // two source
-        val tickSource = Source.tick(delay, interval, Tick())
+        val tickSource = Source.tick(delay, interval, ())
         val rangeSource = Source(1 to limit)
 
         def send(message: String) = {
-          sendBuffer.put(message.getBytes("utf-8"))
+          sendBuffer.put(message getBytes "utf-8")
           sendBuffer.flip()
           channel.send(sendBuffer, statsD)
           sendBuffer.limit(sendBuffer.capacity())
@@ -579,8 +570,8 @@ object AkkaRecipes extends App {
         val sendMap = b.add(Flow[Int] map { x => send(s"$name:1|c"); x })
 
         // we use zip to throttle the stream
-        val zip = b.add(Zip[Tick, Int]())
-        val unzip = b.add(Flow[(Tick, Int)].map(_._2))
+        val zip = b.add(Zip[Unit, Int]())
+        val unzip = b.add(Flow[(Unit, Int)].map(_._2))
 
         // setup the message flow
         tickSource ~> zip.in0
@@ -905,7 +896,7 @@ class DbCursorPublisher(name: String, val end: Long, val address: InetSocketAddr
   }
 }
 
-class BatchProducer extends ActorPublisher[Vector[Item]] with ActorLogging /*with spray.json.DefaultJsonProtocol*/ {
+class BatchProducer extends ActorPublisher[Vector[Item]] with ActorLogging {
   import BatchProducer._
   import scala.concurrent.duration._
   val rnd = ThreadLocalRandom.current()
