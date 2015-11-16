@@ -587,7 +587,7 @@ object AkkaRecipes extends App {
 trait StatsD {
   val Encoding = "utf-8"
 
-  val sendBuffer = ByteBuffer.allocate(1024)
+  val sendBuffer = (ByteBuffer allocate 1024)
   val channel = DatagramChannel.open()
 
   def address: InetSocketAddress
