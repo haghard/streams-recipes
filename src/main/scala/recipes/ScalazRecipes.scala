@@ -27,7 +27,7 @@ object ScalazRecipes extends App {
 
   def sleep(latency: Long) = Process.repeatEval(Task.delay(Thread.sleep(latency)))
 
-  scenario03.run[Task].run
+  scenario02.run[Task].run
 
   def naturals: Process[Task, Int] = {
     def go(i: Int): Process[Task, Int] =
@@ -63,7 +63,7 @@ object ScalazRecipes extends App {
 
     ((naturals zip sleep(sourceDelay)).map(_._1) observe queue.enqueue to statsDin(statsDInstance, srcMessage))
       .onComplete(Process.eval_(queue.close))
-      .run[Task].runAsync(_ => ())
+      .run.runAsync(_ => ())
 
     queue.dequeue.stateScan(0l) { number: Int =>
       for {

@@ -45,6 +45,8 @@ object AkkaRecipes extends App {
       |}
     """.stripMargin)
 
+  val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.134"), 8125)
+
   implicit val sys: ActorSystem = ActorSystem("Sys", ConfigFactory.empty().withFallback(config))
 
   val decider: akka.stream.Supervision.Decider = {
@@ -54,30 +56,27 @@ object AkkaRecipes extends App {
   }
 
   val Settings = ActorMaterializerSettings.create(system = sys)
-    .withInputBuffer(32, 64)
+    .withInputBuffer(32, 32)
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher")
 
   implicit val Mat = ActorMaterializer(Settings)
 
-  val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.134"), 8125)
-
-  /*
-  val mat = ActorMaterializer(ActorMaterializerSettings.create(system=sys)
+  val Mat0 = ActorMaterializer(ActorMaterializerSettings.create(system = sys)
     .withInputBuffer(1, 1)
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher"))
-  scenario14.run()(mat)
-  */
 
-  /*
-  val src = Source(() => List(1, 2, 3, 4).iterator)
-  val flow = Flow.wrap(Sink.ignore, src)(Keep.none)
-  (Source(() => List(1, 2, 3, 4, 5, 6).iterator) via flow)
-    .runWith(Sink.foreach(println(_)))(materializer)
-  */
+  RunnableGraph.fromGraph(scenario3).run()(Mat0)
 
-  RunnableGraph.fromGraph(scenario3).run()(Mat)
+  /**
+   *
+   */
+  def consoleProgress(name: String, duration: FiniteDuration) =
+    (Flow[Int].conflate(_ => 0)((c, _) => c + 1)
+      .zipWith(Source.tick(duration, duration, ()))(Keep.left))
+      .scan(0)(_ + _)
+      .to(Sink.foreach(c => println(s"$name: $c")))
 
   /**
    * Fast publisher, Faster consumer
@@ -86,10 +85,10 @@ object AkkaRecipes extends App {
   def scenario1: Graph[ClosedShape, Unit] = {
     FlowGraph.create() { implicit builder =>
       import FlowGraph.Implicits._
-      // get the elements for this flow.
       val fastSource = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source1")
       val fastSink = Sink.actorSubscriber(SyncActor.props2("akka-sink1", statsD))
-      fastSource ~> fastSink
+
+      (fastSource alsoTo consoleProgress("akka-scenario1", 5 seconds)) ~> fastSink
       ClosedShape
     }
   }
@@ -106,7 +105,7 @@ object AkkaRecipes extends App {
       val fastSource = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source2")
       val degradingSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink2", statsD, 1l))
       val buffer = Flow[Int].buffer(1 << 7, OverflowStrategy.backpressure)
-      fastSource ~> buffer ~> degradingSink
+      (fastSource alsoTo consoleProgress("akka-scenario2", 5 seconds)) ~> buffer ~> degradingSink
       ClosedShape
     }
   }
@@ -125,7 +124,7 @@ object AkkaRecipes extends App {
       //OverflowStrategy.dropHead will drop the oldest waiting job
       //OverflowStrategy.dropTail will drop the youngest waiting job
       val buffer = Flow[Int].buffer(1 << 7, OverflowStrategy.dropHead)
-      source ~> buffer ~> slowingSink
+      (source alsoTo consoleProgress("akka-scenario3", 5 seconds)) ~> buffer ~> slowingSink
       ClosedShape
     }
   }
@@ -586,7 +585,6 @@ object AkkaRecipes extends App {
 
 trait StatsD {
   val Encoding = "utf-8"
-
   val sendBuffer = (ByteBuffer allocate 1024)
   val channel = DatagramChannel.open()
 
@@ -838,9 +836,7 @@ object DegradingActor {
 
 class DegradingActor private (val name: String, val address: InetSocketAddress, delayPerMsg: Long, initialDelay: Long) extends ActorSubscriber with StatsD {
   override protected val requestStrategy: RequestStrategy = OneByOneRequestStrategy
-  // default delay is 0
   var delay = 0l
-  var cnt = 0l
 
   private def this(name: String, statsD: InetSocketAddress) {
     this(name, statsD, 0, 0)
@@ -853,11 +849,8 @@ class DegradingActor private (val name: String, val address: InetSocketAddress, 
   override def receive: Receive = {
     case OnNext(msg: Int) =>
       delay += delayPerMsg
-      cnt += 1
       val latency = initialDelay + (delay / 1000)
       Thread.sleep(latency, (delay % 1000).toInt)
-      if (cnt % 10000 == 0)
-        println(latency)
       send(s"$name:1|c")
 
     case OnNext(msg: (Int, Int)) =>
