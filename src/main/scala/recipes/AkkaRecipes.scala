@@ -6,7 +6,6 @@ import java.nio.channels.DatagramChannel
 import java.util.concurrent.atomic.AtomicInteger
 
 import akka.actor._
-import akka.routing.{ ActorRefRoutee, Router, RoundRobinRoutingLogic }
 import akka.stream._
 import akka.stream.actor._
 import akka.stream.scaladsl._
@@ -18,6 +17,7 @@ import scala.language.postfixOps
 import com.typesafe.config.ConfigFactory
 import scala.concurrent.forkjoin.ThreadLocalRandom
 import akka.stream.actor.ActorPublisherMessage.{ Cancel, Request }
+import akka.routing.{ ActorRefRoutee, Router, RoundRobinRoutingLogic }
 import akka.stream.actor.ActorSubscriberMessage.{ OnError, OnComplete, OnNext }
 import scala.util.{ Failure, Success }
 
@@ -67,7 +67,7 @@ object AkkaRecipes extends App {
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher"))
 
-  RunnableGraph.fromGraph(scenario3).run()(Mat0)
+  RunnableGraph.fromGraph(scenario4).run()(Mat0)
 
   /**
    *
@@ -79,8 +79,8 @@ object AkkaRecipes extends App {
       .to(Sink.foreach(c => println(s"$name: $c")))
 
   /**
-   * Fast publisher, Faster consumer
-   * Result: publisher and consumer stay on the sane rate.
+   * Fast publisher and consumer
+   * Result: publisher and consumer stay on the same rate.
    */
   def scenario1: Graph[ClosedShape, Unit] = {
     FlowGraph.create() { implicit builder =>
@@ -94,10 +94,10 @@ object AkkaRecipes extends App {
   }
 
   /**
-   * Fast publisher and fast consumer in the beginning,
-   * consumer gets slower, increase delay with every message.
+   * Fast publisher and fast consumer in the beginning, consumer gets slower, increase delay with every message.
    * We use buffer with OverflowStrategy.backpressure in between which makes producer slower
-   * Result: Publisher and consumer will start at same rate. Publisher's rate will go down together with consumer.
+   * Result: Publisher and consumer should start at same rate.
+   * Publisher and consumer rate should decrease proportionally later.
    */
   def scenario2: Graph[ClosedShape, Unit] = {
     FlowGraph.create() { implicit builder =>
@@ -138,10 +138,10 @@ object AkkaRecipes extends App {
       import FlowGraph.Implicits._
       val source = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source4")
       val fastSink = Sink.actorSubscriber(SyncActor.props("akka-sink4_0", statsD, 0l))
-      val slowSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink4_1", statsD, 10l))
+      val slowSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink4_1", statsD, 2l))
       val broadcast = builder.add(Broadcast[Int](2))
 
-      source ~> broadcast ~> fastSink
+      (source alsoTo consoleProgress("akka-scenario4", 5 seconds)) ~> broadcast ~> fastSink
       broadcast ~> slowSink
       ClosedShape
     }
@@ -157,7 +157,7 @@ object AkkaRecipes extends App {
   def scenario5: Graph[ClosedShape, Unit] = {
     FlowGraph.create() { implicit builder =>
       import FlowGraph.Implicits._
-      val source = throttledSource(statsD, 1 second, 20 milliseconds, 20000, "fastProducer5")
+      val source = throttledSource(statsD, 1 second, 10 milliseconds, 20000, "fastProducer5")
 
       // and the sinks
       val fastSink = Sink.actorSubscriber(SyncActor.props("fastSink5_1", statsD, 0l))

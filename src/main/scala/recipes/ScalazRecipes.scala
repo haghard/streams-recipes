@@ -11,7 +11,7 @@ import scalaz.concurrent.{ Strategy, Task }
 //runMain recipes.ScalazRecipes
 object ScalazRecipes extends App {
   val showLimit = 1000
-  val watchPeriod = 3000
+  val observePeriod = 3000
   val limit = Int.MaxValue
   val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.134"), 8125)
   val Ex = Strategy.Executor(new ForkJoinPool(Runtime.getRuntime.availableProcessors()))
@@ -30,7 +30,7 @@ object ScalazRecipes extends App {
 
   def signal = async.signalOf(0)(Strategy.Executor(Executors.newFixedThreadPool(2, new StreamThreadFactory("signal"))))
 
-  scenario03_2.run[Task].run
+  scenario05.run[Task].run
 
   def naturals: Process[Task, Int] = {
     def go(i: Int): Process[Task, Int] =
@@ -42,10 +42,42 @@ object ScalazRecipes extends App {
     Task.delay(statsD send message)
   }
 
+  def statsDOut0(s: scalaz.stream.async.mutable.Signal[Int], statsD: StatsD, message: String) = sink.lift[Task, Int] { x: Int =>
+    s.set(x).map(_ => statsD send message)
+  }
+
   def statsDOut(s: scalaz.stream.async.mutable.Signal[Int], statsD: StatsD, message: String) = sink.lift[Task, (Long, Int)] { x: (Long, Int) =>
     val latency = 0 + (x._1 / 1000)
     Thread.sleep(latency, x._1 % 1000 toInt)
     s.set(x._2).map(_ => statsD send message)
+  }
+
+  def broadcastN[T](n: Int, source: Process[Task, T], bufferSize: Int = 4)(implicit S: Strategy): Process[Task, Seq[Process[Task, T]]] = {
+    val queues = (0 until n).map(_ ⇒ async.boundedQueue[T](bufferSize)(S))
+    val broadcast = queues./:(source)((src, q) ⇒ (src observe q.enqueue)).onComplete(Process.eval(Task.gatherUnordered(queues.map(_.close))))
+    (broadcast.drain merge Process.emit(queues.map(_.dequeue)))(S)
+  }
+
+  def broadcastNwm[T](n: Int, src: Process[Task, T], waterMark: Int, bufferSize: Int = 4)(implicit S: Strategy): Process[Task, Seq[Process[Task, T]]] = {
+    val queues = (0 until n).map(_ ⇒ async.boundedQueue[T](bufferSize)(S))
+    val broadcast = queues./:(src) { (s, q) ⇒
+      ((q.size.discrete.filter(_ > waterMark) zip q.dequeue).drain merge s.observe(q.enqueue))
+    }.onComplete(Process.eval(Task.gatherUnordered(queues.map(_.close))))
+
+    (broadcast.drain merge Process.emit(queues.map(_.dequeue)))(S)
+  }
+
+  def scenario01: Process[Task, Unit] = {
+    val s = signal
+    val sourceDelay = 10
+    val srcMessage = "scalaz-source1:1|c"
+    val sinkMessage = "scalaz-sink1:1|c"
+
+    (Process.repeatEval(s.get) zip sleep(observePeriod))
+      .to(sink.lift[Task, (Int, Unit)] { x => Task.delay(println(s"scalaz-scenario01: ${x._1}")) })
+      .run.runAsync(_ => ())
+
+    (naturals zip sleep(sourceDelay)).map(_._1) observe statsDin(statsDInstance, srcMessage) to statsDOut0(s, statsDInstance, sinkMessage)
   }
 
   /**
@@ -67,7 +99,7 @@ object ScalazRecipes extends App {
       .onComplete(Process.eval_(queue.close))
       .run.runAsync(_ => ())
 
-    (Process.repeatEval(s.get) zip sleep(watchPeriod))
+    (Process.repeatEval(s.get) zip sleep(observePeriod))
       .to(sink.lift[Task, (Int, Unit)] { x => Task.delay(println(s"scalaz-scenario02: ${x._1}")) })
       .run.runAsync(_ => ())
 
@@ -99,7 +131,7 @@ object ScalazRecipes extends App {
       .onComplete(Process.eval_(cBuffer.close))
       .run[Task].runAsync(_ => ())
 
-    (Process.repeatEval(s.get) zip sleep(watchPeriod))
+    (Process.repeatEval(s.get) zip sleep(observePeriod))
       .to(sink.lift[Task, (Int, Unit)] { x => Task.delay(println(s"scalaz-scenario03: ${x._1}")) })
       .run.runAsync(_ => ())
 
@@ -135,7 +167,7 @@ object ScalazRecipes extends App {
       .onComplete(Process.eval_(queue.close))
       .run[Task].runAsync(_ => ())
 
-    (Process.repeatEval(s.get) zip sleep(watchPeriod))
+    (Process.repeatEval(s.get) zip sleep(observePeriod))
       .to(sink.lift[Task, (Int, Unit)] { x => Task.delay(println(s"scalaz-scenario03_1: ${x._1}")) })
       .run.runAsync(_ => ())
 
@@ -175,7 +207,7 @@ object ScalazRecipes extends App {
       .onComplete(Process.eval_(queue.close))
       .run[Task].runAsync(_ => ())
 
-    (Process.repeatEval(s.get) zip sleep(watchPeriod))
+    (Process.repeatEval(s.get) zip sleep(observePeriod))
       .to(sink.lift[Task, (Int, Unit)] { x => Task.delay(println(s"scalaz-scenario03_2: ${x._1}")) })
       .run.runAsync(_ => ())
 
@@ -188,5 +220,69 @@ object ScalazRecipes extends App {
     } to statsDOut(s, statsDInstance, sinkMessage)
 
     mergeN(Process(qSink, dropBufferProcess))(Ex)
+  }
+
+  def scenario04: Process[Task, Unit] = {
+    val delayPerMsg = 2l
+    val s0 = signal
+    val s1 = signal
+    val producerRate = 10
+    val srcMessage = "scalaz-source4:1|c"
+    val sinkMessage0 = "scalaz-sink4_0:1|c"
+    val sinkMessage1 = "scalaz-sink4_1:1|c"
+
+    val src = (naturals zip sleep(producerRate)).map(_._1) observe statsDin(statsDInstance, srcMessage)
+
+    (Process.repeatEval(s1.get) zip sleep(observePeriod)) //or s0
+      .to(sink.lift[Task, (Int, Unit)] { x => Task.delay(println(s"scalaz-scenario04: ${x._1}")) })
+      .run.runAsync(_ => ())
+
+    (for {
+      outlets <- broadcastN(2, src)(Ex)
+
+      out0 = outlets(0).stateScan(0l) { number: Int =>
+        for {
+          latency <- scalaz.State.get[Long]
+          increased = latency + delayPerMsg
+          _ <- scalaz.State.put(increased)
+        } yield (increased, number)
+      } to statsDOut(s0, statsDInstance, sinkMessage0)
+
+      out1 = outlets(1) to statsDOut0(s1, statsDInstance, sinkMessage1)
+      _ <- (out0 merge out1)(Ex)
+    } yield ())
+  }
+
+  def scenario05: Process[Task, Unit] = {
+    val delayPerMsg = 2l
+    val s0 = signal
+    val s1 = signal
+    val producerRate = 10
+    val bufferSize = 1 << 7
+    val waterMark = bufferSize - 5
+    val srcMessage = "scalaz-source5:1|c"
+    val sinkMessage0 = "scalaz-sink5_0:1|c"
+    val sinkMessage1 = "scalaz-sink5_1:1|c"
+    val src = (naturals zip sleep(producerRate)).map(_._1) observe statsDin(statsDInstance, srcMessage)
+
+    (Process.repeatEval(s1.get) zip sleep(observePeriod)) //or s0
+      .to(sink.lift[Task, (Int, Unit)] { x => Task.delay(println(s"scalaz-scenario05: ${x._1}")) })
+      .run.runAsync(_ => ())
+
+    (for {
+      outlets <- broadcastNwm(2, src, waterMark, bufferSize)(Ex)
+
+      out0 = outlets(0).stateScan(0l) { number: Int =>
+        for {
+          latency <- scalaz.State.get[Long]
+          increased = latency + delayPerMsg
+          _ <- scalaz.State.put(increased)
+        } yield (increased, number)
+      } to statsDOut(s0, statsDInstance, sinkMessage0)
+
+      out1 = outlets(1) to statsDOut0(s1, statsDInstance, sinkMessage1)
+      _ <- (out0 merge out1)(Ex)
+    } yield ())
+
   }
 }
