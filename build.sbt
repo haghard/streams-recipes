@@ -1,5 +1,16 @@
 import SbtPrompt.autoImport._
 
+import scalariform.formatter.preferences._
+import ScalariformKeys._
+
+scalariformSettings
+
+ScalariformKeys.preferences := ScalariformKeys.preferences.value
+  .setPreference(RewriteArrowSymbols, true)
+  .setPreference(AlignParameters, true)
+  .setPreference(AlignSingleLineCaseStatements, true)
+
+
 name := "stream-recipes"
 
 version := "0.1"
@@ -13,13 +24,6 @@ resolvers += "Typesafe Repo" at "http://repo.typesafe.com/typesafe/releases/"
 resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
 
 javacOptions += "-Xmx2G"
-
-scalariformSettings
-
-//shellPrompt := { state => "[" + System.getProperty("user.name") + "] " }
-//useJGit
-//enablePlugins(GitVersioning)
-//git.useGitDescribe := true
 
 promptTheme := ScalapenosTheme
 

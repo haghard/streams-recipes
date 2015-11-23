@@ -50,7 +50,7 @@ object AkkaRecipes extends App {
   implicit val sys: ActorSystem = ActorSystem("Sys", ConfigFactory.empty().withFallback(config))
 
   val decider: akka.stream.Supervision.Decider = {
-    case ex: Throwable =>
+    case ex: Throwable ⇒
       println(ex.getMessage)
       akka.stream.Supervision.Stop
   }
@@ -67,23 +67,23 @@ object AkkaRecipes extends App {
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher"))
 
-  RunnableGraph.fromGraph(scenario4).run()(Mat0)
+  RunnableGraph.fromGraph(scenario7).run()(Mat0)
 
   /**
    *
    */
   def consoleProgress(name: String, duration: FiniteDuration) =
-    (Flow[Int].conflate(_ => 0)((c, _) => c + 1)
+    (Flow[Int].conflate(_ ⇒ 0)((c, _) ⇒ c + 1)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
       .scan(0)(_ + _)
-      .to(Sink.foreach(c => println(s"$name: $c")))
+      .to(Sink.foreach(c ⇒ println(s"$name: $c")))
 
   /**
    * Fast publisher and consumer
    * Result: publisher and consumer stay on the same rate.
    */
   def scenario1: Graph[ClosedShape, Unit] = {
-    FlowGraph.create() { implicit builder =>
+    FlowGraph.create() { implicit builder ⇒
       import FlowGraph.Implicits._
       val fastSource = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source1")
       val fastSink = Sink.actorSubscriber(SyncActor.props2("akka-sink1", statsD))
@@ -100,7 +100,7 @@ object AkkaRecipes extends App {
    * Publisher and consumer rate should decrease proportionally later.
    */
   def scenario2: Graph[ClosedShape, Unit] = {
-    FlowGraph.create() { implicit builder =>
+    FlowGraph.create() { implicit builder ⇒
       import FlowGraph.Implicits._
       val fastSource = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source2")
       val degradingSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink2", statsD, 1l))
@@ -117,7 +117,7 @@ object AkkaRecipes extends App {
    * Result: publisher stays at the original rate and starts drop oldest messages, consumer is getting slower
    */
   def scenario3: Graph[ClosedShape, Unit] = {
-    FlowGraph.create() { implicit builder =>
+    FlowGraph.create() { implicit builder ⇒
       import FlowGraph.Implicits._
       val source = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source3")
       val slowingSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink3", statsD, 1l))
@@ -134,7 +134,7 @@ object AkkaRecipes extends App {
    * Result: publisher rate and all consumer rates go down at the same time
    */
   def scenario4: Graph[ClosedShape, Unit] = {
-    FlowGraph.create() { implicit builder =>
+    FlowGraph.create() { implicit builder ⇒
       import FlowGraph.Implicits._
       val source = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source4")
       val fastSink = Sink.actorSubscriber(SyncActor.props("akka-sink4_0", statsD, 0l))
@@ -155,7 +155,7 @@ object AkkaRecipes extends App {
    * Degrading consumers rate goes down but doesn't affect the whole flow.
    */
   def scenario5: Graph[ClosedShape, Unit] = {
-    FlowGraph.create() { implicit builder =>
+    FlowGraph.create() { implicit builder ⇒
       import FlowGraph.Implicits._
       val source = throttledSource(statsD, 1 second, 10 milliseconds, 20000, "fastProducer5")
 
@@ -178,7 +178,7 @@ object AkkaRecipes extends App {
   }
 
   def scenario6: Graph[ClosedShape, Unit] = {
-    FlowGraph.create() { implicit builder =>
+    FlowGraph.create() { implicit builder ⇒
       import FlowGraph.Implicits._
       val source = throttledSource(statsD, 1 second, 10 milliseconds, 20000, "fastProducer6")
 
@@ -202,23 +202,23 @@ object AkkaRecipes extends App {
     val latencies = List(20l, 30l, 40l, 45l).iterator
     val names = List("firstSrc7_1", "secondSrc7_2", "thirdSrc7_3", "fourthSrc7_4")
 
-    lazy val sources = names.map { name =>
+    lazy val sources = names.map { name ⇒
       Source.actorPublisher[Int](Props(classOf[TopicReader], name, statsD, latencies.next()).withDispatcher("akka.flow-dispatcher"))
     }
 
     lazy val multiSource = Source.fromGraph(
-      FlowGraph.create() { implicit b =>
+      FlowGraph.create() { implicit b ⇒
         import FlowGraph.Implicits._
         val merger = b.add(Merge[Int](sources.size))
         sources.zipWithIndex.foreach {
-          case (src, idx) => b.add(src) ~> merger.in(idx)
+          case (src, idx) ⇒ b.add(src) ~> merger.in(idx)
         }
         SourceShape(merger.out)
       }
     )
 
     val queryStreams = Source.fromGraph(
-      FlowGraph.create() { implicit b =>
+      FlowGraph.create() { implicit b ⇒
         import FlowGraph.Implicits._
         val merge = b.add(Merge[Int](names.size))
         names.foreach { name ⇒
@@ -248,7 +248,7 @@ object AkkaRecipes extends App {
       //merge ~> fastSink
 
       //multiSource ~> fastSink
-      queryStreams ~> fastSink
+      (queryStreams alsoTo consoleProgress("akka-scenario7", 5 seconds)) ~> fastSink
       ClosedShape
     }
   }
@@ -279,7 +279,7 @@ object AkkaRecipes extends App {
     val source = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "fastProducer8")
 
     def parAction(sleep: Long) = Flow[Int].buffer(bufferSize, OverflowStrategy.backpressure)
-      .map { r => Thread.sleep(sleep); r }
+      .map { r ⇒ Thread.sleep(sleep); r }
 
     def buffAttributes = Attributes.inputBuffer(initial = bufferSize, max = bufferSize)
 
@@ -289,7 +289,7 @@ object AkkaRecipes extends App {
       val balancer = b.add(Balance[Int](parallelism).withAttributes(buffAttributes))
       val merge = b.add(Merge[Int](parallelism).withAttributes(buffAttributes))
       source ~> balancer
-      latencies.foreach { l =>
+      latencies.foreach { l ⇒
         balancer ~> parAction(l) ~> merge
       }
 
@@ -306,7 +306,7 @@ object AkkaRecipes extends App {
     val sink = Sink.actorSubscriber(DegradingActor.props2("sink9_0", statsD, 0l))
 
     val conflate: Flow[Int, Int, Unit] =
-      Flow[Int].conflate(List(_))((acc, element) => element :: acc)
+      Flow[Int].conflate(List(_))((acc, element) ⇒ element :: acc)
         .mapConcat(identity)
 
     FlowGraph.create() { implicit b ⇒
@@ -383,7 +383,7 @@ object AkkaRecipes extends App {
 
   def heartbeats[T](interval: FiniteDuration, zero: T): Flow[T, T, Unit] =
     Flow.fromGraph(
-      FlowGraph.create() { implicit builder =>
+      FlowGraph.create() { implicit builder ⇒
         import FlowGraph.Implicits._
         val heartbeats = builder.add(Source.tick(interval, interval, zero))
         val merge = builder.add(MergePreferred[T](1))
@@ -413,7 +413,7 @@ object AkkaRecipes extends App {
   //Detached flows with expand + conflate
   def scenario12: Graph[ClosedShape, Unit] = {
     val srcSlow = throttledSource(statsD, 1 second, 1000 milliseconds, Int.MaxValue, "slowProducer12")
-      .expand(identity)(r => (r + r, r))
+      .expand(identity)(r ⇒ (r + r, r))
 
     val srcFast = throttledSource(statsD, 1 second, 200 milliseconds, Int.MaxValue, "fastProducer12")
       .conflate(identity)(_ + _)
@@ -466,15 +466,15 @@ object AkkaRecipes extends App {
       if (i < Int.MaxValue)
         (q.offer(Option(i))).onComplete {
           _ match {
-            case Success(r) =>
+            case Success(r) ⇒
               (pubStatsD send pName)
               externalProducer(q, pName, i + 1)
-            case Failure(ex) =>
+            case Failure(ex) ⇒
               println(ex.getMessage)
               sys.scheduler.scheduleOnce(1 seconds)(externalProducer(q, pName, i))(ExtCtx) //retry
           }
         }(ExtCtx)
-      else q.offer(None).onComplete(_ => (pubStatsD send pName))(ExtCtx)
+      else q.offer(None).onComplete(_ ⇒ (pubStatsD send pName))(ExtCtx)
     }
 
     externalProducer(queue, "source_13_1:1|c", 0)
@@ -500,7 +500,7 @@ object AkkaRecipes extends App {
   def scenario14: Graph[ClosedShape, Unit] = {
     val batchedSource = Source.actorPublisher[Vector[Item]](BatchProducer.props)
     val sink = Sink.actorSubscriber[Int](DegradingActor.props2("degradingSink14", statsD, 10l))
-    val external = Flow[Item].buffer(1, OverflowStrategy.backpressure).map(r => r.num)
+    val external = Flow[Item].buffer(1, OverflowStrategy.backpressure).map(r ⇒ r.num)
 
     FlowGraph.create() { implicit b ⇒
       import FlowGraph.Implicits._
@@ -538,7 +538,7 @@ object AkkaRecipes extends App {
     FlowGraph.create() { implicit b ⇒
       import FlowGraph.Implicits._
       val out = sys.actorOf(Props(classOf[RecordsSink], "sink15", statsD).withDispatcher("akka.flow-dispatcher"), "sink15")
-      val src = Source.actorPublisher[Long](Props(classOf[DbCursorPublisher], "source15", 20000l, statsD).withDispatcher("akka.flow-dispatcher")).map(r => DBObject(r, out))
+      val src = Source.actorPublisher[Long](Props(classOf[DbCursorPublisher], "source15", 20000l, statsD).withDispatcher("akka.flow-dispatcher")).map(r ⇒ DBObject(r, out))
       src ~> Sink.actorSubscriber(WorkerRouter.props)
       ClosedShape
     }
@@ -566,7 +566,7 @@ object AkkaRecipes extends App {
           sendBuffer.rewind()
         }
 
-        val sendMap = b.add(Flow[Int] map { x => send(s"$name:1|c"); x })
+        val sendMap = b.add(Flow[Int] map { x ⇒ send(s"$name:1|c"); x })
 
         // we use zip to throttle the stream
         val zip = b.add(Zip[Unit, Int]())
@@ -615,11 +615,11 @@ class WorkerRouter extends ActorSubscriber with ActorLogging {
   val n = Runtime.getRuntime.availableProcessors() / 2
 
   val workers = (1 to n)
-    .map(i => s"worker-$i")
-    .map(name => context.actorOf(Props(classOf[Worker], name).withDispatcher("akka.flow-dispatcher"), name))
+    .map(i ⇒ s"worker-$i")
+    .map(name ⇒ context.actorOf(Props(classOf[Worker], name).withDispatcher("akka.flow-dispatcher"), name))
 
   var router = Router(RoundRobinRoutingLogic(),
-    workers.map { r =>
+    workers.map { r ⇒
       (context watch r)
       ActorRefRoutee(r)
     }
@@ -630,7 +630,7 @@ class WorkerRouter extends ActorSubscriber with ActorLogging {
   }
 
   override def receive = {
-    case Terminated(routee) =>
+    case Terminated(routee) ⇒
       router = (router removeRoutee routee)
       /*
       if we needed recreate route we would do this
@@ -644,24 +644,24 @@ class WorkerRouter extends ActorSubscriber with ActorLogging {
         (context stop self)
       }
 
-    case OnNext(DBObject(id, requestor)) =>
+    case OnNext(DBObject(id, requestor)) ⇒
       requestors += (id -> requestor)
       (router route (Work(id), self))
-    case Reply(id) =>
+    case Reply(id) ⇒
       requestors(id) ! Done(id)
       requestors -= id
-    case OnComplete =>
+    case OnComplete ⇒
       log.info("worker-router has received OnComplete")
-      workers.foreach { r => (context stop r) }
+      workers.foreach { r ⇒ (context stop r) }
 
-    case OnError(ex) => log.info("OnError {}", ex.getMessage)
+    case OnError(ex) ⇒ log.info("OnError {}", ex.getMessage)
   }
 }
 
 class Worker(name: String) extends Actor with ActorLogging {
   import WorkerRouter._
   override def receive = {
-    case Work(id) =>
+    case Work(id) ⇒
       //log.info("{} got a job {}", name, id)
       Thread.sleep(ThreadLocalRandom.current().nextInt(100, 150))
       sender() ! Reply(id)
@@ -670,7 +670,7 @@ class Worker(name: String) extends Actor with ActorLogging {
 
 class RecordsSink(name: String, val address: InetSocketAddress) extends Actor with ActorLogging with StatsD {
   override def receive = {
-    case WorkerRouter.Done(id) =>
+    case WorkerRouter.Done(id) ⇒
       send(s"$name:1|c")
   }
 }
@@ -687,15 +687,14 @@ class TopicReader(name: String, val address: InetSocketAddress, delay: Long) ext
   val observeGap = 1000
 
   override def receive: Actor.Receive = {
-    case Request(n) => if (isActive && totalDemand > 0) {
+    case Request(n) ⇒ if (isActive && totalDemand > 0) {
       var n0 = n
 
       if (progress >= Limit)
         self ! Cancel
 
       while (n0 > 0) {
-        if (progress % observeGap == 0)
-          println(s"$name: $progress")
+        //if (progress % observeGap == 0) println(s"$name: $progress")
 
         progress += 1
         onNext(progress)
@@ -705,8 +704,8 @@ class TopicReader(name: String, val address: InetSocketAddress, delay: Long) ext
       }
     }
 
-    case Cancel =>
-      println(name + " is canceled")
+    case Cancel ⇒
+      println(s"$name is canceled")
       context.system.stop(self)
   }
 }
@@ -731,13 +730,13 @@ class PubSubSink private (name: String, val address: InetSocketAddress, delay: L
   }
 
   override def receive: Receive = {
-    case OnNext(msg: Int) =>
+    case OnNext(msg: Int) ⇒
       Thread.sleep(delay)
       send(s"$name-publisher:1|c")
       queue += msg
       reply
 
-    case OnComplete =>
+    case OnComplete ⇒
       println("PubSubSink OnComplete")
       (context stop self)
 
@@ -778,12 +777,12 @@ class SyncActor private (name: String, val address: InetSocketAddress, delay: Lo
   }
 
   override def receive: Receive = {
-    case OnNext(msg: Int) =>
+    case OnNext(msg: Int) ⇒
       //println(s"Sink $msg")
       //Thread.sleep(delay)
       send(s"$name:1|c")
 
-    case OnComplete =>
+    case OnComplete ⇒
       println(s"Complete DelayingActor")
       context.system.stop(self)
   }
@@ -809,11 +808,11 @@ class BatchActor private (name: String, val address: InetSocketAddress, delay: L
   }
 
   override def receive: Receive = {
-    case OnNext(msg: Int) =>
+    case OnNext(msg: Int) ⇒
       if (queue.size == bufferSize) flush()
       else queue += msg
 
-    case OnComplete =>
+    case OnComplete ⇒
       println(s"Complete DelayingActor")
       context.system.stop(self)
   }
@@ -847,17 +846,17 @@ class DegradingActor private (val name: String, val address: InetSocketAddress, 
   }
 
   override def receive: Receive = {
-    case OnNext(msg: Int) =>
+    case OnNext(msg: Int) ⇒
       delay += delayPerMsg
       val latency = initialDelay + (delay / 1000)
       Thread.sleep(latency, (delay % 1000).toInt)
       send(s"$name:1|c")
 
-    case OnNext(msg: (Int, Int)) =>
+    case OnNext(msg: (Int, Int)) ⇒
       println(msg)
       send(s"$name:1|c")
 
-    case OnComplete =>
+    case OnComplete ⇒
       println(s"Complete DegradingActor")
       (context stop self)
   }
@@ -869,7 +868,7 @@ class DbCursorPublisher(name: String, val end: Long, val address: InetSocketAddr
   val showPeriod = 50
 
   override def receive: Receive = {
-    case Request(n) if (isActive && totalDemand > 0) =>
+    case Request(n) if (isActive && totalDemand > 0) ⇒
       if (seqN >= end)
         onCompleteThenStop()
 
@@ -885,7 +884,7 @@ class DbCursorPublisher(name: String, val end: Long, val address: InetSocketAddr
         onNext(seqN)
         send(s"$name:1|c")
       }
-    case Cancel => (context stop self)
+    case Cancel ⇒ (context stop self)
   }
 }
 
@@ -897,8 +896,8 @@ class BatchProducer extends ActorPublisher[Vector[Item]] with ActorLogging {
   override def receive = run(0l)
 
   private def run(id: Long): Receive = {
-    case Request(n) => (context become requesting(id))
-    case Cancel => context.stop(self)
+    case Request(n) ⇒ (context become requesting(id))
+    case Cancel     ⇒ context.stop(self)
   }
 
   def requesting(id: Long): Receive = {
@@ -915,7 +914,7 @@ class BatchProducer extends ActorPublisher[Vector[Item]] with ActorLogging {
     }(context.system.dispatchers.lookup("akka.flow-dispatcher"))
 
     {
-      case Result(lastId, size, items) =>
+      case Result(lastId, size, items) ⇒
         //println(s"Produce:$lastId - $size")
         onNext(items)
 
@@ -923,7 +922,7 @@ class BatchProducer extends ActorPublisher[Vector[Item]] with ActorLogging {
         else if (totalDemand > 0) (context become requesting(lastId))
         else (context become run(lastId))
 
-      case Cancel => context.stop(self)
+      case Cancel ⇒ context.stop(self)
     }
   }
 }
