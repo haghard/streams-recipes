@@ -70,7 +70,7 @@ object AkkaRecipes extends App {
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher"))
 
-  RunnableGraph.fromGraph(scenario08).run()(Mat0)
+  RunnableGraph.fromGraph(scenario11).run()(Mat0)
 
   /**
    *
@@ -88,7 +88,7 @@ object AkkaRecipes extends App {
   def scenario1: Graph[ClosedShape, Unit] = {
     FlowGraph.create() { implicit builder ⇒
       import FlowGraph.Implicits._
-      val fastSource = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source1")
+      val fastSource = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source1")
       val fastSink = Sink.actorSubscriber(SyncActor.props2("akka-sink1", statsD))
 
       (fastSource alsoTo consoleProgress("akka-scenario1", 5 seconds)) ~> fastSink
@@ -105,7 +105,7 @@ object AkkaRecipes extends App {
   def scenario2: Graph[ClosedShape, Unit] = {
     FlowGraph.create() { implicit builder ⇒
       import FlowGraph.Implicits._
-      val fastSource = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source2")
+      val fastSource = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source2")
       val degradingSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink2", statsD, 1l))
       val buffer = Flow[Int].buffer(1 << 7, OverflowStrategy.backpressure)
       (fastSource alsoTo consoleProgress("akka-scenario2", 5 seconds)) ~> buffer ~> degradingSink
@@ -122,7 +122,7 @@ object AkkaRecipes extends App {
   def scenario3: Graph[ClosedShape, Unit] = {
     FlowGraph.create() { implicit builder ⇒
       import FlowGraph.Implicits._
-      val source = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source3")
+      val source = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source3")
       val slowingSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink3", statsD, 1l))
       //OverflowStrategy.dropHead will drop the oldest waiting job
       //OverflowStrategy.dropTail will drop the youngest waiting job
@@ -139,7 +139,7 @@ object AkkaRecipes extends App {
   def scenario4: Graph[ClosedShape, Unit] = {
     FlowGraph.create() { implicit builder ⇒
       import FlowGraph.Implicits._
-      val source = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source4")
+      val source = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source4")
       val fastSink = Sink.actorSubscriber(SyncActor.props("akka-sink4_0", statsD, 0l))
       val slowSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink4_1", statsD, 2l))
       val broadcast = builder.add(Broadcast[Int](2))
@@ -160,7 +160,7 @@ object AkkaRecipes extends App {
   def scenario5: Graph[ClosedShape, Unit] = {
     FlowGraph.create() { implicit builder ⇒
       import FlowGraph.Implicits._
-      val source = throttledSource(statsD, 1 second, 10 milliseconds, 20000, "akka-source5")
+      val source = throttledSrc(statsD, 1 second, 10 milliseconds, 20000, "akka-source5")
 
       val fastSink = Sink.actorSubscriber(SyncActor.props("akka-sink5_0", statsD, 0l))
       val degradingSink1 = Sink.actorSubscriber(DegradingActor.props2("akka-sink5_1", statsD, 8l))
@@ -182,7 +182,7 @@ object AkkaRecipes extends App {
   def scenario6: Graph[ClosedShape, Unit] = {
     FlowGraph.create() { implicit builder ⇒
       import FlowGraph.Implicits._
-      val source = throttledSource(statsD, 1 second, 10 milliseconds, 20000, "akka-source6")
+      val source = throttledSrc(statsD, 1 second, 10 milliseconds, 20000, "akka-source6")
 
       val fastSink = Sink.actorSubscriber(SyncActor.props("akka-sink6_0", statsD, 12l))
       val slowingDownSink = Sink.actorSubscriber(DegradingActor.props("akka-sink6_1", statsD, 14l, 1l))
@@ -384,7 +384,7 @@ object AkkaRecipes extends App {
     val sink = Sink.actorSubscriber(SyncActor.props("akka-sink8", statsD, 0l))
 
     val latencies = List(20l, 30l, 40l, 45l)
-    val source = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source8")
+    val source = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source8")
 
     def parAction(sleep: Long) = Flow[Int].buffer(bufferSize, OverflowStrategy.backpressure)
       .map { r ⇒ Thread.sleep(sleep); r }
@@ -418,7 +418,7 @@ object AkkaRecipes extends App {
    *
    */
   def scenario08: Graph[ClosedShape, Unit] = {
-    val source = throttledSource(statsD, 1 second, 100 milliseconds, Int.MaxValue, "akka-source08")
+    val source = throttledSrc(statsD, 1 second, 100 milliseconds, Int.MaxValue, "akka-source08")
     val errorSink = Sink.actorSubscriber(SyncActor.props("akka-sink-error08", statsD, 0l)) //slow sink
     val sink = Sink.actorSubscriber(SyncActor.props("akka-sink08", statsD, 0l))
 
@@ -438,17 +438,20 @@ object AkkaRecipes extends App {
   /**
    * A Fast source with conflate flow that buffer incoming message and produce single element
    */
-  def scenario9_0: Graph[ClosedShape, Unit] = {
-    val source = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source9")
-    val sink = Sink.actorSubscriber(DegradingActor.props2("akka-sink9_0", statsD, 0l))
+  def scenario9: Graph[ClosedShape, Unit] = {
+    val source = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source9")
+    val sink = Sink.actorSubscriber(DegradingActor.props2("akka-sink9", statsD, 0l))
 
-    val conflate: Flow[Int, Int, Unit] =
-      Flow[Int].conflate(List(_))((acc, element) ⇒ element :: acc)
+    //conflate as buffer but without backpressure support
+    def conflate0: Flow[Int, Int, Unit] =
+      Flow[Int].conflate(Vector(_))((acc, element) ⇒ acc :+ element)
         .mapConcat(identity)
+
+    def buffer = Flow[Int].buffer(128, OverflowStrategy.backpressure)
 
     FlowGraph.create() { implicit b ⇒
       import FlowGraph.Implicits._
-      ((source via conflate) via throttledFlow(500 milliseconds)) ~> sink
+      ((source via buffer) via throttledFlow(100 milliseconds)) ~> sink
       ClosedShape
     }
   }
@@ -460,10 +463,10 @@ object AkkaRecipes extends App {
    * Allow to progress top flow independently from bottom
    * using Conflate combinator
    */
-  def scenario9: Graph[ClosedShape, Unit] = {
-    val sink = Sink.actorSubscriber(DegradingActor.props2("akka-source9", statsD, 0l))
+  def scenario9_1: Graph[ClosedShape, Unit] = {
+    val sink = Sink.actorSubscriber(DegradingActor.props2("akka-source9_1", statsD, 0l))
 
-    val aggregatedSource = throttledSource(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-sink9")
+    val aggregatedSource = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-sink9_1")
       .scan(State(0l, 0l)) {
         _ combine _
       }
@@ -471,7 +474,7 @@ object AkkaRecipes extends App {
 
     FlowGraph.create() { implicit b ⇒
       import FlowGraph.Implicits._
-      (aggregatedSource via throttledFlow(100 milliseconds)) ~> sink
+      (aggregatedSource via throttledFlow(500 milliseconds)) ~> sink
       ClosedShape
     }
   }
@@ -514,8 +517,8 @@ object AkkaRecipes extends App {
   def scenario10: Graph[ClosedShape, Unit] =
     FlowGraph.create() { implicit b ⇒
       import FlowGraph.Implicits._
-      val source = throttledSource(statsD, 1 second, 20 milliseconds, Int.MaxValue, "fastProducer10")
-      val sink = Sink.actorSubscriber(DegradingActor.props2("timedSink10", statsD, 0l))
+      val source = throttledSrc(statsD, 1 second, 20 milliseconds, Int.MaxValue, "akka-source10")
+      val sink = Sink.actorSubscriber(DegradingActor.props2("akka-sink10", statsD, 0l))
       source ~> heartbeats(50.millis, 0) ~> sink
       ClosedShape
     }
@@ -533,10 +536,10 @@ object AkkaRecipes extends App {
 
   //Detached flows with conflate + conflate
   def scenario11: Graph[ClosedShape, Unit] = {
-    val srcSlow = throttledSource(statsD, 1 second, 1000 milliseconds, Int.MaxValue, "akka-source9_0")
+    val srcSlow = throttledSrc(statsD, 1 second, 1000 milliseconds, Int.MaxValue, "akka-source11_0")
       .conflate(identity)(_ + _)
 
-    val srcFast = throttledSource(statsD, 1 second, 200 milliseconds, Int.MaxValue, "akka-source9_1")
+    val srcFast = throttledSrc(statsD, 1 second, 200 milliseconds, Int.MaxValue, "akka-source11_1")
       .conflate(identity)(_ + _)
 
     FlowGraph.create() { implicit b ⇒
@@ -544,18 +547,18 @@ object AkkaRecipes extends App {
       val zip = b.add(Zip[Int, Int].withAttributes(Attributes.inputBuffer(1, 1)))
       srcFast ~> zip.in0
       srcSlow ~> zip.in1
-      zip.out ~> Sink.actorSubscriber(DegradingActor.props2("akka-sink9", statsD, 0l))
+      zip.out ~> Sink.actorSubscriber(DegradingActor.props2("akka-sink11", statsD, 0l))
       ClosedShape
     }
   }
 
   //Detached flows with expand + conflate
   def scenario12: Graph[ClosedShape, Unit] = {
-    val srcSlow = throttledSource(statsD, 1 second, 1000 milliseconds, Int.MaxValue, "akka-source12_0")
-      .expand(identity)(r ⇒ (r + r, r))
+    val srcFast = throttledSrc(statsD, 1 second, 200 milliseconds, Int.MaxValue,
+      "akka-source12_1").conflate(identity)(_ + _)
 
-    val srcFast = throttledSource(statsD, 1 second, 200 milliseconds, Int.MaxValue, "akka-source12_1")
-      .conflate(identity)(_ + _)
+    val srcSlow = throttledSrc(statsD, 1 second, 1000 milliseconds, Int.MaxValue,
+      "akka-source12_0").expand(identity) { r ⇒ (r + r, r) }
 
     FlowGraph.create() { implicit b ⇒
       import FlowGraph.Implicits._
@@ -688,7 +691,7 @@ object AkkaRecipes extends App {
   /**
    * Create a source which is throttled to a number of message per second.
    */
-  def throttledSource(statsD: InetSocketAddress, delay: FiniteDuration, interval: FiniteDuration, limit: Int, name: String): Source[Int, Unit] = {
+  def throttledSrc(statsD: InetSocketAddress, delay: FiniteDuration, interval: FiniteDuration, limit: Int, name: String): Source[Int, Unit] = {
     Source.fromGraph(
       FlowGraph.create() { implicit b ⇒
         import FlowGraph.Implicits._
@@ -697,7 +700,7 @@ object AkkaRecipes extends App {
 
         // two source
         val tickSource = Source.tick(delay, interval, ())
-        val rangeSource = Source(1 to limit)
+        val rangeSource = Source(() ⇒ Iterator.range(1, limit))
 
         def send(message: String) = {
           sendBuffer.put(message getBytes "utf-8")
@@ -998,6 +1001,11 @@ class DegradingActor private (val name: String, val address: InetSocketAddress, 
       delay += delayPerMsg
       val latency = initialDelay + (delay / 1000)
       Thread.sleep(latency, (delay % 1000).toInt)
+      println(msg)
+      send(s"$name:1|c")
+
+    case OnNext(msg: Long) ⇒
+      println(msg)
       send(s"$name:1|c")
 
     case OnNext(msg: (Int, Int)) ⇒
