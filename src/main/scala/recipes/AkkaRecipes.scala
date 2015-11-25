@@ -11,13 +11,16 @@ import akka.stream._
 import akka.stream.actor.ActorPublisherMessage.{ Cancel, Request }
 import akka.stream.actor.ActorSubscriberMessage.{ OnComplete, OnError, OnNext }
 import akka.stream.actor._
+import akka.stream.io.Framing
 import akka.stream.scaladsl._
-import akka.stream.stage.{ GraphStage, GraphStageLogic, InHandler, OutHandler }
+import akka.stream.stage._
+import akka.util.ByteString
 import com.typesafe.config.ConfigFactory
 import recipes.BatchProducer.Item
 import recipes.WorkerRouter.DBObject
 
 import scala.collection.mutable
+import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.concurrent.forkjoin.ThreadLocalRandom
 import scala.language.postfixOps
@@ -70,13 +73,13 @@ object AkkaRecipes extends App {
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher"))
 
-  RunnableGraph.fromGraph(scenario11).run()(Mat0)
+  RunnableGraph.fromGraph(scenario16).run()(Mat0)
 
   /**
    *
    */
-  def consoleProgress(name: String, duration: FiniteDuration) =
-    (Flow[Int].conflate(_ ⇒ 0)((c, _) ⇒ c + 1)
+  def consoleProgress[T](name: String, duration: FiniteDuration) =
+    (Flow[T].conflate(_ ⇒ 0)((counter, _) ⇒ counter + 1)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
       .scan(0)(_ + _)
       .to(Sink.foreach(c ⇒ println(s"$name: $c")))
@@ -689,6 +692,53 @@ object AkkaRecipes extends App {
   }
 
   /**
+    * 2 subscribers for single file from tail
+    */
+  def scenario16: Graph[ClosedShape, Unit] = {
+    val log = "./example.log"
+    val n = 20l
+    implicit val ec = sys.dispatchers.lookup("akka.flow-dispatcher")
+
+    def tailer: Source[String, Unit] = {
+      val proc = new java.lang.ProcessBuilder()
+        .command("tail", s"-n$n", "-f", log)
+        .start()
+      proc.getOutputStream.close()
+      val input = proc.getInputStream
+
+      def readChunk(): Future[ByteString] = Future {
+        val buffer = new Array[Byte](1024 * 6)
+        val read = (input read buffer)
+        println(s"available: $read")
+        if (read > 0) ByteString.fromArray(buffer, 0, read) else ByteString.empty
+      }
+
+      val publisher = Source.repeat(0)
+        .mapAsync(1)(_ ⇒ readChunk())
+        .takeWhile(_.nonEmpty)
+        .via(Framing.delimiter(ByteString("\n"), maximumFrameLength = 10000, allowTruncation = true))
+        .transform(() ⇒ new PushStage[ByteString, ByteString] {
+          def onPush(elem: ByteString, ctx: Context[ByteString]): SyncDirective = ctx.push(elem ++ ByteString('\n'))
+          override def postStop(): Unit = {
+            println("tail Destroying")
+            proc.destroy()
+          }
+        })
+        .runWith(Sink.publisher(true))
+
+      Source(publisher).map { x ⇒ x.utf8String.slice(6, 80) + "..." }
+    }
+
+    FlowGraph.create() { implicit b ⇒
+      import FlowGraph.Implicits._
+      val broadcast = b.add(Broadcast[String](2))
+      tailer ~> broadcast ~> Sink.actorSubscriber[String](SyncActor.props4("akka-source16_0", statsD, 500l, n))
+      broadcast ~> Flow[String].buffer(32, OverflowStrategy.backpressure) ~> Sink.actorSubscriber[String](SyncActor.props4("akka-source16_1", statsD, 1000l, n))
+      ClosedShape
+    }
+  }
+
+  /**
    * Create a source which is throttled to a number of message per second.
    */
   def throttledSrc(statsD: InetSocketAddress, delay: FiniteDuration, interval: FiniteDuration, limit: Int, name: String): Source[Int, Unit] = {
@@ -920,13 +970,21 @@ object SyncActor {
 
   def props3(name: String, address: InetSocketAddress, delay: Long) =
     Props(new SyncActor(name, address, delay))
+
+  def props4(name: String, address: InetSocketAddress, delay: Long, limit: Long) =
+    Props(new SyncActor(name, address, delay, limit)).withDispatcher("akka.flow-dispatcher")
 }
 
-class SyncActor private (name: String, val address: InetSocketAddress, delay: Long) extends ActorSubscriber with StatsD {
+class SyncActor private (name: String, val address: InetSocketAddress, delay: Long, limit: Long) extends ActorSubscriber with StatsD {
+  var count = 0
   override protected val requestStrategy = OneByOneRequestStrategy
 
+  private def this(name: String, statsD: InetSocketAddress, delay: Long) {
+    this(name, statsD, delay, 0l)
+  }
+
   private def this(name: String, statsD: InetSocketAddress) {
-    this(name, statsD, 0)
+    this(name, statsD, 0, 0l)
   }
 
   override def receive: Receive = {
@@ -934,11 +992,20 @@ class SyncActor private (name: String, val address: InetSocketAddress, delay: Lo
       send(s"$name:1|c")
 
     case OnNext(msg: String) ⇒
-      send(s"$name:1|c") //error
-      Thread.sleep(3000)
+      println(msg)
+      Thread.sleep(delay)
+      count += 1
+      if (count == limit) {
+        println(s"Limit $limit has been achieved")
+        context.system.stop(self)
+      }
+
+    case OnError(ex) ⇒
+      println(s"OnError SyncActor: ${ex.getMessage}")
+      context.system.stop(self)
 
     case OnComplete ⇒
-      println(s"Complete DelayingActor")
+      println(s"Complete SyncActor")
       context.system.stop(self)
   }
 }

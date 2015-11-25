@@ -302,4 +302,9 @@ object ScalazRecipes extends App {
 
     mergeP(async.boundedQueue[Int](2 << 7)(Ex), ps)(Ex) to statsDOut0(s, statsDInstance, "scalaz-sink7:1|c")
   }
+
+  /*def sc = {
+    val producerRate = 100
+    (naturals zip sleep(producerRate)).map(_._1).scanSemigroup
+  }*/
 }
