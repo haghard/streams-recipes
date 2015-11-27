@@ -17,7 +17,7 @@ import akka.stream.stage._
 import akka.util.ByteString
 import com.typesafe.config.ConfigFactory
 import recipes.BatchProducer.Item
-import recipes.WorkerRouter.DBObject
+import recipes.BalancerRouter.DBObject
 
 import scala.collection.mutable
 import scala.concurrent.Future
@@ -73,7 +73,7 @@ object AkkaRecipes extends App {
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher"))
 
-  RunnableGraph.fromGraph(scenario16).run()(Mat0)
+  RunnableGraph.fromGraph(scenario15).run()(Mat)
 
   /**
    *
@@ -670,33 +670,34 @@ object AkkaRecipes extends App {
   /**
    * Router pulls from the DbCursorPublisher and runs parallel processing for records
    * Router dictates rate to publisher
-   * Parallel
-   * +------+
-   * +--|Worker|--+
-   * |  +------+  |
-   * +-----------------+     +------------+        |  +------+  |  +-----------+
-   * |DbCursorPublisher|-----|WorkerRouter|--------|--|Worker|-----|RecordsSink|
-   * +-----------------+     +------------+        |  +------+  |  +-----------+
-   * |  +------+  |
-   * +--|Worker|--+
-   * +------+
+   *                                                  Parallel
+   *                                                  +------+
+   *                                               +--|Worker|--+
+   *                                               |  +------+  |
+   * +-----------------+     +--------------+      |  +------+  |  +-----------+
+   * |DbCursorPublisher|-----|BalancerRouter|------|--|Worker|-----|RecordsSink|
+   * +-----------------+     +--------------+      |  +------+  |  +-----------+
+   *                                               |  +------+  |
+   *                                               +--|Worker|--+
+   *                                                  +------+
    */
   def scenario15: Graph[ClosedShape, Unit] = {
     FlowGraph.create() { implicit b ⇒
       import FlowGraph.Implicits._
       val out = sys.actorOf(Props(classOf[RecordsSink], "sink15", statsD).withDispatcher("akka.flow-dispatcher"), "akka-sink15")
-      val src = Source.actorPublisher[Long](Props(classOf[DbCursorPublisher], "akka-source15", 20000l, statsD).withDispatcher("akka.flow-dispatcher")).map(r ⇒ DBObject(r, out))
-      src ~> Sink.actorSubscriber(WorkerRouter.props)
+      val src = Source.actorPublisher[Long](Props(classOf[DbCursorPublisher], "akka-source15", 20000l, statsD).withDispatcher("akka.flow-dispatcher"))
+        .map(DBObject(_, out))
+      src ~> Sink.actorSubscriber(BalancerRouter.props)
       ClosedShape
     }
   }
 
   /**
-    * 2 subscribers for single file from tail
-    */
+   * 2 subscribers for single file from tail
+   */
   def scenario16: Graph[ClosedShape, Unit] = {
     val log = "./example.log"
-    val n = 20l
+    val n = 50l
     implicit val ec = sys.dispatchers.lookup("akka.flow-dispatcher")
 
     def tailer: Source[String, Unit] = {
@@ -718,9 +719,9 @@ object AkkaRecipes extends App {
         .takeWhile(_.nonEmpty)
         .via(Framing.delimiter(ByteString("\n"), maximumFrameLength = 10000, allowTruncation = true))
         .transform(() ⇒ new PushStage[ByteString, ByteString] {
-          def onPush(elem: ByteString, ctx: Context[ByteString]): SyncDirective = ctx.push(elem ++ ByteString('\n'))
+          override def onPush(elem: ByteString, ctx: Context[ByteString]): SyncDirective = ctx.push(elem ++ ByteString('\n'))
           override def postStop(): Unit = {
-            println("tail Destroying")
+            println("tail has done")
             proc.destroy()
           }
         })
@@ -793,7 +794,7 @@ trait StatsD {
   }
 }
 
-object WorkerRouter {
+object BalancerRouter {
 
   case class DBObject(id: Long, replyTo: ActorRef)
 
@@ -803,18 +804,20 @@ object WorkerRouter {
 
   case class Done(id: Long)
 
-  def props: Props = Props(new WorkerRouter).withDispatcher("akka.flow-dispatcher")
+  def props: Props = Props(new BalancerRouter).withDispatcher("akka.flow-dispatcher")
 }
 
-class WorkerRouter extends ActorSubscriber with ActorLogging {
-
-  import WorkerRouter._
+/**
+ * Manually managed router
+ */
+class BalancerRouter extends ActorSubscriber with ActorLogging {
+  import BalancerRouter._
 
   val MaxInFlight = 32
   var requestors = Map.empty[Long, ActorRef]
   val n = Runtime.getRuntime.availableProcessors() / 2
 
-  val workers = (1 to n)
+  val workers = (0 until n)
     .map(i ⇒ s"worker-$i")
     .map(name ⇒ context.actorOf(Props(classOf[Worker], name).withDispatcher("akka.flow-dispatcher"), name))
 
@@ -859,20 +862,19 @@ class WorkerRouter extends ActorSubscriber with ActorLogging {
 }
 
 class Worker(name: String) extends Actor with ActorLogging {
-
-  import WorkerRouter._
+  import BalancerRouter._
 
   override def receive = {
     case Work(id) ⇒
-      //log.info("{} got a job {}", name, id)
       Thread.sleep(ThreadLocalRandom.current().nextInt(100, 150))
+      //log.info("{} has done job {}", name, id)
       sender() ! Reply(id)
   }
 }
 
 class RecordsSink(name: String, val address: InetSocketAddress) extends Actor with ActorLogging with StatsD {
   override def receive = {
-    case WorkerRouter.Done(id) ⇒
+    case BalancerRouter.Done(id) ⇒
       send(s"$name:1|c")
   }
 }
@@ -1092,6 +1094,7 @@ class DbCursorPublisher(name: String, val end: Long, val address: InetSocketAddr
 
   override def receive: Receive = {
     case Request(n) if (isActive && totalDemand > 0) ⇒
+      log.info("request: {}", n)
       if (seqN >= end)
         onCompleteThenStop()
 
@@ -1099,9 +1102,9 @@ class DbCursorPublisher(name: String, val end: Long, val address: InetSocketAddr
       while (limit > 0) {
         seqN += 1
         limit -= 1
-        //log.info("fetch {}", seqN)
+
         if (limit % showPeriod == 0) {
-          log.info("Cursor {}", seqN)
+          log.info("Cursor progress: {}", seqN)
           Thread.sleep(200) //cursor buffer
         }
         onNext(seqN)

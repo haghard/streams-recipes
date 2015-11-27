@@ -302,9 +302,11 @@ object ScalazRecipes extends App {
 
     mergeP(async.boundedQueue[Int](2 << 7)(Ex), ps)(Ex) to statsDOut0(s, statsDInstance, "scalaz-sink7:1|c")
   }
-
-  /*def sc = {
+/*
+  def sc = {
     val producerRate = 100
-    (naturals zip sleep(producerRate)).map(_._1).scanSemigroup
+    import scala.concurrent.duration._
+    naturals.zipWith(scalaz.stream.time.awakeEvery(producerRate millis))((n, _) => n)
+      .scanSemigroup
   }*/
 }
