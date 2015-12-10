@@ -28,7 +28,7 @@ javacOptions += "-Xmx2G"
 promptTheme := ScalapenosTheme
 
 libraryDependencies ++= Seq(
-  "com.typesafe.akka" %% "akka-stream-experimental" % "2.0-M1",
+  "com.typesafe.akka" %% "akka-stream-experimental" % "2.0-M2",
   "org.scalaz.stream" %% "scalaz-stream" % "0.8",
   "org.hdrhistogram"  %  "HdrHistogram"  % "2.1.7"
 )
