@@ -73,7 +73,9 @@ object AkkaRecipes extends App {
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher"))
 
-  RunnableGraph.fromGraph(scenario15).run()(Mat)
+  //RunnableGraph.fromGraph(scenario15).run()(Mat)
+
+  RunnableGraph.fromGraph(scenario7).run()(Mat)
 
   /**
    *
@@ -251,7 +253,7 @@ object AkkaRecipes extends App {
       //merge ~> fastSink
 
       //multiSource ~> fastSink
-      (queryStreams alsoTo consoleProgress("akka-scenario7", 5 seconds)) ~> Sink.actorSubscriber(SyncActor.props("akka-sink7", statsD, 0l))
+      (queryStreams alsoTo consoleProgress("akka-scenario7", 1 seconds)) ~> Sink.actorSubscriber(SyncActor.props("akka-sink7", statsD, 0l))
       ClosedShape
     }
   }
