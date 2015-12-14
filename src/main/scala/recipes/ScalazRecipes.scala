@@ -230,6 +230,10 @@ object ScalazRecipes extends App {
     mergeN(Process(qSink, dropBufferProcess))(Ex)
   }
 
+  /**
+   * Situation:
+   *
+   */
   def scenario04: Process[Task, Unit] = {
     val delayPerMsg = 2l
     val s0 = signal
@@ -261,6 +265,10 @@ object ScalazRecipes extends App {
     } yield ())
   }
 
+  /**
+   * Situation:
+   *
+   */
   def scenario05: Process[Task, Unit] = {
     val delayPerMsg = 2l
     val s0 = signal
@@ -293,6 +301,10 @@ object ScalazRecipes extends App {
     } yield ())
   }
 
+  /**
+   * Situation:
+   *
+   */
   def scenario07: Process[Task, Unit] = {
     val s = signal
     val latencies = List(20l, 30l, 40l, 45l)
@@ -306,6 +318,7 @@ object ScalazRecipes extends App {
 
     interleaveN(async.boundedQueue[Int](2 << 7)(Ex), sources)(Ex) to statsDOut0(s, statsDInstance, "scalaz-sink7:1|c")
   }
+
   /*
   def sc = {
     val producerRate = 100

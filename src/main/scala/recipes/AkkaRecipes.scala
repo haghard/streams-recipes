@@ -80,7 +80,7 @@ object AkkaRecipes extends App {
   /**
    *
    */
-  def consoleProgress[T](name: String, duration: FiniteDuration) =
+  def trumblingWindow[T](name: String, duration: FiniteDuration) =
     (Flow[T].conflate(_ ⇒ 0)((counter, _) ⇒ counter + 1)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
       .scan(0)(_ + _)
@@ -96,7 +96,7 @@ object AkkaRecipes extends App {
       val fastSource = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source1")
       val fastSink = Sink.actorSubscriber(SyncActor.props2("akka-sink1", statsD))
 
-      (fastSource alsoTo consoleProgress("akka-scenario1", 5 seconds)) ~> fastSink
+      (fastSource alsoTo trumblingWindow("akka-scenario1", 5 seconds)) ~> fastSink
       ClosedShape
     }
   }
@@ -113,7 +113,7 @@ object AkkaRecipes extends App {
       val fastSource = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source2")
       val degradingSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink2", statsD, 1l))
       val buffer = Flow[Int].buffer(1 << 7, OverflowStrategy.backpressure)
-      (fastSource alsoTo consoleProgress("akka-scenario2", 5 seconds)) ~> buffer ~> degradingSink
+      (fastSource alsoTo trumblingWindow("akka-scenario2", 5 seconds)) ~> buffer ~> degradingSink
       ClosedShape
     }
   }
@@ -132,7 +132,7 @@ object AkkaRecipes extends App {
       //OverflowStrategy.dropHead will drop the oldest waiting job
       //OverflowStrategy.dropTail will drop the youngest waiting job
       val buffer = Flow[Int].buffer(1 << 7, OverflowStrategy.dropHead)
-      (source alsoTo consoleProgress("akka-scenario3", 5 seconds)) ~> buffer ~> slowingSink
+      (source alsoTo trumblingWindow("akka-scenario3", 5 seconds)) ~> buffer ~> slowingSink
       ClosedShape
     }
   }
@@ -149,7 +149,7 @@ object AkkaRecipes extends App {
       val slowSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink4_1", statsD, 2l))
       val broadcast = builder.add(Broadcast[Int](2))
 
-      (source alsoTo consoleProgress("akka-scenario4", 5 seconds)) ~> broadcast ~> fastSink
+      (source alsoTo trumblingWindow("akka-scenario4", 5 seconds)) ~> broadcast ~> fastSink
       broadcast ~> slowSink
       ClosedShape
     }
@@ -253,7 +253,7 @@ object AkkaRecipes extends App {
       //merge ~> fastSink
 
       //multiSource ~> fastSink
-      (queryStreams alsoTo consoleProgress("akka-scenario7", 1 seconds)) ~> Sink.actorSubscriber(SyncActor.props("akka-sink7", statsD, 0l))
+      (queryStreams alsoTo trumblingWindow("akka-scenario7", 1 seconds)) ~> Sink.actorSubscriber(SyncActor.props("akka-sink7", statsD, 0l))
       ClosedShape
     }
   }
@@ -402,7 +402,7 @@ object AkkaRecipes extends App {
       val balancer = b.add(Balance[Int](parallelism))
       val merge = b.add(Merge[Int](parallelism).withAttributes(buffAttributes))
 
-      (source alsoTo consoleProgress("akka-scenario8", 5 seconds)) ~> balancer
+      (source alsoTo trumblingWindow("akka-scenario8", 5 seconds)) ~> balancer
 
       latencies.zipWithIndex.foreach {
         case (l, ind) ⇒
