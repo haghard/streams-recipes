@@ -68,23 +68,20 @@ object AkkaRecipes extends App {
 
   implicit val Mat = ActorMaterializer(Settings)
 
-  val Mat0 = ActorMaterializer(ActorMaterializerSettings.create(system = sys)
-    .withInputBuffer(1, 1)
-    .withSupervisionStrategy(decider)
-    .withDispatcher("akka.flow-dispatcher"))
-
   //RunnableGraph.fromGraph(scenario15).run()(Mat)
 
   RunnableGraph.fromGraph(scenario7).run()(Mat)
 
   /**
+   * Tumbling windows discretize a stream into non-overlapping windows
    *
    */
-  def trumblingWindow[T](name: String, duration: FiniteDuration) =
+  def trumblingWindow[T](name: String, duration: FiniteDuration): Sink[T, Unit] =
     (Flow[T].conflate(_ ⇒ 0)((counter, _) ⇒ counter + 1)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
       .scan(0)(_ + _)
       .to(Sink.foreach(c ⇒ println(s"$name: $c")))
+      .withAttributes(Attributes.inputBuffer(1, 1))
 
   /**
    * Fast publisher and consumer

@@ -4,14 +4,14 @@ import java.net.{ InetAddress, InetSocketAddress }
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.{ Executors, ForkJoinPool, ThreadFactory }
 
-import scalaz.stream.{ sink, Process, async }
+import scalaz.stream._
 import scalaz.stream.merge._
 import scalaz.concurrent.{ Strategy, Task }
 
 //runMain recipes.ScalazRecipes
 object ScalazRecipes extends App {
   val showLimit = 1000
-  val observePeriod = 3000
+  val observePeriod = 5000
   val limit = Int.MaxValue
   val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.134"), 8125)
   val Ex = Strategy.Executor(new ForkJoinPool(Runtime.getRuntime.availableProcessors()))
@@ -30,7 +30,7 @@ object ScalazRecipes extends App {
 
   def signal = async.signalOf(0)(Strategy.Executor(Executors.newFixedThreadPool(2, new StreamThreadFactory("signal"))))
 
-  scenario07.run[Task].run
+  scenario01_1.run[Task].run
 
   def naturals: Process[Task, Int] = {
     def go(i: Int): Process[Task, Int] =
@@ -58,10 +58,6 @@ object ScalazRecipes extends App {
     (broadcast.drain merge Process.emit(queues.map(_.dequeue)))(S)
   }
 
-  /**
-   *
-   *
-   */
   def broadcastN2[T](n: Int, src: Process[Task, T], waterMark: Int, bufferSize: Int = 4)(implicit S: Strategy): Process[Task, Seq[Process[Task, T]]] = {
     val queues = (0 until n).map(_ ⇒ async.boundedQueue[T](bufferSize)(S))
     val broadcast = queues./:(src) { (s, q) ⇒
@@ -75,9 +71,35 @@ object ScalazRecipes extends App {
     (merge.drain merge q.dequeue)(S)
   }
 
+  import scala.concurrent.duration._
+  def trumblingWindow[I](scenarioName: String, duration: Duration): scalaz.stream.Wye[Long, I, I] = {
+    import scalaz.stream.ReceiveY.{ HaltOne, ReceiveL, ReceiveR }
+    val timeWindow = duration.toNanos
+    val P = scalaz.stream.Process
+
+    def go(acc: Long, last: Long): Wye[Long, I, I] =
+      P.awaitBoth[Long, I].flatMap {
+        case ReceiveL(currentNanos) ⇒
+          if (currentNanos - last > timeWindow) {
+            println(s"$scenarioName: $acc")
+            go(acc + 1l, currentNanos)
+          } else go(acc, last)
+        case ReceiveR(i) ⇒ P.emit(i) ++ go(acc + 1l, last)
+        case HaltOne(e)  ⇒ P.Halt(e)
+      }
+
+    go(0l, System.nanoTime)
+  }
+
+  def windowTime(millis: Long): Process[Task, Long] = Process.suspend {
+    Process.repeatEval {
+      Task.delay { Thread.sleep(millis); System.nanoTime }
+    }
+  }
+
   def scenario01: Process[Task, Unit] = {
     val s = signal
-    val sourceDelay = 10
+    val sourceDelay = 20
     val srcMessage = "scalaz-source1:1|c"
     val sinkMessage = "scalaz-sink1:1|c"
 
@@ -86,6 +108,17 @@ object ScalazRecipes extends App {
       .run.runAsync(_ ⇒ ())
 
     (naturals zip sleep(sourceDelay)).map(_._1) observe statsDin(statsDInstance, srcMessage) to statsDOut0(s, statsDInstance, sinkMessage)
+  }
+
+  def scenario01_1: Process[Task, Unit] = {
+    val sourceDelay = 20
+    val latency: Duration = 5 seconds
+    val name = "scalaz-scenario01"
+    val srcMessage = "scalaz-source1:1|c"
+    val sinkMessage = "scalaz-sink1:1|c"
+
+    val src = (naturals zip sleep(sourceDelay)).map(_._1).observe(statsDin(statsDInstance, srcMessage))
+    (windowTime(latency.toMillis / 2) wye src)(trumblingWindow(name, latency))(Ex) to statsDin(statsDInstance, sinkMessage)
   }
 
   /**
