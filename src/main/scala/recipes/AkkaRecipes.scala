@@ -74,7 +74,7 @@ object AkkaRecipes extends App {
 
   /**
    * Tumbling windows discretize a stream into non-overlapping windows
-   *
+   * Rate detached operation
    */
   def trumblingWindow[T](name: String, duration: FiniteDuration): Sink[T, Unit] =
     (Flow[T].conflate(_ ⇒ 0)((counter, _) ⇒ counter + 1)

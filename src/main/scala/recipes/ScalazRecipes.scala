@@ -7,6 +7,7 @@ import java.util.concurrent.{ Executors, ForkJoinPool, ThreadFactory }
 import scalaz.stream._
 import scalaz.stream.merge._
 import scalaz.concurrent.{ Strategy, Task }
+import scala.concurrent.duration._
 
 //runMain recipes.ScalazRecipes
 object ScalazRecipes extends App {
@@ -30,7 +31,13 @@ object ScalazRecipes extends App {
 
   def signal = async.signalOf(0)(Strategy.Executor(Executors.newFixedThreadPool(2, new StreamThreadFactory("signal"))))
 
-  scenario01_1.run[Task].run
+  scenario03_1.run[Task].run
+
+  def naturalsEvery(latency: Long): Process[Task, Int] = {
+    def go(i: Int): Process[Task, Int] =
+      Process.await(Task.delay { Thread.sleep(latency); i })(i ⇒ Process.emit(i) ++ go(i + 1))
+    go(0)
+  }
 
   def naturals: Process[Task, Int] = {
     def go(i: Int): Process[Task, Int] =
@@ -71,30 +78,39 @@ object ScalazRecipes extends App {
     (merge.drain merge q.dequeue)(S)
   }
 
-  import scala.concurrent.duration._
-  def trumblingWindow[I](scenarioName: String, duration: Duration): scalaz.stream.Wye[Long, I, I] = {
-    import scalaz.stream.ReceiveY.{ HaltOne, ReceiveL, ReceiveR }
-    val timeWindow = duration.toNanos
-    val P = scalaz.stream.Process
+  implicit class ProcessOps[T](val p: Process[Task, T]) extends AnyVal {
 
-    def go(acc: Long, last: Long): Wye[Long, I, I] =
-      P.awaitBoth[Long, I].flatMap {
-        case ReceiveL(currentNanos) ⇒
-          if (currentNanos - last > timeWindow) {
-            println(s"$scenarioName: $acc")
-            go(acc + 1l, currentNanos)
-          } else go(acc, last)
-        case ReceiveR(i) ⇒ P.emit(i) ++ go(acc + 1l, last)
-        case HaltOne(e)  ⇒ P.Halt(e)
-      }
+    /**
+     * Tumbling windows discretize a stream into non-overlapping windows
+     */
+    def throughTrumblingWindow(latency: Duration)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
+      (windowTime(latency.toMillis / 5) wye p)(windowWye[T](latency))(S)
 
-    go(0l, System.nanoTime)
-  }
+    private def windowWye[I](duration: Duration): scalaz.stream.Wye[Long, I, I] = {
+      import scalaz.stream.ReceiveY.{ HaltOne, ReceiveL, ReceiveR }
+      val timeWindow = duration.toNanos
+      val P = scalaz.stream.Process
 
-  def windowTime(millis: Long): Process[Task, Long] = Process.suspend {
-    Process.repeatEval {
-      Task.delay { Thread.sleep(millis); System.nanoTime }
+      def go(acc: Long, last: Long, n: Int): Wye[Long, I, I] =
+        P.awaitBoth[Long, I].flatMap {
+          case ReceiveL(currentNanos) ⇒
+            if (currentNanos - last > timeWindow) {
+              println(s"amount of elements:$acc")
+              go(acc + 1l, currentNanos, 1)
+            } else {
+              println(buildProgress(n))
+              go(acc, last, n + 1)
+            }
+          case ReceiveR(i) ⇒ P.emit(i) ++ go(acc + 1l, last, n)
+          case HaltOne(e)  ⇒ P.Halt(e)
+        }
+
+      go(0l, System.nanoTime, 1)
     }
+
+    private def buildProgress(i: Int) = List.fill(i)(" ★ ").mkString
+    private def windowTime(millis: Long) =
+      Process.repeatEval(Task.delay { Thread.sleep(millis); System.nanoTime })
   }
 
   def scenario01: Process[Task, Unit] = {
@@ -107,120 +123,110 @@ object ScalazRecipes extends App {
       .to(sink.lift[Task, (Int, Unit)] { x ⇒ Task.delay(println(s"scalaz-scenario01: ${x._1}")) })
       .run.runAsync(_ ⇒ ())
 
-    (naturals zip sleep(sourceDelay)).map(_._1) observe statsDin(statsDInstance, srcMessage) to statsDOut0(s, statsDInstance, sinkMessage)
-  }
-
-  def scenario01_1: Process[Task, Unit] = {
-    val sourceDelay = 20
-    val latency: Duration = 5 seconds
-    val name = "scalaz-scenario01"
-    val srcMessage = "scalaz-source1:1|c"
-    val sinkMessage = "scalaz-sink1:1|c"
-
-    val src = (naturals zip sleep(sourceDelay)).map(_._1).observe(statsDin(statsDInstance, srcMessage))
-    (windowTime(latency.toMillis / 2) wye src)(trumblingWindow(name, latency))(Ex) to statsDin(statsDInstance, sinkMessage)
+    naturalsEvery(sourceDelay) observe statsDin(statsDInstance, srcMessage) to statsDOut0(s, statsDInstance, sinkMessage)
   }
 
   /**
-   * Fast Source and fast consumer in the beginning,
-   * consumer gets slower, increases delay with every message.
-   * We use boundedQueue in between which makes producer slower in case no space in queue (blocking)
-   * Result: Source and consumer will start at same rate. Publisher's rate will go down together with consumer.
+   * Situation: A source and a sink perform on the same rates.
+   * Result: The source and the sink are going on the same rate.
+   */
+  def scenario01_1: Process[Task, Unit] = {
+    val sourceDelay = 20l
+    val latency: Duration = 5 seconds
+    val srcMessage = "scalaz-source1:1|c"
+    val sinkMessage = "scalaz-sink1:1|c"
+
+    val src = naturalsEvery(sourceDelay).observe(statsDin(statsDInstance, srcMessage))
+    (src throughTrumblingWindow latency)(Ex) to statsDin(statsDInstance, sinkMessage)
+  }
+
+  /**
+   * Situation: A source and a sink perform on the same rate in the beginning, the sink gets slower later, increases delay with every message.
+   * We are using boundedQueue as buffer between them, which blocks the source in case no space in queue.
+   * Result: The source's rate is going to decrease proportionally with the sink's rate.
    */
   def scenario02: Process[Task, Unit] = {
     val delayPerMsg = 1l
     val bufferSize = 1 << 7
     val sourceDelay = 10
+    val latency: Duration = 5 seconds
     val srcMessage = "scalaz-source2:1|c"
     val sinkMessage = "scalaz-sink2:1|c"
     val queue = async.boundedQueue[Int](bufferSize)(Ex)
-    val s = signal
 
-    ((naturals zip sleep(sourceDelay)).map(_._1) observe queue.enqueue to statsDin(statsDInstance, srcMessage))
+    (naturalsEvery(sourceDelay) observe queue.enqueue to statsDin(statsDInstance, srcMessage))
       .onComplete(Process.eval_(queue.close))
       .run.runAsync(_ ⇒ ())
 
-    (s.continuous zip sleep(observePeriod))
-      .to(sink.lift[Task, (Int, Unit)] { x ⇒ Task.delay(println(s"scalaz-scenario02: ${x._1}")) })
-      .run.runAsync(_ ⇒ ())
-
-    queue.dequeue.stateScan(0l)({ number: Int ⇒
+    (queue.dequeue.stateScan(0l)({ v: Int ⇒
       for {
         latency ← scalaz.State.get[Long]
-        increased = latency + delayPerMsg
-        _ ← scalaz.State.put(increased)
-      } yield (increased, number)
-    }) to statsDOut(s, statsDInstance, sinkMessage)
+        updated = latency + delayPerMsg
+        _ = Thread.sleep(0 + (updated / 1000), updated % 1000 toInt)
+        _ ← scalaz.State.put(updated)
+      } yield v
+    }) throughTrumblingWindow latency)(Ex) to statsDin(statsDInstance, sinkMessage)
   }
 
   /**
-   * Fast Source and fast consumer in the beginning, consumer gets slower, increases delay with every message.
-   * We use circular buffer in between that leads to overriding oldest messages
-   * Result: Source stays at the original rate and starts override oldest messages, sink is getting slower
+   * Situation: A source and a sink perform on the same rate in the beginning, the sink gets slower later, increases delay with every message.
+   * We are using circular buffer as buffer between them, he will override elements if no space in buffer.
+   * Result: The sink's rate is going to be decrease but the source's rate will be stayed on the initial level.
    */
   def scenario03: Process[Task, Unit] = {
     val delayPerMsg = 1l
     val bufferSize = 1 << 7
-    val sourceDelay = 10
+    val sourceDelay = 20
+    val window: Duration = 5 seconds
     val cBuffer = async.circularBuffer[Int](bufferSize)(Ex)
 
-    val s = signal
     val srcMessage = "scalaz-source3:1|c"
     val sinkMessage = "scalaz-sink3:1|c"
 
-    ((naturals zip sleep(sourceDelay)).map(_._1) observe cBuffer.enqueue to statsDin(statsDInstance, srcMessage))
+    (naturalsEvery(sourceDelay) observe cBuffer.enqueue to statsDin(statsDInstance, srcMessage))
       .onComplete(Process.eval_(cBuffer.close))
-      .run[Task].runAsync(_ ⇒ ())
-
-    (s.continuous zip sleep(observePeriod))
-      .to(sink.lift[Task, (Int, Unit)] { x ⇒ Task.delay(println(s"scalaz-scenario03: ${x._1}")) })
       .run.runAsync(_ ⇒ ())
 
-    cBuffer.dequeue.stateScan(0l) { number: Int ⇒
+    (cBuffer.dequeue.stateScan(0l) { n: Int ⇒
       for {
         latency ← scalaz.State.get[Long]
-        increased = latency + delayPerMsg
-        _ ← scalaz.State.put(increased)
-      } yield (increased, number)
-    } to statsDOut(s, statsDInstance, sinkMessage)
+        updated = latency + delayPerMsg
+        _ = Thread.sleep(0 + (updated / 1000), updated % 1000 toInt)
+        _ ← scalaz.State.put(updated)
+      } yield n
+    } throughTrumblingWindow window)(Ex) to statsDin(statsDInstance, sinkMessage)
   }
 
   /**
-   * Fast Source, fast consumer in the beginning later getting slower
-   * Producer publish data into queue.
-   * We have dropLastProcess process that tracks queue size and drop LAST ELEMENT once we exceed waterMark
-   * Result: Source stays at the same rate, consumer starts receive partial data
-   */
+    * It behaves like scenario03. The only difference being that we are using queue instead of circular buffer
+    */
   def scenario03_1: Process[Task, Unit] = {
     val delayPerMsg = 1l
     val bufferSize = 1 << 7
     val waterMark = bufferSize - 5
-    val producerRate = 10
+    val sourceDelay = 10
+    val window: Duration = 5 seconds
     val queue = async.boundedQueue[Int](bufferSize)(Ex)
 
-    val s = signal
     val srcMessage = "scalaz-source3_1:1|c"
     val sinkMessage = "scalaz-sink3_1:1|c"
 
-    def dropLastProcess = (queue.size.discrete.filter(_ > waterMark) zip queue.dequeue).drain
+    def dropLastCleaner = (queue.size.discrete.filter(_ > waterMark) zip queue.dequeue).drain
 
-    ((naturals zip sleep(producerRate)).map(_._1) observe queue.enqueue to statsDin(statsDInstance, srcMessage))
+    (naturalsEvery(sourceDelay) observe queue.enqueue to statsDin(statsDInstance, srcMessage))
       .onComplete(Process.eval_(queue.close))
-      .run[Task].runAsync(_ ⇒ ())
-
-    (s.continuous zip sleep(observePeriod))
-      .to(sink.lift[Task, (Int, Unit)] { x ⇒ Task.delay(println(s"scalaz-scenario03_1: ${x._1}")) })
       .run.runAsync(_ ⇒ ())
 
-    val qSink = queue.dequeue.stateScan(0l) { number: Int ⇒
+    val qSink = (queue.dequeue.stateScan(0l) { number: Int ⇒
       for {
         latency ← scalaz.State.get[Long]
-        increased = latency + delayPerMsg
-        _ ← scalaz.State.put(increased)
-      } yield (increased, number)
-    } to statsDOut(s, statsDInstance, sinkMessage)
+        updated = latency + delayPerMsg
+        _ = Thread.sleep(0 + (updated / 1000), updated % 1000 toInt)
+        _ ← scalaz.State.put(updated)
+      } yield number
+    } throughTrumblingWindow window)(Ex) to statsDin(statsDInstance, sinkMessage)
 
-    mergeN(Process(qSink, dropLastProcess))(Ex)
+    mergeN(Process(qSink, dropLastCleaner))(Ex)
   }
 
   /**
@@ -351,12 +357,4 @@ object ScalazRecipes extends App {
 
     interleaveN(async.boundedQueue[Int](2 << 7)(Ex), sources)(Ex) to statsDOut0(s, statsDInstance, "scalaz-sink7:1|c")
   }
-
-  /*
-  def sc = {
-    val producerRate = 100
-    import scala.concurrent.duration._
-    naturals.zipWith(scalaz.stream.time.awakeEvery(producerRate millis))((n, _) => n)
-      .scanSemigroup
-  }*/
 }
