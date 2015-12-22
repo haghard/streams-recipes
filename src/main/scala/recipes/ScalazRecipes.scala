@@ -4,6 +4,7 @@ import java.net.{ InetAddress, InetSocketAddress }
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.{ Executors, ForkJoinPool, ThreadFactory }
 
+import scalaz.{ -\/, \/-, \/ }
 import scalaz.stream._
 import scalaz.stream.merge._
 import scalaz.concurrent.{ Strategy, Task }
@@ -198,8 +199,8 @@ object ScalazRecipes extends App {
   }
 
   /**
-    * It behaves like scenario03. The only difference being that we are using queue instead of circular buffer
-    */
+   * It behaves like scenario03. The only difference being that we are using queue instead of circular buffer
+   */
   def scenario03_1: Process[Task, Unit] = {
     val delayPerMsg = 1l
     val bufferSize = 1 << 7
@@ -227,6 +228,22 @@ object ScalazRecipes extends App {
     } throughTrumblingWindow window)(Ex) to statsDin(statsDInstance, sinkMessage)
 
     mergeN(Process(qSink, dropLastCleaner))(Ex)
+  }
+
+  /**
+   * Usage:
+   * val src: Process[Task, Char] = Process.emitAll(Seq('a', 'b', 'c', 'd', 'e', 'g'))
+   * (src |> count).runLog.run
+   * Vector(\/-(a), -\/(1), \/-(b), -\/(2), \/-(c), -\/(3), \/-(d), -\/(4), \/-(e), -\/(5), \/-(g), -\/(6))
+   *
+   */
+  def count[A]: Process1[A, Long \/ A] = {
+    def go(acc: Long): Process1[A, Long \/ A] = {
+      Process.receive1[A, Long \/ A] { element: A ⇒
+        Process.emitAll(Seq(\/-(element), -\/(acc + 1))) ++ go(acc + 1)
+      }
+    }
+    go(0L)
   }
 
   /**
