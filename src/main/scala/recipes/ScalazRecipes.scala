@@ -171,7 +171,7 @@ object ScalazRecipes extends App {
 
   /**
    * Situation: A source and a sink perform on the same rate in the beginning, the sink gets slower later, increases delay with every message.
-   * We are using circular buffer as buffer between them, he will override elements if no space in buffer.
+   * We are using circular buffer as buffer between them, it will override elements if no space in buffer.
    * Result: The sink's rate is going to be decrease but the source's rate will be stayed on the initial level.
    */
   def scenario03: Process[Task, Unit] = {
