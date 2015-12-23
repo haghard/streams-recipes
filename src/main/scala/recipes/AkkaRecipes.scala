@@ -20,7 +20,6 @@ import recipes.BatchProducer.Item
 import recipes.BalancerRouter.DBObject
 
 import scala.collection.mutable
-import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.concurrent.forkjoin.ThreadLocalRandom
 import scala.language.postfixOps
@@ -51,7 +50,7 @@ object AkkaRecipes extends App {
       |}
     """.stripMargin)
 
-  val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.134"), 8125)
+  val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.47"), 8125)
 
   implicit val sys: ActorSystem = ActorSystem("Sys", ConfigFactory.empty().withFallback(config))
 
@@ -68,9 +67,13 @@ object AkkaRecipes extends App {
 
   implicit val Mat = ActorMaterializer(Settings)
 
-  //RunnableGraph.fromGraph(scenario15).run()(Mat)
+  //RunnableGraph.fromGraph(scenario1).run()
+  //RunnableGraph.fromGraph(scenario2).run()
+  //RunnableGraph.fromGraph(scenario3).run()
+  RunnableGraph.fromGraph(scenario4).run()
 
-  RunnableGraph.fromGraph(scenario7).run()(Mat)
+  //RunnableGraph.fromGraph(scenario7).run()
+  //RunnableGraph.fromGraph(scenario15).run()
 
   /**
    * Tumbling windows discretize a stream into non-overlapping windows
@@ -84,42 +87,41 @@ object AkkaRecipes extends App {
       .withAttributes(Attributes.inputBuffer(1, 1))
 
   /**
-   * Fast publisher and consumer
-   * Result: publisher and consumer stay on the same rate.
+   * Situation: A source and a sink perform on the same rates.
+   * Result: The source and the sink are going on the same rate.
    */
   def scenario1: Graph[ClosedShape, Unit] = {
     GraphDSL.create() { implicit builder ⇒
       import GraphDSL.Implicits._
-      val fastSource = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source1")
-      val fastSink = Sink.actorSubscriber(SyncActor.props2("akka-sink1", statsD))
+      val source = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source1")
+      val sink = Sink.actorSubscriber(SyncActor.props2("akka-sink1", statsD))
 
-      (fastSource alsoTo trumblingWindow("akka-scenario1", 5 seconds)) ~> fastSink
+      (source alsoTo trumblingWindow("akka-scenario1", 5 seconds)) ~> sink
       ClosedShape
     }
   }
 
   /**
-   * Fast publisher and fast consumer in the beginning, consumer gets slower, increase delay with every message.
-   * We use buffer with OverflowStrategy.backpressure in between which makes producer slower
-   * Result: Publisher and consumer should start at same rate.
-   * Publisher and consumer rate should decrease proportionally later.
+   * Situation: A source and a sink perform on the same rate in the beginning, the sink gets slower later, increases delay with every message.
+   * We are using buffer with OverflowStrategy.backpressure between them, which provide backpressure.
+   * Result: The source's rate is going to decrease proportionally with the sink's rate.
+   *
    */
   def scenario2: Graph[ClosedShape, Unit] = {
     GraphDSL.create() { implicit builder ⇒
       import GraphDSL.Implicits._
-      val fastSource = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source2")
+      val source = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source2")
       val degradingSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink2", statsD, 1l))
       val buffer = Flow[Int].buffer(1 << 7, OverflowStrategy.backpressure)
-      (fastSource alsoTo trumblingWindow("akka-scenario2", 5 seconds)) ~> buffer ~> degradingSink
+      (source alsoTo trumblingWindow("akka-scenario2", 5 seconds)) ~> buffer ~> degradingSink
       ClosedShape
     }
   }
 
   /**
-   * Fast publisher and fast consumer in the beginning,
-   * consumer gets slower, increase delay with every message.
-   * We use buffer with OverflowStrategy.dropHead in between which leads to dropping oldest messages
-   * Result: publisher stays at the original rate and starts drop oldest messages, consumer is getting slower
+   * Situation: A source and a sink perform on the same rate in the beginning, the sink gets slower later, increases delay with every message.
+   * We are using buffer with OverflowStrategy.dropHead  between them, it will drop the oldest items.
+   * Result: The sink's rate is going to be decrease but the source's rate will be stayed on the initial level.
    */
   def scenario3: Graph[ClosedShape, Unit] = {
     GraphDSL.create() { implicit builder ⇒
@@ -134,16 +136,12 @@ object AkkaRecipes extends App {
     }
   }
 
-  /**
-   * Fast publisher, 2 fast consumers, one consumer gets slower over time
-   * Result: publisher rate and all consumer rates go down at the same time
-   */
   def scenario4: Graph[ClosedShape, Unit] = {
     GraphDSL.create() { implicit builder ⇒
       import GraphDSL.Implicits._
       val source = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source4")
-      val fastSink = Sink.actorSubscriber(SyncActor.props("akka-sink4_0", statsD, 0l))
-      val slowSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink4_1", statsD, 2l))
+      val fastSink = Sink.actorSubscriber(SyncActor.props("akka-sink4_fast", statsD, 0l))
+      val slowSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink4_slow", statsD, 1l))
       val broadcast = builder.add(Broadcast[Int](2))
 
       (source alsoTo trumblingWindow("akka-scenario4", 5 seconds)) ~> broadcast ~> fastSink
@@ -756,7 +754,7 @@ object AkkaRecipes extends App {
         val sendBuffer = ByteBuffer.allocate(1024)
         val channel = DatagramChannel.open()
 
-        // two source
+        // two sources
         val tickSource = Source.tick(delay, interval, ())
         val rangeSource = Source.fromIterator(() ⇒ Iterator.range(1, limit))
 
@@ -954,7 +952,6 @@ class PubSubSink private (name: String, val address: InetSocketAddress, delay: L
       println("OnError {}", ex.getMessage)
 
     case Request(n) ⇒
-      println(n)
       reply
 
     case Cancel ⇒
@@ -1077,7 +1074,6 @@ class DegradingActor private (val name: String, val address: InetSocketAddress, 
       delay += delayPerMsg
       val latency = initialDelay + (delay / 1000)
       Thread.sleep(latency, (delay % 1000).toInt)
-      println(msg)
       send(s"$name:1|c")
 
     case OnNext(msg: Long) ⇒

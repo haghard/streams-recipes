@@ -17,11 +17,19 @@ version := "0.1"
 
 scalaVersion := "2.11.7"
 
-resolvers += "Akka Snapshot Repository" at "http://repo.akka.io/snapshots/"
 
-resolvers += "Typesafe Repo" at "http://repo.typesafe.com/typesafe/releases/"
-
-resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
+resolvers ++= Seq(
+  Resolver.defaultLocal,
+  Resolver.mavenLocal,
+  "Akka Snapshot Repository" at "http://repo.akka.io/snapshots/",
+  "Typesafe Repo" at "http://repo.typesafe.com/typesafe/releases/",
+  "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases",
+  "bintray/rossabaker" at "http://dl.bintray.com/rossabaker/maven",
+  "Awesome Utilities" at "https://dl.bintray.com/davegurnell/maven",
+  "Sonatype Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
+  "Local Maven Repository" at "file://"+Path.userHome.absolutePath+"/.m2/repository",
+  "Apache Staging" at "https://repository.apache.org/content/repositories/staging/"
+)
 
 javacOptions += "-Xmx2G"
 
@@ -29,6 +37,9 @@ promptTheme := ScalapenosTheme
 
 libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-stream-experimental" % "2.0",
-  "org.scalaz.stream" %% "scalaz-stream" % "0.8",
-  "org.hdrhistogram"  %  "HdrHistogram"  % "2.1.7"
+  //"org.scalaz.stream" %% "scalaz-stream" % "0.8",
+  "org.http4s"        %% "jawn-streamz"   % "0.7.0",
+  "org.spire-math"    %% "jawn-spray"     % "0.8.3", //"scalaz-stream" % "0.8",
+  "io.underscore"     %% "csvside"        % "0.10.1",
+  "org.hdrhistogram"  %  "HdrHistogram"   % "2.1.7"
 )
