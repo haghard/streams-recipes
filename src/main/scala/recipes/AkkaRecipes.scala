@@ -427,9 +427,9 @@ object AkkaRecipes extends App {
    *
    */
   def scenario08: Graph[ClosedShape, Unit] = {
-    val source = throttledSrc(statsD, 1 second, 100 milliseconds, Int.MaxValue, "akka-source08")
-    val errorSink = Sink.actorSubscriber(SyncActor.props("akka-sink-error08", statsD, 0l)) //slow sink
-    val sink = Sink.actorSubscriber(SyncActor.props("akka-sink08", statsD, 0l))
+    val source = throttledSrc(statsD, 1 second, 100 milliseconds, Int.MaxValue, "akka-source-08")
+    val errorSink = Sink.actorSubscriber(SyncActor.props("akka-sink-error08", statsD, 1l)) //slow sink
+    val sink = Sink.actorSubscriber(SyncActor.props("akka-sink-08", statsD, 0l))
 
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
