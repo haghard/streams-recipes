@@ -20,6 +20,7 @@ import recipes.BatchProducer.Item
 import recipes.BalancerRouter.DBObject
 
 import scala.collection.mutable
+import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.concurrent.forkjoin.ThreadLocalRandom
 import scala.language.postfixOps
@@ -712,7 +713,7 @@ object AkkaRecipes extends App {
       proc.getOutputStream.close()
       val input = proc.getInputStream
 
-      def readChunk(): Future[ByteString] = Future {
+      def readChunk(): scala.concurrent.Future[ByteString] = Future {
         val buffer = new Array[Byte](1024 * 6)
         val read = (input read buffer)
         println(s"available: $read")

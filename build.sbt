@@ -36,10 +36,12 @@ javacOptions += "-Xmx2G"
 promptTheme := ScalapenosTheme
 
 libraryDependencies ++= Seq(
-  "com.typesafe.akka" %% "akka-stream-experimental" % "2.0",
+  "com.typesafe.akka" %% "akka-stream-experimental" % "2.0.1",
   //"org.scalaz.stream" %% "scalaz-stream" % "0.8",
   "org.http4s"        %% "jawn-streamz"   % "0.7.0",
   "org.spire-math"    %% "jawn-spray"     % "0.8.3", //"scalaz-stream" % "0.8",
   "io.underscore"     %% "csvside"        % "0.10.1",
   "org.hdrhistogram"  %  "HdrHistogram"   % "2.1.7"
 )
+
+cancelable in Global := true
