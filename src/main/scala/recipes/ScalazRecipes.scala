@@ -85,7 +85,7 @@ object ScalazRecipes extends App {
     /**
      * Count window
      */
-    def throughCountWindow(aggregateInterval: Duration)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
+    def throughAllWindow(aggregateInterval: Duration)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
       (discreteStep(aggregateInterval.toMillis / 5) wye p)(tumblingWye[T](aggregateInterval, false))(S)
 
     /**
@@ -93,6 +93,7 @@ object ScalazRecipes extends App {
      */
     def throughTumblingWindow(aggregateInterval: Duration)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
       (discreteStep(aggregateInterval.toMillis / 5) wye p)(tumblingWye[T](aggregateInterval))(S)
+
 
     private def tumblingWye[I](duration: Duration, reset: Boolean = true): scalaz.stream.Wye[Long, I, I] = {
       val timeWindow = duration.toNanos
@@ -172,7 +173,7 @@ object ScalazRecipes extends App {
         _ = Thread.sleep(0 + (updated / 1000), updated % 1000 toInt)
         _ ← scalaz.State.put(updated)
       } yield v
-    }) throughCountWindow triggerInterval)(Ex) to statsDin(statsDInstance, sinkMessage)
+    }) throughAllWindow triggerInterval)(Ex) to statsDin(statsDInstance, sinkMessage)
   }
 
   /**
