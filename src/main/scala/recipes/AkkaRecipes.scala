@@ -91,12 +91,17 @@ object AkkaRecipes extends App {
    * Sliding windows discretize a stream into overlapping windows
    * Using conflate as rate detached operation
    */
-  def slidingWindow[T](name: String, duration: FiniteDuration, numOfTimeUnits: Int = 5): Sink[T, Unit] =
+  def slidingWindow[T](name: String, duration: FiniteDuration, numOfTimeUnits: Int = 5): Sink[T, Unit] = {
+    val nano = 1000000000
     (Flow[T].conflate(_ ⇒ 0)((counter, _) ⇒ counter + 1)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
-      .scan((0, 0)) { case ((acc, iter), v) ⇒ if (iter == numOfTimeUnits-1) (v, 0) else (acc + v, iter + 1) }
-      .to(Sink.foreach { case (acc, iter) ⇒ println(buildProgress(iter, acc)) })
+      .scan((0, 0, System.nanoTime())) {
+        case ((acc, iter, last), v) ⇒
+          if (iter == numOfTimeUnits - 1) (v, 0, System.nanoTime()) else (acc + v, iter + 1, last)
+      }
+      .to(Sink.foreach { case (acc, iter, ts) ⇒ println(buildProgress(iter, acc, (System.nanoTime() - ts) / nano)) })
       .withAttributes(Attributes.inputBuffer(1, 1))
+  }
 
   /**
    *
@@ -108,8 +113,8 @@ object AkkaRecipes extends App {
       .to(Sink.foreach(c ⇒ println(s"$name: $c")))
       .withAttributes(Attributes.inputBuffer(1, 1))
 
-  private def buildProgress(i: Int, acc: Long) =
-    s"${List.fill(i + 1)(" ★ ").mkString} number:$acc"
+  private def buildProgress(i: Int, acc: Long, sec: Long) =
+    s"${List.fill(i + 1)(" ★ ").mkString} number:$acc interval:$sec"
 
   /**
    * Situation: A source and a sink perform on the same rates.

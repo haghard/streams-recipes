@@ -103,15 +103,15 @@ object ScalazRecipes extends App {
     private def tumblingWye[I](duration: Duration, reset: Boolean = true): scalaz.stream.Wye[Long, I, I] = {
       val timeWindow = duration.toNanos
       val P = scalaz.stream.Process
-
+      val nano = 1000000000
       def go(acc: Long, last: Long, n: Int): Wye[Long, I, I] =
         P.awaitBoth[Long, I].flatMap {
           case ReceiveL(currentNanos) ⇒
             if (currentNanos - last > timeWindow) {
-              println(buildProgress(n, acc, (currentNanos - last) / 1000000000))
+              println(buildProgress(n, acc, (currentNanos - last) / nano))
               go(if (reset) 0l else acc + 1l, currentNanos, 1)
             } else {
-              println(buildProgress(n, acc, (currentNanos - last) / 1000000000))
+              println(buildProgress(n, acc, (currentNanos - last) / nano))
               go(acc, last, n + 1)
             }
           case ReceiveR(i) ⇒ P.emit(i) ++ go(acc + 1l, last, n)
