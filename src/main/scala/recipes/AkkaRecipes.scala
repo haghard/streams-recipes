@@ -91,7 +91,7 @@ object AkkaRecipes extends App {
    * Sliding windows discretize a stream into overlapping windows
    * Using conflate as rate detached operation
    */
-  def slidingWindow[T](name: String, duration: FiniteDuration, numOfTimeUnits: Int = 5): Sink[T, Unit] = {
+  def slidingWindow[T](name: String, duration: FiniteDuration, numOfTimeUnits: Long = 5): Sink[T, Unit] = {
     val nano = 1000000000
     (Flow[T].conflate(_ ⇒ 0)((counter, _) ⇒ counter + 1)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
@@ -114,7 +114,7 @@ object AkkaRecipes extends App {
       .withAttributes(Attributes.inputBuffer(1, 1))
 
   private def buildProgress(i: Int, acc: Long, sec: Long) =
-    s"${List.fill(i + 1)(" ★ ").mkString} number:$acc interval:$sec"
+    s"${List.fill(i)(" ★ ").mkString} number:$acc interval:$sec"
 
   /**
    * Situation: A source and a sink perform on the same rates.
@@ -126,7 +126,7 @@ object AkkaRecipes extends App {
       val source = throttledSrc(statsD, 1 second, 20 milliseconds, Int.MaxValue, "akka-source1")
       val sink = Sink.actorSubscriber(SyncActor.props2("akka-sink1", statsD))
 
-      (source alsoTo slidingWindow("akka-scenario1", 5 seconds)) ~> sink
+      (source alsoTo slidingWindow("akka-scenario1", 2 seconds)) ~> sink
       ClosedShape
     }
   }
