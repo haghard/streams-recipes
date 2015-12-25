@@ -88,8 +88,19 @@ object AkkaRecipes extends App {
       .withAttributes(Attributes.inputBuffer(1, 1))
 
   /**
-    *
-    */
+   * Tumbling windows discretize a stream into overlapping windows
+   * Using conflate as rate detached operation
+   */
+  def slidingWindow[T](name: String, duration: FiniteDuration, numOfTimeUnits: Int = 3): Sink[T, Unit] =
+    (Flow[T].conflate(_ ⇒ 0)((counter, _) ⇒ counter + 1)
+      .zipWith(Source.tick(duration, duration, ()))(Keep.left))
+      .scan((0, 0)) { case ((acc, iter), v) ⇒ if (iter == numOfTimeUnits) (v, 0) else (acc + v, iter + 1) }
+      .to(Sink.foreach(c ⇒ println(s"$name: $c")))
+      .withAttributes(Attributes.inputBuffer(1, 1))
+
+  /**
+   *
+   */
   def countWindow[T](name: String, duration: FiniteDuration): Sink[T, Unit] =
     (Flow[T].conflate(_ ⇒ 0)((counter, _) ⇒ counter + 1)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
@@ -107,7 +118,7 @@ object AkkaRecipes extends App {
       val source = throttledSrc(statsD, 1 second, 20 milliseconds, Int.MaxValue, "akka-source1")
       val sink = Sink.actorSubscriber(SyncActor.props2("akka-sink1", statsD))
 
-      (source alsoTo tumblingWindow("akka-scenario1", 5 seconds)) ~> sink
+      (source alsoTo slidingWindow("akka-scenario1", 5 seconds)) ~> sink
       ClosedShape
     }
   }
