@@ -88,14 +88,14 @@ object AkkaRecipes extends App {
       .withAttributes(Attributes.inputBuffer(1, 1))
 
   /**
-   * Tumbling windows discretize a stream into overlapping windows
+   * Sliding windows discretize a stream into overlapping windows
    * Using conflate as rate detached operation
    */
-  def slidingWindow[T](name: String, duration: FiniteDuration, numOfTimeUnits: Int = 3): Sink[T, Unit] =
+  def slidingWindow[T](name: String, duration: FiniteDuration, numOfTimeUnits: Int = 5): Sink[T, Unit] =
     (Flow[T].conflate(_ ⇒ 0)((counter, _) ⇒ counter + 1)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
-      .scan((0, 0)) { case ((acc, iter), v) ⇒ if (iter == numOfTimeUnits) (v, 0) else (acc + v, iter + 1) }
-      .to(Sink.foreach(c ⇒ println(s"$name: $c")))
+      .scan((0, 0)) { case ((acc, iter), v) ⇒ if (iter == numOfTimeUnits-1) (v, 0) else (acc + v, iter + 1) }
+      .to(Sink.foreach { case (acc, iter) ⇒ println(buildProgress(iter, acc)) })
       .withAttributes(Attributes.inputBuffer(1, 1))
 
   /**
@@ -107,6 +107,9 @@ object AkkaRecipes extends App {
       .scan(0)(_ + _)
       .to(Sink.foreach(c ⇒ println(s"$name: $c")))
       .withAttributes(Attributes.inputBuffer(1, 1))
+
+  private def buildProgress(i: Int, acc: Long) =
+    s"${List.fill(i + 1)(" ★ ").mkString} number:$acc"
 
   /**
    * Situation: A source and a sink perform on the same rates.
@@ -1020,7 +1023,7 @@ class SyncActor private (name: String, val address: InetSocketAddress, delay: Lo
       send(s"$name:1|c")
 
     case OnNext(msg: String) ⇒
-      println(msg)
+      //println(msg)
       Thread.sleep(delay)
       count += 1
       if (count == limit) {

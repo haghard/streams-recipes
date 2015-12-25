@@ -86,14 +86,19 @@ object ScalazRecipes extends App {
      * Count window
      */
     def throughAllWindow(aggregateInterval: Duration)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
-      (discreteStep(aggregateInterval.toMillis / 5) wye p)(tumblingWye[T](aggregateInterval, false))(S)
+      (discreteStep(aggregateInterval.toMillis) wye p)(tumblingWye[T](aggregateInterval, false))(S)
 
     /**
      * Tumbling windows discretize a stream into non-overlapping windows
      */
     def throughTumblingWindow(aggregateInterval: Duration)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
-      (discreteStep(aggregateInterval.toMillis / 5) wye p)(tumblingWye[T](aggregateInterval))(S)
+      (discreteStep(aggregateInterval.toMillis) wye p)(tumblingWye[T](aggregateInterval))(S)
 
+    /**
+     * Sliding windows discretize a stream into overlapping windows
+     */
+    def throughSlidingWindow(aggregateInterval: Duration, numOfUnits: Int)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
+      (discreteStep(aggregateInterval.toMillis / numOfUnits) wye p)(tumblingWye[T](aggregateInterval))(S)
 
     private def tumblingWye[I](duration: Duration, reset: Boolean = true): scalaz.stream.Wye[Long, I, I] = {
       val timeWindow = duration.toNanos
@@ -103,10 +108,10 @@ object ScalazRecipes extends App {
         P.awaitBoth[Long, I].flatMap {
           case ReceiveL(currentNanos) ⇒
             if (currentNanos - last > timeWindow) {
-              println(s"amount of elements:$acc")
+              println(buildProgress(n, acc, (currentNanos - last) / 1000000000))
               go(if (reset) 0l else acc + 1l, currentNanos, 1)
             } else {
-              println(buildProgress(n))
+              println(buildProgress(n, acc, (currentNanos - last) / 1000000000))
               go(acc, last, n + 1)
             }
           case ReceiveR(i) ⇒ P.emit(i) ++ go(acc + 1l, last, n)
@@ -116,7 +121,9 @@ object ScalazRecipes extends App {
       go(0l, System.nanoTime, 1)
     }
 
-    private def buildProgress(i: Int) = List.fill(i)(" ★ ").mkString
+    private def buildProgress(i: Int, acc: Long, sec: Long) =
+      s"${List.fill(i)(" ★ ").mkString} number:$acc interval: $sec sec"
+
     private def discreteStep(millis: Long) =
       Process.repeatEval(Task.delay { Thread.sleep(millis); System.nanoTime })
   }
@@ -173,7 +180,7 @@ object ScalazRecipes extends App {
         _ = Thread.sleep(0 + (updated / 1000), updated % 1000 toInt)
         _ ← scalaz.State.put(updated)
       } yield v
-    }) throughAllWindow triggerInterval)(Ex) to statsDin(statsDInstance, sinkMessage)
+    }) throughSlidingWindow (triggerInterval, 5))(Ex) to statsDin(statsDInstance, sinkMessage)
   }
 
   /**
