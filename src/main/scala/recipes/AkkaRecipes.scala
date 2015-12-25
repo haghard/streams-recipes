@@ -68,19 +68,29 @@ object AkkaRecipes extends App {
 
   implicit val Mat = ActorMaterializer(Settings)
 
-  //RunnableGraph.fromGraph(scenario1).run()
+  RunnableGraph.fromGraph(scenario1).run()
   //RunnableGraph.fromGraph(scenario2).run()
   //RunnableGraph.fromGraph(scenario3).run()
-  RunnableGraph.fromGraph(scenario4).run()
+  //RunnableGraph.fromGraph(scenario4).run()
 
   //RunnableGraph.fromGraph(scenario7).run()
   //RunnableGraph.fromGraph(scenario15).run()
 
   /**
    * Tumbling windows discretize a stream into non-overlapping windows
-   * Rate detached operation
+   * Using conflate as rate detached operation
    */
-  def trumblingWindow[T](name: String, duration: FiniteDuration): Sink[T, Unit] =
+  def tumblingWindow[T](name: String, duration: FiniteDuration): Sink[T, Unit] =
+    (Flow[T].conflate(_ ⇒ 0)((counter, _) ⇒ counter + 1)
+      .zipWith(Source.tick(duration, duration, ()))(Keep.left))
+      .scan(0)((acc, v) ⇒ v)
+      .to(Sink.foreach(c ⇒ println(s"$name: $c")))
+      .withAttributes(Attributes.inputBuffer(1, 1))
+
+  /**
+    *
+    */
+  def countWindow[T](name: String, duration: FiniteDuration): Sink[T, Unit] =
     (Flow[T].conflate(_ ⇒ 0)((counter, _) ⇒ counter + 1)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
       .scan(0)(_ + _)
@@ -94,10 +104,10 @@ object AkkaRecipes extends App {
   def scenario1: Graph[ClosedShape, Unit] = {
     GraphDSL.create() { implicit builder ⇒
       import GraphDSL.Implicits._
-      val source = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source1")
+      val source = throttledSrc(statsD, 1 second, 20 milliseconds, Int.MaxValue, "akka-source1")
       val sink = Sink.actorSubscriber(SyncActor.props2("akka-sink1", statsD))
 
-      (source alsoTo trumblingWindow("akka-scenario1", 5 seconds)) ~> sink
+      (source alsoTo tumblingWindow("akka-scenario1", 5 seconds)) ~> sink
       ClosedShape
     }
   }
@@ -114,7 +124,7 @@ object AkkaRecipes extends App {
       val source = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source2")
       val degradingSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink2", statsD, 1l))
       val buffer = Flow[Int].buffer(1 << 7, OverflowStrategy.backpressure)
-      (source alsoTo trumblingWindow("akka-scenario2", 5 seconds)) ~> buffer ~> degradingSink
+      (source alsoTo countWindow("akka-scenario2", 5 seconds)) ~> buffer ~> degradingSink
       ClosedShape
     }
   }
@@ -132,7 +142,7 @@ object AkkaRecipes extends App {
       //OverflowStrategy.dropHead will drop the oldest waiting job
       //OverflowStrategy.dropTail will drop the youngest waiting job
       val buffer = Flow[Int].buffer(1 << 7, OverflowStrategy.dropHead)
-      (source alsoTo trumblingWindow("akka-scenario3", 5 seconds)) ~> buffer ~> slowingSink
+      (source alsoTo countWindow("akka-scenario3", 5 seconds)) ~> buffer ~> slowingSink
       ClosedShape
     }
   }
@@ -145,7 +155,7 @@ object AkkaRecipes extends App {
       val slowSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink4_slow", statsD, 1l))
       val broadcast = builder.add(Broadcast[Int](2))
 
-      (source alsoTo trumblingWindow("akka-scenario4", 5 seconds)) ~> broadcast ~> fastSink
+      (source alsoTo countWindow("akka-scenario4", 5 seconds)) ~> broadcast ~> fastSink
       broadcast ~> slowSink
       ClosedShape
     }
@@ -257,7 +267,7 @@ object AkkaRecipes extends App {
       //merge ~> fastSink
 
       //multiSource ~> fastSink
-      (queryStreams alsoTo trumblingWindow("akka-scenario7", 1 seconds)) ~> Sink.actorSubscriber(SyncActor.props("akka-sink7", statsD, 0l))
+      (queryStreams alsoTo countWindow("akka-scenario7", 1 seconds)) ~> Sink.actorSubscriber(SyncActor.props("akka-sink7", statsD, 0l))
       ClosedShape
     }
   }
@@ -406,7 +416,7 @@ object AkkaRecipes extends App {
       val balancer = b.add(Balance[Int](parallelism))
       val merge = b.add(Merge[Int](parallelism).withAttributes(buffAttributes))
 
-      (source alsoTo trumblingWindow("akka-scenario8", 5 seconds)) ~> balancer
+      (source alsoTo countWindow("akka-scenario8", 5 seconds)) ~> balancer
 
       latencies.zipWithIndex.foreach {
         case (l, ind) ⇒

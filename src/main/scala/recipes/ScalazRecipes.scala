@@ -15,7 +15,7 @@ object ScalazRecipes extends App {
   val showLimit = 1000
   val observePeriod = 5000
   val limit = Int.MaxValue
-  val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.134"), 8125)
+  val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.47"), 8125)
   val Ex = Strategy.Executor(new ForkJoinPool(Runtime.getRuntime.availableProcessors()))
 
   case class StreamThreadFactory(name: String) extends ThreadFactory {
@@ -32,7 +32,7 @@ object ScalazRecipes extends App {
 
   def signal = async.signalOf(0)(Strategy.Executor(Executors.newFixedThreadPool(2, new StreamThreadFactory("signal"))))
 
-  scenario03_1.run[Task].run
+  scenario02.run[Task].run
 
   def naturalsEvery(latency: Long): Process[Task, Int] = {
     def go(i: Int): Process[Task, Int] =
@@ -80,15 +80,21 @@ object ScalazRecipes extends App {
   }
 
   implicit class ProcessOps[T](val p: Process[Task, T]) extends AnyVal {
+    import scalaz.stream.ReceiveY.{ HaltOne, ReceiveL, ReceiveR }
+
+    /**
+     * Count window
+     */
+    def throughCountWindow(aggregateInterval: Duration)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
+      (discreteStep(aggregateInterval.toMillis / 5) wye p)(tumblingWye[T](aggregateInterval, false))(S)
 
     /**
      * Tumbling windows discretize a stream into non-overlapping windows
      */
-    def throughTrumblingWindow(latency: Duration)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
-      (windowTime(latency.toMillis / 5) wye p)(windowWye[T](latency))(S)
+    def throughTumblingWindow(aggregateInterval: Duration)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
+      (discreteStep(aggregateInterval.toMillis / 5) wye p)(tumblingWye[T](aggregateInterval))(S)
 
-    private def windowWye[I](duration: Duration): scalaz.stream.Wye[Long, I, I] = {
-      import scalaz.stream.ReceiveY.{ HaltOne, ReceiveL, ReceiveR }
+    private def tumblingWye[I](duration: Duration, reset: Boolean = true): scalaz.stream.Wye[Long, I, I] = {
       val timeWindow = duration.toNanos
       val P = scalaz.stream.Process
 
@@ -97,7 +103,7 @@ object ScalazRecipes extends App {
           case ReceiveL(currentNanos) ⇒
             if (currentNanos - last > timeWindow) {
               println(s"amount of elements:$acc")
-              go(acc + 1l, currentNanos, 1)
+              go(if (reset) 0l else acc + 1l, currentNanos, 1)
             } else {
               println(buildProgress(n))
               go(acc, last, n + 1)
@@ -110,7 +116,7 @@ object ScalazRecipes extends App {
     }
 
     private def buildProgress(i: Int) = List.fill(i)(" ★ ").mkString
-    private def windowTime(millis: Long) =
+    private def discreteStep(millis: Long) =
       Process.repeatEval(Task.delay { Thread.sleep(millis); System.nanoTime })
   }
 
@@ -138,7 +144,7 @@ object ScalazRecipes extends App {
     val sinkMessage = "scalaz-sink1:1|c"
 
     val src = naturalsEvery(sourceDelay).observe(statsDin(statsDInstance, srcMessage))
-    (src throughTrumblingWindow latency)(Ex) to statsDin(statsDInstance, sinkMessage)
+    (src throughTumblingWindow latency)(Ex) to statsDin(statsDInstance, sinkMessage)
   }
 
   /**
@@ -150,7 +156,7 @@ object ScalazRecipes extends App {
     val delayPerMsg = 1l
     val bufferSize = 1 << 7
     val sourceDelay = 10
-    val latency: Duration = 5 seconds
+    val triggerInterval: Duration = 5 seconds
     val srcMessage = "scalaz-source2:1|c"
     val sinkMessage = "scalaz-sink2:1|c"
     val queue = async.boundedQueue[Int](bufferSize)(Ex)
@@ -166,7 +172,7 @@ object ScalazRecipes extends App {
         _ = Thread.sleep(0 + (updated / 1000), updated % 1000 toInt)
         _ ← scalaz.State.put(updated)
       } yield v
-    }) throughTrumblingWindow latency)(Ex) to statsDin(statsDInstance, sinkMessage)
+    }) throughCountWindow triggerInterval)(Ex) to statsDin(statsDInstance, sinkMessage)
   }
 
   /**
@@ -195,7 +201,7 @@ object ScalazRecipes extends App {
         _ = Thread.sleep(0 + (updated / 1000), updated % 1000 toInt)
         _ ← scalaz.State.put(updated)
       } yield n
-    } throughTrumblingWindow window)(Ex) to statsDin(statsDInstance, sinkMessage)
+    } throughTumblingWindow window)(Ex) to statsDin(statsDInstance, sinkMessage)
   }
 
   /**
@@ -225,7 +231,7 @@ object ScalazRecipes extends App {
         _ = Thread.sleep(0 + (updated / 1000), updated % 1000 toInt)
         _ ← scalaz.State.put(updated)
       } yield number
-    } throughTrumblingWindow window)(Ex) to statsDin(statsDInstance, sinkMessage)
+    } throughTumblingWindow window)(Ex) to statsDin(statsDInstance, sinkMessage)
 
     mergeN(Process(qSink, dropLastCleaner))(Ex)
   }
