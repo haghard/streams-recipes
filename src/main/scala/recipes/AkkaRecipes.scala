@@ -33,6 +33,30 @@ object AkkaRecipes extends App {
   val config = ConfigFactory.parseString(
     """
       |akka {
+      |  stream.materializer.auto-fusing=off
+      |
+      |  flow-dispatcher {
+      |    type = Dispatcher
+      |    executor = "fork-join-executor"
+      |    fork-join-executor {
+      |      parallelism-min = 8
+      |      parallelism-max = 16
+      |    }
+      |  }
+      |  blocking-dispatcher {
+      |    executor = "thread-pool-executor"
+      |    thread-pool-executor {
+      |      core-pool-size-min = 4
+      |      core-pool-size-max = 4
+      |    }
+      |  }
+      |}
+    """.stripMargin)
+
+  val config20 = ConfigFactory.parseString(
+    """
+      |akka {
+      |
       |  flow-dispatcher {
       |    type = Dispatcher
       |    executor = "fork-join-executor"
@@ -53,7 +77,10 @@ object AkkaRecipes extends App {
 
   val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.47"), 8125)
 
-  implicit val sys: ActorSystem = ActorSystem("Sys", ConfigFactory.empty().withFallback(config))
+  def sys: ActorSystem = ActorSystem("Sys", ConfigFactory.empty().withFallback(config))
+  def sys20: ActorSystem = ActorSystem("Sys20", ConfigFactory.empty().withFallback(config20))
+
+  implicit val system = sys20
 
   val decider: akka.stream.Supervision.Decider = {
     case ex: Throwable ⇒
@@ -66,12 +93,18 @@ object AkkaRecipes extends App {
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher")
 
-  implicit val Mat = ActorMaterializer(Settings)
+  val Settings20 = ActorMaterializerSettings.create(system = sys)
+    .withInputBuffer(32, 32)
+    .withSupervisionStrategy(decider)
+    .withDispatcher("akka.flow-dispatcher")
 
-  RunnableGraph.fromGraph(scenario1).run()
+  val Mat = ActorMaterializer(Settings)
+  //implicit val Mat20 = ActorMaterializer(Settings20)
+
+  RunnableGraph.fromGraph(scenario1).run()(Mat)
   //RunnableGraph.fromGraph(scenario2).run()
   //RunnableGraph.fromGraph(scenario3).run()
-  //RunnableGraph.fromGraph(scenario4).run()
+  //RunnableGraph.fromGraph(scenario4).run()(Mat20)
 
   //RunnableGraph.fromGraph(scenario7).run()
   //RunnableGraph.fromGraph(scenario15).run()
@@ -128,7 +161,8 @@ object AkkaRecipes extends App {
       val source = throttledSrc(statsD, 1 second, 20 milliseconds, Int.MaxValue, "akka-source1")
       val sink = Sink.actorSubscriber(SyncActor.props2("akka-sink1", statsD))
 
-      (source alsoTo tumblingWindowWithFilter("akka-scenario1", 2 seconds) { _ >= 100l }) /*slidingWindow("akka-scenario1", 2 seconds)*/ ~> sink
+      /*slidingWindow("akka-scenario1", 2 seconds)*/
+      (source alsoTo tumblingWindowWithFilter("akka-scenario1", 2 seconds) { _ >= 100l }) ~> sink
       ClosedShape
     }
   }
@@ -174,7 +208,9 @@ object AkkaRecipes extends App {
       val source = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source4")
       val fastSink = Sink.actorSubscriber(SyncActor.props("akka-sink4_fast", statsD, 0l))
       val slowSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink4_slow", statsD, 1l))
-      val broadcast = builder.add(Broadcast[Int](2))
+
+      //I want branches to be run in parallel
+      val broadcast = builder.add(Broadcast[Int](2).addAttributes(Attributes.asyncBoundary))
 
       (source alsoTo allWindow("akka-scenario4", 5 seconds)) ~> broadcast ~> fastSink
       broadcast ~> slowSink
@@ -614,18 +650,18 @@ object AkkaRecipes extends App {
    * External source
    * In 2.0 for this purpose you should can use  [[Source.queue.offer]]
    */
-  def scenario13: Graph[ClosedShape, Unit] = {
+  def scenario13(mat: ActorMaterializer): Graph[ClosedShape, Unit] = {
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
       //no backpressure there, just dropping
       val (actor, publisher) = Source.actorRef[Int](200, OverflowStrategy.dropTail)
-        .toMat(Sink.asPublisher[Int](false))(Keep.both).run()
+        .toMat(Sink.asPublisher[Int](false))(Keep.both).run()(mat)
 
       val i = new AtomicInteger()
       sys.scheduler.schedule(1 second, 20 milliseconds) {
         i.getAndIncrement()
         if (i.get() < Int.MaxValue) actor ! i
-      }(sys.dispatchers.lookup("akka.flow-dispatcher"))
+      }(mat.executionContext)
 
       Source.fromPublisher(publisher) ~> Sink.actorSubscriber(DegradingActor.props2("akka-sink13", statsD, 13l))
       ClosedShape
@@ -635,8 +671,8 @@ object AkkaRecipes extends App {
   /**
    * External Producer through Source.queue
    */
-  def scenario13_1: Graph[ClosedShape, Unit] = {
-    implicit val Ctx = sys.dispatchers.lookup("akka.flow-dispatcher")
+  def scenario13_1(mat: ActorMaterializer): Graph[ClosedShape, Unit] = {
+    implicit val Ctx = mat.executionContext
     implicit val ExtCtx = sys.dispatchers.lookup("akka.blocking-dispatcher")
 
     val pubStatsD = new StatsD {
@@ -644,7 +680,7 @@ object AkkaRecipes extends App {
     }
     val (queue, publisher) = Source.queue[Option[Int]](1 << 7, OverflowStrategy.backpressure)
       .takeWhile(_.isDefined).map(_.get)
-      .toMat(Sink.asPublisher[Int](false))(Keep.both).run()
+      .toMat(Sink.asPublisher[Int](false))(Keep.both).run()(mat)
 
     def externalProducer(q: SourceQueue[Option[Int]], pName: String, i: Int): Unit = {
       if (i < Int.MaxValue)
@@ -732,10 +768,10 @@ object AkkaRecipes extends App {
   /**
    * 2 subscribers for single file from tail
    */
-  def scenario16: Graph[ClosedShape, Unit] = {
+  def scenario16(mat: ActorMaterializer): Graph[ClosedShape, Unit] = {
     val log = "./example.log"
     val n = 50l
-    implicit val ec = sys.dispatchers.lookup("akka.flow-dispatcher")
+    implicit val ec = mat.executionContext
 
     def tailer: Source[String, Unit] = {
       val proc = new java.lang.ProcessBuilder()
@@ -762,7 +798,7 @@ object AkkaRecipes extends App {
             proc.destroy()
           }
         })
-        .runWith(Sink.asPublisher(true))
+        .runWith(Sink.asPublisher(true))(mat)
 
       Source.fromPublisher(publisher).map { x ⇒ x.utf8String.slice(6, 80) + "..." }
     }
