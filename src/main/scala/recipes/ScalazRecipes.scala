@@ -156,8 +156,8 @@ object ScalazRecipes extends App {
   }
 
   /**
-   * Situation: A source and a sink perform on the same rate in the beginning, the sink gets slower later, increases delay with every message.
-   * We are using boundedQueue as buffer between them, which blocks the source in case no space in queue.
+   * Situation: A source and a sink perform on the same rate in the beginning, the sink gets slower later, increasing delay with every message.
+   * We are using boundedQueue as buffer between them, which leads to blocking the source in case no space in the queue.
    * Result: The source's rate is going to decrease proportionally with the sink's rate.
    */
   def scenario02: Process[Task, Unit] = {
@@ -261,12 +261,9 @@ object ScalazRecipes extends App {
   }
 
   /**
-   * It's different from scenario03_1 only in dropping the whole BUFFER
-   * Fast Source, fast consumer in the beginning get slower
+   * It's different from scenario03_1 only in dropping the whole buffer
    * Source publish data into queue.
-   * We have dropLastStrategy process that tracks queue size and drop ALL BUFFER once we exceed waterMark
-   * Consumer, which gets slower (starts at no delay, increase delay with every message.
-   * Result: Source stays at the same rate, consumer starts receive partial data
+   * We have a dropLastStrategy process that will track queue size and the whole buffer if it exceeds waterMark
    */
   def scenario03_2: Process[Task, Unit] = {
     val delayPerMsg = 1l

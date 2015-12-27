@@ -81,10 +81,15 @@ object AkkaRecipes extends App {
    * Using conflate as rate detached operation
    */
   def tumblingWindow[T](name: String, duration: FiniteDuration): Sink[T, Unit] =
-    (Flow[T].conflate(_ ⇒ 0)((counter, _) ⇒ counter + 1)
+    (Flow[T].conflate(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
-      .scan(0)((acc, v) ⇒ v)
-      .to(Sink.foreach(c ⇒ println(s"$name: $c")))
+      .to(Sink.foreach(acc ⇒ println(s"$name number:$acc")))
+      .withAttributes(Attributes.inputBuffer(1, 1))
+
+  def tumblingWindowWithFilter[T](name: String, duration: FiniteDuration)(filter: Long ⇒ Boolean): Sink[T, Unit] =
+    (Flow[T].conflate(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
+      .zipWith(Source.tick(duration, duration, ()))(Keep.left))
+      .to(Sink.foreach { acc ⇒ if (filter(acc)) println(s"$name number:$acc satisfied") else println(s"number:$acc unsatisfied") })
       .withAttributes(Attributes.inputBuffer(1, 1))
 
   /**
@@ -93,12 +98,9 @@ object AkkaRecipes extends App {
    */
   def slidingWindow[T](name: String, duration: FiniteDuration, numOfTimeUnits: Long = 5): Sink[T, Unit] = {
     val nano = 1000000000
-    (Flow[T].conflate(_ ⇒ 0)((counter, _) ⇒ counter + 1)
+    (Flow[T].conflate(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
-      .scan((0, 0, System.nanoTime())) {
-        case ((acc, iter, last), v) ⇒
-          if (iter == numOfTimeUnits - 1) (v, 0, System.nanoTime()) else (acc + v, iter + 1, last)
-      }
+      .scan((0l, 0, System.nanoTime())) { case ((acc, iter, last), v) ⇒ if (iter == numOfTimeUnits - 1) (v, 0, System.nanoTime()) else (acc + v, iter + 1, last) }
       .to(Sink.foreach { case (acc, iter, ts) ⇒ println(buildProgress(iter, acc, (System.nanoTime() - ts) / nano)) })
       .withAttributes(Attributes.inputBuffer(1, 1))
   }
@@ -107,10 +109,10 @@ object AkkaRecipes extends App {
    *
    */
   def allWindow[T](name: String, duration: FiniteDuration): Sink[T, Unit] =
-    (Flow[T].conflate(_ ⇒ 0)((counter, _) ⇒ counter + 1)
+    (Flow[T].conflate(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
-      .scan(0)(_ + _)
-      .to(Sink.foreach(c ⇒ println(s"$name: $c")))
+      .scan(0l)(_ + _)
+      .to(Sink.foreach(acc ⇒ println(s"$name: $acc")))
       .withAttributes(Attributes.inputBuffer(1, 1))
 
   private def buildProgress(i: Int, acc: Long, sec: Long) =
@@ -126,7 +128,7 @@ object AkkaRecipes extends App {
       val source = throttledSrc(statsD, 1 second, 20 milliseconds, Int.MaxValue, "akka-source1")
       val sink = Sink.actorSubscriber(SyncActor.props2("akka-sink1", statsD))
 
-      (source alsoTo slidingWindow("akka-scenario1", 2 seconds)) ~> sink
+      (source alsoTo tumblingWindowWithFilter("akka-scenario1", 2 seconds) { _ >= 100l }) /*slidingWindow("akka-scenario1", 2 seconds)*/ ~> sink
       ClosedShape
     }
   }
