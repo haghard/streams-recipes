@@ -4,7 +4,7 @@ import java.net.{ InetAddress, InetSocketAddress }
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.{ Executors, ForkJoinPool, ThreadFactory }
 
-import scalaz.{Nondeterminism, -\/, \/-, \/}
+import scalaz.{ Nondeterminism, -\/, \/-, \/ }
 import scalaz.stream._
 import scalaz.stream.merge._
 import scalaz.concurrent.{ Strategy, Task }
@@ -81,8 +81,8 @@ object ScalazRecipes extends App {
 
   implicit class SinkOps[A](left: Sink[Task, A]) {
     def parallel(right: Sink[Task, A]) = {
-      left.zipWith(right)((l, r) => {
-        (a: A) => Nondeterminism[Task].mapBoth(l(a), r(a))((_,_) => ())
+      left.zipWith(right)((l, r) ⇒ {
+        (a: A) ⇒ Nondeterminism[Task].mapBoth(l(a), r(a))((_, _) ⇒ ())
       })
     }
   }
