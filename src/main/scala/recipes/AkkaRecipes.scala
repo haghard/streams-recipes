@@ -30,6 +30,8 @@ import scalaz.{ \/-, -\/, \/ }
 //runMain recipes.AkkaRecipes
 object AkkaRecipes extends App {
 
+  //https://groups.google.com/forum/#!topic/akka-user/MdvVehdco94
+
   val config = ConfigFactory.parseString(
     """
       |akka {
