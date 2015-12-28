@@ -4,7 +4,7 @@ import java.net.{ InetAddress, InetSocketAddress }
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.{ Executors, ForkJoinPool, ThreadFactory }
 
-import scalaz.{ -\/, \/-, \/ }
+import scalaz.{Nondeterminism, -\/, \/-, \/}
 import scalaz.stream._
 import scalaz.stream.merge._
 import scalaz.concurrent.{ Strategy, Task }
@@ -77,6 +77,14 @@ object ScalazRecipes extends App {
   def interleaveN[T](q: scalaz.stream.async.mutable.Queue[T], ps: List[Process[Task, T]])(implicit S: Strategy): Process[Task, T] = {
     val merge = ps.tail./:(ps.head to q.enqueue) { (acc, c) ⇒ (acc merge (c to q.enqueue))(S) }.onComplete(Process.eval(q.close))
     (merge.drain merge q.dequeue)(S)
+  }
+
+  implicit class SinkOps[A](left: Sink[Task, A]) {
+    def parallel(right: Sink[Task, A]) = {
+      left.zipWith(right)((l, r) => {
+        (a: A) => Nondeterminism[Task].mapBoth(l(a), r(a))((_,_) => ())
+      })
+    }
   }
 
   implicit class ProcessOps[T](val p: Process[Task, T]) extends AnyVal {
