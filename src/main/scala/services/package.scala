@@ -16,7 +16,7 @@ package object services {
     type TwitterApi <: TwitterApiLike[Tweet]
     type Result = ValidationNel[String, Tweet]
 
-    def effect: scalaz.Monad[M]
+    def twitterEffect: scalaz.Monad[M]
 
     protected trait TwitterApiLike[T] {
       def load(query: String): M[Result]
@@ -27,10 +27,25 @@ package object services {
     def twitterApi: TwitterApi
   }
 
+  trait DbServiceModule[M[_]] {
+    type Record
+    type DbResult = ValidationNel[String, Record]
+    type DbApi <: DbApiLike[Record]
+
+    def dbEffect: scalaz.Monad[M]
+
+    protected trait DbApiLike[T] {
+      def one(query: String): M[DbResult]
+      def page(query: String): M[DbResult]
+    }
+
+    def dbApi: DbApi
+  }
+
   trait ScalazFutureTwitter extends TwitterModule[Future] {
     override type Tweet = Int
     override type TwitterApi = ScalazFutureApi
-    override val effect: scalaz.Monad[Future] = scalaz.Monad[Future]
+    override val twitterEffect: scalaz.Monad[Future] = scalaz.Monad[Future]
 
     final class ScalazFutureApi extends TwitterApiLike[Tweet] {
       override def load(query: String): Future[Result] =
@@ -45,28 +60,12 @@ package object services {
     override lazy val twitterApi = new ScalazFutureApi()
   }
 
-
-  trait DbServiceModule[M[_]] {
-    type T
-    type DbResult = ValidationNel[String, T]
-    type DbApi <: DbApiLike[T]
-
-    def dbEffect: scalaz.Monad[M]
-
-    protected trait DbApiLike[T] {
-      def one(query: String): M[DbResult]
-      def page(query: String): M[DbResult]
-    }
-
-    def dbApi: DbApi
-  }
-
   trait ScalazFutureDbService extends DbServiceModule[Future] {
-    override type T = Int
+    override type Record = Int
     override val dbEffect: scalaz.Monad[Future] = scalaz.Monad[Future]
     override type DbApi = ScalazFutureApi
 
-    final class ScalazFutureApi extends DbApiLike[T] {
+    final class ScalazFutureApi extends DbApiLike[Record] {
       override def one(query: String) = {
         Future {
           Thread.sleep(200)
@@ -76,7 +75,7 @@ package object services {
           //throw new Exception("one error")
           0.successNel[String]
         }.recover {
-          case ex: Throwable => ex.getMessage.failureNel[T]
+          case ex: Throwable => ex.getMessage.failureNel[Record]
         }
       }
 
@@ -88,9 +87,9 @@ package object services {
           println(s"page:end ${Thread.currentThread().getName}")
           //throw new Exception("page error")
           List(1, 2, 3, 4, 5)
-        }.map(list => (list.foldMap(i => i)(implicitly[Monoid[T]])).successNel[String])
+        }.map(list => (list.foldMap(i => i)(implicitly[Monoid[Record]])).successNel[String])
         .recover {
-          case ex: Throwable => ex.getMessage.failureNel[T]
+          case ex: Throwable => ex.getMessage.failureNel[Record]
         }
     }
 
@@ -98,24 +97,24 @@ package object services {
   }
 
   trait ScalazTaskDbService extends DbServiceModule[Task] {
-    override type T = Int
+    override type Record = Int
     override val dbEffect: scalaz.Monad[Task] = scalaz.Monad[Task]
     override type DbApi = ScalazTaskApi
 
-    final class ScalazTaskApi extends DbApiLike[T] {
+    final class ScalazTaskApi extends DbApiLike[Record] {
       override def one(query: String) =
         Task(0).attemptRun match {
           case \/-(r) => Task.now(r.successNel[String])
-          case -\/(ex) => Task.now(ex.getMessage.failureNel[T])
+          case -\/(ex) => Task.now(ex.getMessage.failureNel[Record])
         }
 
       override def page(query: String): Task[DbResult] = {
         Task {
           (10.successNel[String] :: 11.successNel[String] ::
-            "12.fetch error".failureNel[T] ::
-            "13 fetch error".failureNel[T] :: Nil)
+            "12.fetch error".failureNel[Record] ::
+            "13 fetch error".failureNel[Record] :: Nil)
              .sequenceU
-            .map(_.foldMap(i=>i)(implicitly[Monoid[T]]))
+            .map(_.foldMap(i=>i)(implicitly[Monoid[Record]]))
         }
       }
     }
@@ -170,5 +169,4 @@ package object services {
 
   c.await()
 */
-
 }
