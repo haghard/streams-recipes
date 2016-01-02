@@ -136,30 +136,17 @@ object ScalazRecipes extends App {
       Process.repeatEval(Task.delay { Thread.sleep(millis); System.nanoTime })
   }
 
-  def scenario01: Process[Task, Unit] = {
-    val s = signal
-    val sourceDelay = 20
-    val srcMessage = "scalaz-source1:1|c"
-    val sinkMessage = "scalaz-sink1:1|c"
-
-    (s.continuous zip sleep(observePeriod))
-      .to(sink.lift[Task, (Int, Unit)] { x ⇒ Task.delay(println(s"scalaz-scenario01: ${x._1}")) })
-      .run.runAsync(_ ⇒ ())
-
-    naturalsEvery(sourceDelay) observe statsDin(statsDInstance, srcMessage) to statsDOut0(s, statsDInstance, sinkMessage)
-  }
-
   /**
    * Situation: A source and a sink perform on the same rates.
    * Result: The source and the sink are going on the same rate.
    */
-  def scenario01_1: Process[Task, Unit] = {
+  def scenario01: Process[Task, Unit] = {
     val sourceDelay = 20l
     val latency: Duration = 5 seconds
     val srcMessage = "scalaz-source1:1|c"
     val sinkMessage = "scalaz-sink1:1|c"
 
-    val src = naturalsEvery(sourceDelay).observe(statsDin(statsDInstance, srcMessage))
+    val src = (naturalsEvery(sourceDelay) observe statsDin(statsDInstance, srcMessage))
     (src throughTumblingWindow latency)(Ex) to statsDin(statsDInstance, sinkMessage)
   }
 

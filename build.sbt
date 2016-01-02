@@ -41,6 +41,7 @@ libraryDependencies ++= Seq(
   "org.http4s"        %% "jawn-streamz"   % "0.7.0",
   "org.spire-math"    %% "jawn-spray"     % "0.8.3", //"scalaz-stream" % "0.8",
   //"io.underscore"     %% "csvside"        % "0.10.1",
+  "org.spire-math"    %% "cats-core"      % "0.4.0-SNAPSHOT",
   "org.hdrhistogram"  %  "HdrHistogram"   % "2.1.7"
 )
 
