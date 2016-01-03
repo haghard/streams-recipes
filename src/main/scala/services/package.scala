@@ -1,14 +1,9 @@
+import scala.reflect.ClassTag
 
 package object services {
   import scala.concurrent.Future
   import scalaz.concurrent.Task
   import scalaz._, Scalaz._
-
-  /*
-  implicit def FutureMonad(implicit ctx: scala.concurrent.ExecutionContext) = new Monad[Future] {
-    def point[A](a: => A): Future[A] = Future(a)(ctx)
-    def bind[A, B](fa: Future[A])(f: (A) => Future[B]): Future[B] = fa flatMap f
-  }*/
 
   trait TwitterModule[M[_]] {
     type Tweet
@@ -26,6 +21,41 @@ package object services {
     }
 
     def twitterApi: TwitterApi
+  }
+
+  /*
+  object TwitterModule {
+    def apply[M[_]: scalaz.Monad] = new TwitterModule[M]{}
+  }
+
+  implicit def FutureMonad(implicit ctx: scala.concurrent.ExecutionContext) = new Monad[Future] {
+    def point[A](a: => A): Future[A] = Future(a)(ctx)
+    def bind[A, B](fa: Future[A])(f: (A) => Future[B]): Future[B] = fa flatMap f
+  }
+
+  */
+
+  object Services {
+
+    object Implicits {
+
+      implicit def twitterTaskInt: Task[ValidationNel[String, Int]] =
+        Task(0.successNel[String])
+
+      implicit def twitterTaskStr: Task[ValidationNel[String, String]] =
+        Task("0".successNel[String])
+
+      implicit def twitterFutureInt: Future[ValidationNel[String, Int]] =
+        Future(0.successNel[String])(scala.concurrent.ExecutionContext.Implicits.global)
+
+      implicit def twitterFutureStr: Future[ValidationNel[String, String]] =
+        Future("0".successNel[String])(scala.concurrent.ExecutionContext.Implicits.global)
+    }
+
+    def apply[T, M[_]](implicit effect: M[ValidationNel[String,T]], tag0: ClassTag[M[_]], tag1: ClassTag[T]): M[ValidationNel[String,T]] = {
+      println(s"executable effect: ${tag0.runtimeClass.getName}[${tag1.runtimeClass.getName}]")
+      effect
+    }
   }
 
   trait DbServiceModule[M[_]] {
@@ -175,6 +205,13 @@ package object services {
         }(DbCtx)
       }(TwitterCtx)
     }
+
+    def zip3 = {
+      import services.Services.Implicits._
+      (services.Services[Int, scala.concurrent.Future] zip services.Services[String, scala.concurrent.Future])
+        .map(pair => (pair._1 |@| pair._2) {case (a, b) ⇒ s"twitter:$a db:$b"})(TwitterCtx)
+    }
+
   }
 
   object ApplicationTaskService extends ScalazTaskTwitter with ScalazTaskDbService {
@@ -184,8 +221,8 @@ package object services {
     } yield ((x |@| y){case (a, b) ⇒ s"twitter:$a db:$b"})
   }
 
-/*
 
+/*
   import services._
   import scalaz._, Scalaz._
 
@@ -217,6 +254,13 @@ package object services {
 
   new ScalazUserTaskService{}.userApi.page("select page")
     .runAsync(_.map { r ⇒ println(r.shows); c.countDown() })
+
+  import services.Services.Implicits._
+  services.Services[Int, Task].run
+  services.Services[Int, scala.concurrent.Future].value
+
+  services.ApplicationFutureService.zip3
+    .onComplete(_.map { r ⇒ println(r); c.countDown() })(services.ApplicationFutureService.TwitterCtx)
 
   c.await()
 */
