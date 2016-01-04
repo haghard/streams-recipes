@@ -9,7 +9,7 @@ package object services {
   import scalaz.concurrent.Task
   import scalaz._, Scalaz._
 
-  trait Parallelism[M[_]] {
+  trait ScalazParallelism[M[_]] {
     implicit def Executor: java.util.concurrent.ExecutorService
     def ND: scalaz.Nondeterminism[M]
   }
@@ -31,7 +31,6 @@ package object services {
   }
 
   trait DbServiceModule[M[_]] {
-
     type Record
     type DbApi <: DbApiLike
     type ValidRecord = ValidationNel[String, Record]
@@ -61,11 +60,9 @@ package object services {
 
     object Implicits {
 
-      implicit def twitterTaskInt: Task[ValidationNel[String, Int]] =
-        Task(0.successNel[String])
+      implicit def twitterTaskInt: Task[ValidationNel[String, Int]] = Task(0.successNel[String])
 
-      implicit def twitterTaskStr: Task[ValidationNel[String, String]] =
-        Task("0".successNel[String])
+      implicit def twitterTaskStr: Task[ValidationNel[String, String]] = Task("0".successNel[String])
 
       implicit def twitterFutureInt: Future[ValidationNel[String, Int]] =
         Future(0.successNel[String])(scala.concurrent.ExecutionContext.Implicits.global)
@@ -81,7 +78,7 @@ package object services {
   }
 
   trait ScalazFutureTwitter extends TwitterModule[scalaz.concurrent.Future] {
-    mixin: Parallelism[scalaz.concurrent.Future] =>
+    mixin: ScalazParallelism[scalaz.concurrent.Future] =>
 
     override type Tweet = Int
     override type TwitterApi = ScalazFutureApi
@@ -94,9 +91,9 @@ package object services {
 
       override def reduce(query: String): scalaz.concurrent.Future[ValidTweet] = {
         scalaz.concurrent.Future {
-          //Thread.sleep(200)
+          Thread.sleep(200)
           println(s"reduce:start ${Thread.currentThread().getName}")
-          //Thread.sleep(800)
+          Thread.sleep(800)
           println(s"reduce:end ${Thread.currentThread().getName}")
           take(5).foldMap(i => i)(implicitly[Monoid[Tweet]]).successNel[String]
         }
@@ -109,7 +106,7 @@ package object services {
   }
 
   trait ScalazTaskTwitter extends TwitterModule[Task] {
-    mixin: Parallelism[Task] =>
+    mixin: ScalazParallelism[Task] =>
 
     override type Tweet = Int
     override type TwitterApi = TwitterApiLike
@@ -122,9 +119,9 @@ package object services {
       override def reduce(query: String): Task[ValidTweet] =
         Task {
           println(s"reduce:start ${Thread.currentThread().getName}")
-          Thread.sleep(500)
+          Thread.sleep(300)
           println(s"reduce:stop ${Thread.currentThread().getName}")
-          (1.successNel[String] :: 2.successNel[String] /*:: "3 error".failureNel[Tweet] :: "4 error".failureNel[Tweet]*/ :: Nil).sequenceU
+          (1.successNel[String] :: 2.successNel[String] :: /*"3 error".failureNel[Tweet] :: "4 error".failureNel[Tweet] ::*/ Nil).sequenceU
           .map(_.foldMap(t=>t)(implicitly[Monoid[Tweet]]))
         }(Executor)
 
@@ -135,7 +132,7 @@ package object services {
   }
 
   trait ScalazFutureDbService extends DbServiceModule[scalaz.concurrent.Future] {
-    mixin: Parallelism[scalaz.concurrent.Future] =>
+    mixin: ScalazParallelism[scalaz.concurrent.Future] =>
 
     override type Record = Int
     override type DbApi = ScalazFutureApi
@@ -151,7 +148,7 @@ package object services {
           println(s"one:end ${Thread.currentThread().getName}")
           //throw new Exception("one error")
           0.successNel[String]
-        } //.recover { case ex: Throwable => ex.getMessage.failureNel[Record]}
+        }
 
       override def page(query: String) =
         scalaz.concurrent.Future {
@@ -162,14 +159,14 @@ package object services {
           //throw new Exception("page error")
           (1.successNel[String] :: 2.successNel[String] :: /*"3 error".failureNel[Record] :: "4 error".failureNel[Record] ::*/ Nil).sequenceU
             .map(_.foldMap(i=>i)(implicitly[Monoid[Record]]))
-        } //.recover { case ex: Throwable => ex.getMessage.failureNel[Record] }
+        }
     }
 
     override lazy val dbApi = new ScalazFutureApi()
   }
 
   trait ScalazTaskDbService extends DbServiceModule[Task] {
-    mixin: Parallelism[Task] =>
+    mixin: ScalazParallelism[Task] =>
 
     override type Record = Int
     override type DbApi = ScalazTaskApi
@@ -186,11 +183,11 @@ package object services {
       override def page(query: String): Task[ValidRecord] = {
         Task {
           println(s"page:start ${Thread.currentThread().getName}")
-          Thread.sleep(800l)
+          Thread.sleep(500l)
           println(s"page:stop ${Thread.currentThread().getName}")
           (10.successNel[String] :: 11.successNel[String] :: /*"12 error".failureNel[Record] :: "13 error".failureNel[Record] ::*/ Nil).sequenceU
             .map(_.foldMap(i => i)(implicitly[Monoid[Record]]))
-        }(Executor)
+        }
       }
     }
 
@@ -221,76 +218,82 @@ package object services {
     import scalaz.Monad
     import scalaz.syntax.ToMonadOps
 
-    trait IsHListOfM[M[_], In <: HList, Out <: HList] extends ToMonadOps{
-      def hsequence(l: In): M[Out]
+    trait HListOfMonad[M[_], In <: HList, Out <: HList] extends ToMonadOps {
+      def parallelHList(l: In)(implicit nd: scalaz.Nondeterminism[M]): M[Out]
+      def sequenceHList(l: In): M[Out]
     }
 
-    object IsHListOfM {
-      def apply[M[_], In <: HList, Out <: HList](implicit isHM: IsHListOfM[M, In, Out], m: Monad[M]): IsHListOfM[M, In, Out] = isHM
+    object HListOfMonad {
+      def apply[M[_], In <: HList, Out <: HList](implicit isHM: HListOfMonad[M, In, Out], m: Monad[M]): HListOfMonad[M, In, Out] = isHM
 
-      implicit def IsHNilHListOfM[M[_]](implicit m: Monad[M]) = new IsHListOfM[M, HNil, HNil] {
-        override def hsequence(l: HNil): M[HNil] = m.pure(HNil)
+      implicit def IsHNilHListOfM[M[_]](implicit m: Monad[M]) = new HListOfMonad[M, HNil, HNil] {
+        override def parallelHList(l: HNil)(implicit nd: scalaz.Nondeterminism[M]): M[HNil] = m.pure(HNil)
+        override def sequenceHList(l: HNil): M[HNil] = m.pure(HNil)
       }
 
-      implicit def hconsIsHListOfM[M[_], H, In <: HList, Out <: HList](implicit ev: IsHListOfM[M, In, Out], m: Monad[M]): IsHListOfM[M, M[H] :: In, H :: Out] = new IsHListOfM[M, M[H] :: In, H :: Out] {
-        override def hsequence(l: M[H] :: In): M[H :: Out] =
-          l.head.flatMap(h => ev.hsequence(l.tail).map(h :: _))
-      }
+      implicit def hconsIsHListOfM[M[_], H, In <: HList, Out <: HList](implicit ev: HListOfMonad[M, In, Out], m: Monad[M]):
+        HListOfMonad[M, M[H] :: In, H :: Out] = new HListOfMonad[M, M[H] :: In, H :: Out] {
+          //concurrent
+          override def parallelHList(list: M[H] :: In)(implicit nd: scalaz.Nondeterminism[M]): M[H :: Out] =
+            nd.mapBoth(list.head, ev.parallelHList(list.tail)) { (a, b) => a :: b }
+
+          //sequentual
+          override def sequenceHList(list: M[H] :: In): M[H :: Out] =
+            list.head.flatMap(h => ev.sequenceHList(list.tail).map(h :: _))
+        }
     }
 
-    def hsequence[M[_], In <: HList, Out <: HList](l: In)(implicit ev: IsHListOfM[M, In, Out], m: Monad[M]) = ev.hsequence(l)
+    def zip[M[_], P <: Product, In <: HList, Out <: HList](p: P)(implicit gen: Generic.Aux[P, In], ev: HListOfMonad[M, In, Out],
+                                                                 tupler: Tupler[Out], m: Monad[M], nd: scalaz.Nondeterminism[M]) =
+      m.map(parallelHList(gen.to(p)))(_.tupled)
+
+    def parallelHList[M[_], In <: HList, Out <: HList](l: In)(implicit M: HListOfMonad[M, In, Out], m: Monad[M], nd: scalaz.Nondeterminism[M]): M[Out] =
+      M.parallelHList(l)
+
+    def sequenceHList[M[_], In <: HList, Out <: HList](l: In)(implicit M: HListOfMonad[M, In, Out], m: Monad[M]): M[Out] =
+      M.sequenceHList(l)
 
     case class ScalacApplicativeBuilder[M[_], In <: HList, Out <: HList](values: In)(implicit m: Monad[M]) {
-      def asTuple[T](implicit  ev: IsHListOfM[M, In, Out], m: Monad[M], tupler: Tupler.Aux[Out, T]): M[T] = m.map(hsequence(values))(_.tupled)
+      def asTuple[T](implicit ev: HListOfMonad[M, In, Out], m: Monad[M], tupler: Tupler.Aux[Out, T], nd: scalaz.Nondeterminism[M]): M[T] =
+        m.map(parallelHList(values))(_.tupled)
 
-      def apply[F, FOut](f: F)(implicit fnEv: FnToProduct.Aux[F, Out => FOut],  ev: IsHListOfM[M, In, Out]): M[FOut] =
-        m.map(hsequence(values))(fnEv(f))
+      def apply[F, FOut](f: F)(implicit fnEv: FnToProduct.Aux[F, Out => FOut], ev: HListOfMonad[M, In, Out], nd: scalaz.Nondeterminism[M]): M[FOut] =
+        m.map(parallelHList(values))(fnEv(f))
 
-      def :@:[X, T1](newOne: M[X]) = ScalacApplicativeBuilder[M, M[X] :: In, X :: Out](newOne :: values)
+      def ||@||[X, T1](newOne: M[X]) = ScalacApplicativeBuilder[M, M[X] :: In, X :: Out](newOne :: values)
     }
 
-    implicit def ToScalacApplicativeBuilder[M[_], V](value: M[V])(implicit ev: IsHListOfM[M, M[V] :: HNil, V :: HNil], m: Monad[M]): ScalacApplicativeBuilder[M, M[V] :: HNil, V::HNil] =
+    implicit def ToScalacApplicativeBuilder[M[_], V](value: M[V])(implicit ev: HListOfMonad[M, M[V] :: HNil, V :: HNil], m: Monad[M]): ScalacApplicativeBuilder[M, M[V] :: HNil, V::HNil] =
       new ScalacApplicativeBuilder[M, M[V] :: HNil, V :: HNil](value :: HNil)
   }
 
-  //object FutureDbService extends ScalazFutureDbService
-  //object ScalazFutureTwitterService extends ScalazFutureTwitter
-
-  //object TaskDbService extends ScalazTaskDbService
-  //object ScalazTaskTwitterService extends ScalazTaskTwitter
-
-
   object ApplicationFutureService extends ScalazFutureTwitter with ScalazFutureDbService
-    with Parallelism[scalaz.concurrent.Future] {
+    with ScalazParallelism[scalaz.concurrent.Future] {
 
     override implicit lazy val Executor = java.util.concurrent.Executors.newFixedThreadPool(3, new StreamThreadFactory("futures"))
 
     override def ND = scalaz.Nondeterminism[scalaz.concurrent.Future]
 
-    def gatherP =
-      ND.gatherUnordered(Seq((twitterApi reduce "reduce page"), (dbApi page "select page")))
-        .map(_.sequenceU)
+    def gatherP = ND.gatherUnordered(Seq((twitterApi reduce "reduce page"), (dbApi page "select page"))).map(_.sequenceU)
 
-
-    /**
-      * Sequentual
-      */
     def gatherS1 =
       monadicTwitterContext.apply2(
         (twitterApi reduce "select page"),
         (dbApi page "select page")
       ) { (a, b) => (a |@| b) { case (a, b) ⇒ s" ${Thread.currentThread().getName} - twitter:$a db:$b" } }
 
-    /**
-      * Sequentual
-      */
     def gatherS2 = for {
       x <- twitterApi reduce "select page"
       y <- dbApi page "select page"
     } yield ((x |@| y) { case (a, b) ⇒ s"twitter:$a db:$b" })
   }
 
-  object ApplicationTaskService extends ScalazTaskTwitter with ScalazTaskDbService with Parallelism[Task] {
+  def validate[F[_]: Traverse, A, B](fa : F[A])(map : A => B): ValidationNel[Throwable, F[B]] = {
+    Applicative[({type l[a] = ValidationNel[Throwable, a]})#l]
+      .traverse(fa)(a => Validation.fromTryCatchNonFatal[B](map(a)).toValidationNel)
+  }
+
+  object ApplicationTaskService extends ScalazTaskTwitter with ScalazTaskDbService with ScalazParallelism[Task] {
     import KleisliSupport._
     import ShapelessMonad._
 
@@ -299,13 +302,22 @@ package object services {
     override def ND = scalaz.Nondeterminism[scalaz.concurrent.Task]
 
     /**
+      * Concurrent execution with ApplicativeBuilder and Shapeless
+      * It allows doing the same things as original Applicative Builder and is not limited to 12 elements.
+      */
+    def gatherP0 = {
+      ((twitterApi reduce "reduce page") ||@|| (dbApi page "select page") ||@|| (dbApi page "select page")) { (a: ValidTweet, b: ValidRecord, c: ValidRecord) ⇒
+        s"${Thread.currentThread().getName}-twitter:$a db1:$b db2:$c" }
+    }
+
+    /**
       * Concurrent
       */
     def gatherP =
       (for {
         ex ← reader
-        pair <- ND.both((twitterApi reduce "reduce page"), (dbApi page "select page")).kleisliR
-        out = (pair._1 |@| pair._2) { case (a, b) ⇒ s"${Thread.currentThread().getName} - twitter:$a db:$b" }
+        results <- ND.both((twitterApi reduce "reduce page"), (dbApi page "select page")).kleisliR
+        out = (results._1 |@| results._2) { case (a, b) ⇒ s"${Thread.currentThread().getName} - twitter:$a db:$b" }
       } yield out).run(Executor)
 
     /**
@@ -326,6 +338,18 @@ package object services {
         (x |@| y) { case (a, b) ⇒ s"${Thread.currentThread().getName} - twitter:$a db:$b" }
       }
     */
+
+    def gatherPHList = {
+      val tasks = (twitterApi reduce "reduce page") :: (dbApi page "select page") :: (twitterApi reduce "reduce page") :: shapeless.HNil
+      parallelHList(tasks).map { tupler: shapeless.::[ValidTweet,shapeless.::[ValidRecord,shapeless.::[ValidTweet,shapeless.HNil]]] =>
+        (tupler.head |@| tupler.tail.head |@| tupler.tail.tail.head) { case (a, b, c) => s"A:$a - B:$b - C:$c" }
+      }
+    }
+
+    def gatherPzip = {
+      zip((twitterApi reduce "reduce page"), (dbApi page "select page"), (twitterApi reduce "reduce page"))
+        .map { tupler: (ValidTweet, ValidRecord, ValidTweet) => (tupler._1 |@| tupler._2 |@| tupler._3) { case (a, b, c) => s"A:$a B:$b C:$c"} }
+    }
 
     /**
       * Sequentual
@@ -371,15 +395,12 @@ package object services {
       (x |@| y) { case (a, b) ⇒ s"${Thread.currentThread().getName} - twitter:$a db:$b" }
     }
 
-
     /**
-      * Sequentual with ApplicativeBuilder and Shareless
-      *
+      * Sequentual with ApplicativeBuilder and Shapeless
       */
-    def gatherS6 = {
-      ((twitterApi reduce "reduce page") :@: (dbApi page "select page")){(a:ValidTweet,b:ValidRecord) ⇒
-        s"${Thread.currentThread().getName}-twitter:$a db:$b"
-      }
+    def gatherSHList = {
+      val tasks = (twitterApi reduce "reduce page") :: (dbApi page "select page") :: (twitterApi reduce "reduce page") :: shapeless.HNil
+      sequenceHList(tasks)
     }
   }
 
