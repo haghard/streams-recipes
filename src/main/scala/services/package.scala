@@ -243,8 +243,8 @@ package object services {
         }
     }
 
-    def zip[M[_], P <: Product, In <: HList, Out <: HList](p: P)(implicit gen: Generic.Aux[P, In], ev: HListOfMonad[M, In, Out],
-                                                                 tupler: Tupler[Out], m: Monad[M], nd: scalaz.Nondeterminism[M]) =
+    def zip[M[_], P <: Product, In <: HList, Out <: HList](p: P)(implicit gen: Generic.Aux[P, In], ev: HListOfMonad[M, In, Out], tupler: Tupler[Out],
+                                                                 m: Monad[M], nd: scalaz.Nondeterminism[M]) =
       m.map(parallelHList(gen.to(p)))(_.tupled)
 
     def parallelHList[M[_], In <: HList, Out <: HList](l: In)(implicit M: HListOfMonad[M, In, Out], m: Monad[M], nd: scalaz.Nondeterminism[M]): M[Out] =
@@ -253,18 +253,18 @@ package object services {
     def sequenceHList[M[_], In <: HList, Out <: HList](l: In)(implicit M: HListOfMonad[M, In, Out], m: Monad[M]): M[Out] =
       M.sequenceHList(l)
 
-    case class ScalacApplicativeBuilder[M[_], In <: HList, Out <: HList](values: In)(implicit m: Monad[M]) {
+    case class ParallelApplicativeBuilder[M[_], In <: HList, Out <: HList](values: In)(implicit m: Monad[M]) {
       def asTuple[T](implicit ev: HListOfMonad[M, In, Out], m: Monad[M], tupler: Tupler.Aux[Out, T], nd: scalaz.Nondeterminism[M]): M[T] =
         m.map(parallelHList(values))(_.tupled)
 
       def apply[F, FOut](f: F)(implicit fnEv: FnToProduct.Aux[F, Out => FOut], ev: HListOfMonad[M, In, Out], nd: scalaz.Nondeterminism[M]): M[FOut] =
         m.map(parallelHList(values))(fnEv(f))
 
-      def ||@||[X, T1](newOne: M[X]) = ScalacApplicativeBuilder[M, M[X] :: In, X :: Out](newOne :: values)
+      def ||@||[X, T1](next: M[X]) = ParallelApplicativeBuilder[M, M[X] :: In, X :: Out](next :: values)
     }
 
-    implicit def ToScalacApplicativeBuilder[M[_], V](value: M[V])(implicit ev: HListOfMonad[M, M[V] :: HNil, V :: HNil], m: Monad[M]): ScalacApplicativeBuilder[M, M[V] :: HNil, V::HNil] =
-      new ScalacApplicativeBuilder[M, M[V] :: HNil, V :: HNil](value :: HNil)
+    implicit def ToParallelApplicativeBuilder[M[_], V](value: M[V])(implicit ev: HListOfMonad[M, M[V] :: HNil, V :: HNil], m: Monad[M]): ParallelApplicativeBuilder[M, M[V] :: HNil, V::HNil] =
+      new ParallelApplicativeBuilder[M, M[V] :: HNil, V :: HNil](value :: HNil)
   }
 
   object ApplicationFutureService extends ScalazFutureTwitter with ScalazFutureDbService
@@ -307,7 +307,7 @@ package object services {
       */
     def gatherP0 = {
       ((twitterApi reduce "reduce page") ||@|| (dbApi page "select page") ||@|| (dbApi page "select page")) { (a: ValidTweet, b: ValidRecord, c: ValidRecord) ⇒
-        s"${Thread.currentThread().getName}-twitter:$a db1:$b db2:$c" }
+        s"[twitter:$a] - [db1:$b] - [db2:$c]" }
     }
 
     /**
