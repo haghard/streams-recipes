@@ -28,7 +28,7 @@ package object services {
     }
 
     private def handlerConversion[A]: ((Throwable \/ A) => Unit) => Try[A] => Unit =
-      callback => { t: Try[A] => \/ fromTryCatch t.get } andThen callback
+      callback => { t: Try[A] => \/.fromTryCatchNonFatal(t.get) } andThen callback
   }
 
   trait ScalazParallelism[M[_]] {

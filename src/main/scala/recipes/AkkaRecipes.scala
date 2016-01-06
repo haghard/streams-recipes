@@ -103,7 +103,9 @@ object AkkaRecipes extends App {
   val Mat = ActorMaterializer(Settings)
   //implicit val Mat20 = ActorMaterializer(Settings20)
 
-  RunnableGraph.fromGraph(scenario1).run()(Mat)
+  RunnableGraph.fromGraph(scenario0).run()(Mat)
+
+  //RunnableGraph.fromGraph(scenario1).run()(Mat)
   //RunnableGraph.fromGraph(scenario2).run()
   //RunnableGraph.fromGraph(scenario3).run()
   //RunnableGraph.fromGraph(scenario4).run()(Mat20)
@@ -149,6 +151,43 @@ object AkkaRecipes extends App {
       .scan(0l)(_ + _)
       .to(Sink.foreach(acc ⇒ println(s"$name: $acc")))
       .withAttributes(Attributes.inputBuffer(1, 1))
+
+  /**
+    *
+    *
+    */
+  def zipLast[T](in1: Source[T, Any], in2: Source[T, Any], in3: Source[T, Any]): Source[(T, T, T), Unit] = {
+    Source.fromGraph(GraphDSL.create() { implicit b ⇒
+      import GraphDSL.Implicits._
+
+      //send duplicates in downstream
+      def expand = b.add(Flow[T].expand[T, T](identity)(t ⇒ (t, t)))
+
+      def conflate = b.add(Flow[T].conflate(identity)((c, _) ⇒ c))
+
+      val zip = b.add(ZipWith(Tuple3.apply[T, T, T] _).withAttributes(Attributes.inputBuffer(1, 1)))
+
+      in1 ~> conflate ~> zip.in0
+      in2 ~> conflate ~> zip.in1
+      in3 ~> conflate ~> zip.in2
+
+      SourceShape(zip.out)
+    })
+  }
+
+  def scenario0: Graph[ClosedShape, Unit] = {
+    GraphDSL.create() { implicit b ⇒
+      import GraphDSL.Implicits._
+
+      //Source.unfoldInf(0)((d) ⇒ (d + 1, d))
+      val fastIn = Source.tick(1.second, 1.second, ()).scan(0)((d, _) ⇒ d + 1)
+      val slowIn = Source.tick(2.second, 2.second, ()).scan(0)((d, _) ⇒ d + 1)
+      val evenSlowerIn = Source.tick(3.second, 3.second, ()).scan(0)((d, _) ⇒ d + 1)
+
+      zipLast(fastIn, slowIn, evenSlowerIn) ~> Sink.actorSubscriber(SyncActor.props2("akka-sink-0", statsD))
+      ClosedShape
+    }
+  }
 
   private def buildProgress(i: Int, acc: Long, sec: Long) =
     s"${List.fill(i)(" ★ ").mkString} number:$acc interval:$sec"
@@ -1067,8 +1106,12 @@ class SyncActor private (name: String, val address: InetSocketAddress, delay: Lo
     case OnNext(msg: Int) ⇒
       send(s"$name:1|c")
 
+    case OnNext(msg: (Int, Int, Int)) ⇒
+      println(msg)
+      send(s"$name:1|c")
+
     case OnNext(msg: String) ⇒
-      //println(msg)
+      println(msg)
       Thread.sleep(delay)
       count += 1
       if (count == limit) {
