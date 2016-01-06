@@ -18,12 +18,12 @@ object ScalazRecipes extends App {
   val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.47"), 8125)
   val Ex = Strategy.Executor(new ForkJoinPool(Runtime.getRuntime.availableProcessors()))
 
-  case class RecipesThreadFactory(name: String) extends ThreadFactory {
+  case class RecipesDaemons(name: String) extends ThreadFactory {
     private def namePrefix = s"$name-thread"
     private val threadNumber = new AtomicInteger(1)
     private val group: ThreadGroup = Thread.currentThread().getThreadGroup
     override def newThread(r: Runnable) = {
-      val t = new Thread(this.group, r, s"$namePrefix-${threadNumber.getAndIncrement()}", 0L)
+      val t = new Thread(group, r, s"$namePrefix-${threadNumber.getAndIncrement()}", 0L)
       t.setDaemon(true)
       t
     }
@@ -33,7 +33,7 @@ object ScalazRecipes extends App {
 
   def sleep(latency: Long) = Process.repeatEval(Task.delay(Thread.sleep(latency)))
 
-  def signal = async.signalOf(0)(Strategy.Executor(Executors.newFixedThreadPool(2, new RecipesThreadFactory("signal"))))
+  def signal = async.signalOf(0)(Strategy.Executor(Executors.newFixedThreadPool(2, new RecipesDaemons("signal"))))
 
   scenario02.run[Task].run
 

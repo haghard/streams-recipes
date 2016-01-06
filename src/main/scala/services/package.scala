@@ -1,6 +1,6 @@
 import java.util.concurrent.ExecutorService
 
-import recipes.ScalazRecipes.RecipesThreadFactory
+import recipes.ScalazRecipes.RecipesDaemons
 
 import scala.reflect.ClassTag
 
@@ -14,6 +14,7 @@ package object services {
     def ND: scalaz.Nondeterminism[M]
   }
 
+  //http://logji.blogspot.ru/2014/02/the-abstract-future.html
   trait TwitterModule[M[_]] {
     type Tweet
     type TwitterApi <: TwitterApiLike
@@ -269,13 +270,11 @@ package object services {
     val M = implicitly[Monad[M]]
     val ND = implicitly[Nondeterminism[M]]
 
-    //implicit val S = java.util.concurrent.Executors.newFixedThreadPool(3, RecipesThreadFactory("monoid"))
-
     override def zero = M.pure(m.zero)
 
     override def append(a: M[T], b: ⇒ M[T]): M[T] =
       ND.nmap2(a, b) { (l, r) ⇒
-        println(s"${Thread.currentThread().getName}: $l append $r ")
+        //println(s"${Thread.currentThread().getName}: $l append $r ")
         m.append(l, r)
       }
   }
@@ -288,7 +287,7 @@ package object services {
   object ApplicationFutureService extends ScalazFutureTwitter with ScalazFutureDbService
     with ScalazParallelism[scalaz.concurrent.Future] {
 
-    override implicit lazy val Executor = java.util.concurrent.Executors.newFixedThreadPool(3, new RecipesThreadFactory("futures"))
+    override implicit lazy val Executor = java.util.concurrent.Executors.newFixedThreadPool(3, new RecipesDaemons("futures"))
 
     override def ND = scalaz.Nondeterminism[scalaz.concurrent.Future]
   }
@@ -297,7 +296,7 @@ package object services {
     import KleisliSupport._
     import ShapelessMonad._
 
-    override implicit lazy val Executor = java.util.concurrent.Executors.newFixedThreadPool(3, new RecipesThreadFactory("tasks"))
+    override implicit lazy val Executor = java.util.concurrent.Executors.newFixedThreadPool(3, new RecipesDaemons("tasks"))
 
     override def ND = scalaz.Nondeterminism[scalaz.concurrent.Task]
 
