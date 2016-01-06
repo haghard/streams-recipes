@@ -1,13 +1,35 @@
 import java.util.concurrent.ExecutorService
 
-import recipes.ScalazRecipes.RecipesDaemons
-
 import scala.reflect.ClassTag
+import recipes.ScalazRecipes.RecipesDaemons
 
 package object services {
   import scala.concurrent.Future
   import scalaz.concurrent.Task
   import scalaz._, Scalaz._
+
+  import util.Try
+  import scalaz.concurrent.{Task => ZTask}
+  import scala.concurrent.{ExecutionContext, Future => SFuture, Promise}
+
+  //Integration code between Scalaz and Scala standard concurrency libraries
+  object Task2Future {
+
+    def fromScala[A](future: SFuture[A])(implicit ec: ExecutionContext): ZTask[A] =
+      scalaz.concurrent.Task.async(handlerConversion andThen future.onComplete)
+
+    def fromScalaDeferred[A](future: => SFuture[A])(implicit ec: ExecutionContext): ZTask[A] =
+      scalaz.concurrent.Task.delay(fromScala(future)(ec)).flatMap(identity)
+
+    def unsafeToScala[A](task: ZTask[A]): SFuture[A] = {
+      val p = Promise[A]
+      task.runAsync { _ fold (p failure _, p success _) }
+      p.future
+    }
+
+    private def handlerConversion[A]: ((Throwable \/ A) => Unit) => Try[A] => Unit =
+      callback => { t: Try[A] => \/ fromTryCatch t.get } andThen callback
+  }
 
   trait ScalazParallelism[M[_]] {
     implicit def Executor: java.util.concurrent.ExecutorService
