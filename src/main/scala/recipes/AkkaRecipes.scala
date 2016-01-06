@@ -100,10 +100,10 @@ object AkkaRecipes extends App {
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher")
 
-  val Mat = ActorMaterializer(Settings)
+
   //implicit val Mat20 = ActorMaterializer(Settings20)
 
-  RunnableGraph.fromGraph(scenario0).run()(Mat)
+  RunnableGraph.fromGraph(scenario0).run()(ActorMaterializer(Settings))
 
   //RunnableGraph.fromGraph(scenario1).run()(Mat)
   //RunnableGraph.fromGraph(scenario2).run()
@@ -152,8 +152,10 @@ object AkkaRecipes extends App {
       .to(Sink.foreach(acc ⇒ println(s"$name: $acc")))
       .withAttributes(Attributes.inputBuffer(1, 1))
 
+  private def buildProgress(i: Int, acc: Long, sec: Long) =
+    s"${List.fill(i)(" ★ ").mkString} number:$acc interval:$sec"
+
   /**
-    *
     *
     */
   def zipLast[T](in1: Source[T, Any], in2: Source[T, Any], in3: Source[T, Any]): Source[(T, T, T), Unit] = {
@@ -188,9 +190,6 @@ object AkkaRecipes extends App {
       ClosedShape
     }
   }
-
-  private def buildProgress(i: Int, acc: Long, sec: Long) =
-    s"${List.fill(i)(" ★ ").mkString} number:$acc interval:$sec"
 
   /**
    * Situation: A source and a sink perform on the same rates.
