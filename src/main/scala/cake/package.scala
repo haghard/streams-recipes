@@ -3,7 +3,7 @@ import java.util.concurrent.ExecutorService
 import scala.reflect.ClassTag
 import recipes.ScalazRecipes.RecipesDaemons
 
-package object services {
+package object cake {
   import scala.concurrent.Future
   import scalaz.concurrent.Task
   import scalaz._, Scalaz._
@@ -93,6 +93,9 @@ package object services {
       implicit def twitterFutureStr: Future[ValidationNel[String, String]] =
         Future("0".successNel[String])(scala.concurrent.ExecutionContext.Implicits.global)
     }
+
+    EitherT
+    //case class
 
     def apply[T, M[_]](implicit effect: M[ValidationNel[String,T]], hoTag: ClassTag[M[_]], outT: ClassTag[T]): M[ValidationNel[String,T]] = {
       println(s"executable effect: ${hoTag.runtimeClass.getName}[${outT.runtimeClass.getName}]")

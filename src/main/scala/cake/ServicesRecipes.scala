@@ -1,13 +1,13 @@
-package services
+package cake
 
 import java.util.concurrent.TimeUnit
 
-//runMain services.ServicesRecipes
+//runMain cake.ServicesRecipes
 object ServicesRecipes extends App {
 
   val c = new java.util.concurrent.CountDownLatch(1)
 
-  services.ApplicationTaskService.gatherZip
+  cake.ApplicationTaskService.gatherZip
     .runAsync { r ⇒
       println(r)
       c.countDown()

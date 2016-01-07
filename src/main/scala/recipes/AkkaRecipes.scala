@@ -100,7 +100,6 @@ object AkkaRecipes extends App {
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher")
 
-
   //implicit val Mat20 = ActorMaterializer(Settings20)
 
   RunnableGraph.fromGraph(scenario0).run()(ActorMaterializer(Settings))
@@ -156,13 +155,15 @@ object AkkaRecipes extends App {
     s"${List.fill(i)(" ★ ").mkString} number:$acc interval:$sec"
 
   /**
-    *
-    */
+   *
+   */
   def zipLast[T](in1: Source[T, Any], in2: Source[T, Any], in3: Source[T, Any]): Source[(T, T, T), Unit] = {
     Source.fromGraph(GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
 
-      //send duplicates in downstream
+      //Use case: when you need to read something that changes slower than you can read it.
+      //Examples: exchanges rates, some measurements
+      //Will repeat the last element if source is slower than sink
       def expand = b.add(Flow[T].expand[T, T](identity)(t ⇒ (t, t)))
 
       def conflate = b.add(Flow[T].conflate(identity)((c, _) ⇒ c))
