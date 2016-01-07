@@ -14,6 +14,7 @@ object DDDRecipes extends App {
   import ddd.account._
   import ddd.impl.AccountService._
   import ddd.impl.ReportingService._
+  //import ddd.impl.ReportingModuleStream._
 
   val Account1 = "3445684569463567"
   val Account2 = "3463568456374573"
@@ -32,7 +33,6 @@ object DDDRecipes extends App {
 
   trait AccountRepositoryInMemory extends AccountRepo {
     lazy val repo = scala.collection.concurrent.TrieMap.empty[String, Account]
-    //lazy val repo = scala.collection.mutable.Map.empty[String, Account]
 
     override def query(no: String): ValidationNel[String, Option[Account]] = {
       println(Thread.currentThread().getName + ": query")

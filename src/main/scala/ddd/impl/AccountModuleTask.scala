@@ -12,13 +12,11 @@ import java.util.Date
 import scalaz.Kleisli._
 import scalaz.concurrent.Task
 
-trait AccountModuleImpl extends AccountModule[Task, Account, Amount, Balance] {
+trait AccountModuleTask extends AccountModule[Task, Account, Amount, Balance] {
   mixin: { def executor: java.util.concurrent.ExecutorService } ⇒
 
   private trait DC
-
   private case object D extends DC
-
   private case object C extends DC
 
   override def open(no: String, name: String, rate: Option[BigDecimal], openingDate: Option[Date],
@@ -70,7 +68,7 @@ trait AccountModuleImpl extends AccountModule[Task, Account, Amount, Balance] {
     }
 
   override def balance(no: String): AccountOperation[Balance] =
-    kleisli[Task, AccountRepo, ddd.Valid[Balance]] { (repo: AccountRepo) ⇒ Task(repo.balance(no)) }
+    kleisli[Task, AccountRepo, ddd.Valid[Balance]] { repo: AccountRepo ⇒ Task(repo.balance(no)) }
 
   override def transfer(accounts: ddd.Valid[(String, String)], amount: Amount): AccountOperation[(Account, Account)] = {
     accounts.fold({ ex ⇒
@@ -103,6 +101,6 @@ trait AccountModuleImpl extends AccountModule[Task, Account, Amount, Balance] {
     }
 }
 
-object AccountService extends AccountModuleImpl {
+object AccountService extends AccountModuleTask {
   val executor = java.util.concurrent.Executors.newFixedThreadPool(2, new RecipesDaemons("accounts"))
 }
