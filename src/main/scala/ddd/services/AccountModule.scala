@@ -2,18 +2,17 @@ package ddd.services
 
 import ddd.repo.AccountRepo
 import ddd.account.AccountType
-import recipes.ScalazRecipes.RecipesDaemons
 
 import scalaz.Kleisli
 import java.util.Date
 
 import scalaz._
 import Scalaz._
-import scalaz.concurrent.Task
+//import scalaz.concurrent.Task
 
-trait AccountService[Account, Amount, Balance] {
+trait AccountModule[M[_], Account, Amount, Balance] {
 
-  type AccountOperation[A] = Kleisli[Task, AccountRepo, ddd.Valid[A]]
+  type AccountOperation[A] = Kleisli[M, AccountRepo, ddd.Valid[A]]
 
   //override def ND = scalaz.Nondeterminism[scalaz.concurrent.Task]
 
@@ -27,11 +26,9 @@ trait AccountService[Account, Amount, Balance] {
 
   def balance(no: String): AccountOperation[Balance]
 
-  /**
-   *
-   *
-   */
-  def transfer(accounts: ddd.Valid[(String, String)], amount: Amount): AccountOperation[(Account, Account)] = {
+  def transfer(accounts: ddd.Valid[(String, String)], amount: Amount): AccountOperation[(Account, Account)]
+  /*
+  {
     accounts.fold({ ex ⇒
       Kleisli.kleisli[Task, AccountRepo, ddd.Valid[(Account, Account)]] { r: AccountRepo ⇒
         Task.delay(Failure(ex))
@@ -42,5 +39,5 @@ trait AccountService[Account, Amount, Balance] {
         b ← credit(fromTo._2, amount)
       } yield (a |@| b) { case (a, b) ⇒ println("action [transfer]: " + Thread.currentThread().getName); (a, b) }
     })
-  }
+  }*/
 }

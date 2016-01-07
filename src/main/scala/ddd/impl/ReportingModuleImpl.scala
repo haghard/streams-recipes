@@ -3,7 +3,7 @@ package ddd.impl
 import ddd.Amount
 import ddd.account.Account
 import ddd.repo.AccountRepo
-import ddd.services.ReportingService
+import ddd.services.ReportingModule
 import recipes.ScalazRecipes.RecipesDaemons
 
 import scalaz._
@@ -12,8 +12,10 @@ import scalaz.Kleisli._
 import scalaz.concurrent.Task
 import scalaz.stream.Process
 
-trait ReportingServiceImpl extends ReportingService[Amount] {
+trait ReportingModuleImpl extends ReportingModule[Task] {
   mixin: { def executor: java.util.concurrent.ExecutorService } ⇒
+
+  override type T = ddd.Amount
 
   private val P = Process
 
@@ -27,16 +29,15 @@ trait ReportingServiceImpl extends ReportingService[Amount] {
     }
 
   override def balancesProcess: Reader[AccountRepo, Process[Task, ddd.Valid[Seq[(String, Amount)]]]] = ???
-
   /*
-  Reader { repo ⇒
-      P.eval(Task.delay(repo)).map(balances.run(_))
-        .onFailure { ex: Throwable ⇒
-          P.eval(Task.delay(ex.getMessage.failureNel))
-        }
-    }*/
+    Reader { repo ⇒
+        P.eval(Task.delay(repo)).map(balances.run(_))
+          .onFailure { ex: Throwable ⇒
+            P.eval(Task.delay(ex.getMessage.failureNel))
+          }
+      }*/
 }
 
-object ReportingService extends ReportingServiceImpl {
+object ReportingService extends ReportingModuleImpl {
   val executor = java.util.concurrent.Executors.newFixedThreadPool(2, new RecipesDaemons("reporting"))
 }

@@ -3,7 +3,7 @@ package ddd.impl
 import ddd.repo.AccountRepo
 import ddd.{ Balance, Amount }
 import ddd.account.{ Checking, Savings, AccountType, Account }
-import ddd.services.AccountService
+import ddd.services.AccountModule
 import recipes.ScalazRecipes.RecipesDaemons
 
 import scalaz._
@@ -12,7 +12,7 @@ import java.util.Date
 import scalaz.Kleisli._
 import scalaz.concurrent.Task
 
-trait AccountServiceImpl extends AccountService[Account, Amount, Balance] {
+trait AccountModuleImpl extends AccountModule[Task, Account, Amount, Balance] {
   mixin: { def executor: java.util.concurrent.ExecutorService } ⇒
 
   private trait DC
@@ -25,7 +25,7 @@ trait AccountServiceImpl extends AccountService[Account, Amount, Balance] {
                     accountType: AccountType): AccountOperation[Account] =
     kleisli[Task, AccountRepo, ddd.Valid[Account]] { repo: AccountRepo ⇒
       Task {
-        (repo query no)
+        repo.query(no)
           .fold({ error ⇒ error.toString().failureNel[Account] }, { account: Option[Account] ⇒
             account.fold(accountType match {
               case Checking ⇒ Account.checkingAccount(no, name, openingDate, None, Balance()).flatMap(repo.store)
@@ -41,28 +41,18 @@ trait AccountServiceImpl extends AccountService[Account, Amount, Balance] {
 
   /**
    *
-   * @param no
-   * @param amount
-   * @return
    */
   override def debit(no: String, amount: Amount): AccountOperation[Account] =
     modify(no, amount, D)
 
   /**
    *
-   * @param no
-   * @param amount
-   * @return
    */
   override def credit(no: String, amount: Amount): AccountOperation[Account] =
     modify(no, amount, C)
 
   /**
    *
-   * @param no
-   * @param amount
-   * @param dc
-   * @return AccountOperation[Account]
    */
   private def modify(no: String, amount: Amount, dc: DC): AccountOperation[Account] =
     kleisli[Task, AccountRepo, ddd.Valid[Account]] { (repo: AccountRepo) ⇒
@@ -79,19 +69,25 @@ trait AccountServiceImpl extends AccountService[Account, Amount, Balance] {
       }(executor)
     }
 
-  /**
-   *
-   * @param no
-   * @return AccountOperation[Balance]
-   */
   override def balance(no: String): AccountOperation[Balance] =
     kleisli[Task, AccountRepo, ddd.Valid[Balance]] { (repo: AccountRepo) ⇒ Task(repo.balance(no)) }
 
+  override def transfer(accounts: ddd.Valid[(String, String)], amount: Amount): AccountOperation[(Account, Account)] = {
+    accounts.fold({ ex ⇒
+      Kleisli.kleisli[Task, AccountRepo, ddd.Valid[(Account, Account)]] { r: AccountRepo ⇒
+        Task.delay(Failure(ex))
+      }
+    }, { fromTo: (String, String) ⇒
+      for {
+        a ← debit(fromTo._1, amount)
+        b ← credit(fromTo._2, amount)
+      } yield (a |@| b) { case (a, b) ⇒ println("action [transfer]: " + Thread.currentThread().getName); (a, b) }
+    })
+  }
+
   /**
    *
-   * @param no
-   * @param closeDate
-   * @return  AccountOperation[Account]
+   *
    */
   override def close(no: String, closeDate: Option[Date]): AccountOperation[Account] =
     kleisli[Task, AccountRepo, ddd.Valid[Account]] { repo: AccountRepo ⇒
@@ -107,6 +103,6 @@ trait AccountServiceImpl extends AccountService[Account, Amount, Balance] {
     }
 }
 
-object AccountService extends AccountServiceImpl {
+object AccountService extends AccountModuleImpl {
   val executor = java.util.concurrent.Executors.newFixedThreadPool(2, new RecipesDaemons("accounts"))
 }
