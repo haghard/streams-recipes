@@ -51,7 +51,7 @@ package object cake {
     }
 
     def twitterApi: TwitterApi
-    def twitterContext: scalaz.Applicative[M] //Monad[M]
+    def twitterApp: scalaz.Applicative[M] //Monad[M]
   }
 
   trait UserModule[M[_]] { mixin: ScalazParallelism[M] =>
@@ -65,7 +65,7 @@ package object cake {
     }
 
     def dbApi: UserApi
-    def dbContext: scalaz.Applicative[M] //Monad[M]
+    def dbApp: scalaz.Applicative[M] //Monad[M]
   }
 
   /*
@@ -105,7 +105,7 @@ package object cake {
     override type Tweet = Int
     override type TwitterApi = ScalazFutureApi
     //Monad
-    override lazy val twitterContext: scalaz.Applicative[scalaz.concurrent.Future] = scalaz.Applicative[scalaz.concurrent.Future]
+    override lazy val twitterApp: scalaz.Applicative[scalaz.concurrent.Future] = scalaz.Applicative[scalaz.concurrent.Future]
 
     final class ScalazFutureApi extends TwitterApiLike {
 
@@ -132,7 +132,7 @@ package object cake {
     override type Tweet = Int
     override type TwitterApi = TwitterApiLike
 
-    override lazy val twitterContext: scalaz.Applicative[Task] = scalaz.Applicative[Task]
+    override lazy val twitterApp: scalaz.Applicative[Task] = scalaz.Applicative[Task]
 
     final class ScalazTaskApi extends TwitterApiLike {
 
@@ -157,7 +157,7 @@ package object cake {
     override type Record = Int
     override type UserApi = ScalazFutureApi
 
-    override lazy val dbContext: scalaz.Applicative[scalaz.concurrent.Future] = scalaz.Applicative[scalaz.concurrent.Future]
+    override lazy val dbApp: scalaz.Applicative[scalaz.concurrent.Future] = scalaz.Applicative[scalaz.concurrent.Future]
 
     final class ScalazFutureApi extends DbUserLike {
       override def one(query: String) =
@@ -189,7 +189,7 @@ package object cake {
     override type Record = Int
     override type UserApi = MySqlApi
 
-    override lazy val dbContext: scalaz.Applicative[Task] = scalaz.Applicative[Task] //Monad[Task]
+    override lazy val dbApp: scalaz.Applicative[Task] = scalaz.Applicative[Task] //Monad[Task]
 
     final class MySqlApi extends DbUserLike {
       override def one(query: String) = Task { 1.successNel[String] }(Executor)
@@ -408,7 +408,7 @@ package object cake {
       * Imposes a total order on the sequencing of effects throughout a computation
       */
     def gatherS1 =
-      twitterContext.apply2(
+      twitterApp.apply2(
         twitterApi.reduce("select page"),
         dbApi.page("select page")
       ) { (x, y) => ((x |@| y) { case (a, b) ⇒ s"twitter:$a db:$b"}) }
@@ -426,7 +426,7 @@ package object cake {
       * Sequentual
       */
     def gatherS3 =
-      dbContext.apply2(
+      dbApp.apply2(
         (twitterApi reduce "select page"),
         (dbApi page "select page")
       ) { (x, y) => ((x |@| y) { case (a, b) ⇒ s"twitter:$a db:$b"}) }
@@ -435,7 +435,7 @@ package object cake {
       * Sequentual
       */
     def gatherS4 =
-      twitterContext.ap2(
+      twitterApp.ap2(
         twitterApi.reduce("select page"),
         dbApi.page("select page")
       )(Task { (x: ValidTweet, y: ValidRecord) => (x |@| y) { case (a, b) ⇒ s"twitter:$a db:$b"} }(Executor))
@@ -449,7 +449,7 @@ package object cake {
 
     // Sequentual with
     def gatherS6 =
-      dbContext.sequence(List((twitterApi reduce "select page"), (dbApi page "select page")))
+      dbApp.sequence(List((twitterApi reduce "select page"), (dbApi page "select page")))
   }
 
 /*
