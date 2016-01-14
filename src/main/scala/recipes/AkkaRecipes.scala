@@ -167,9 +167,9 @@ object AkkaRecipes extends App {
       def expand = b.add(Flow[T].expand[T, T](identity)(t ⇒ (t, t)))
 
       /**
-        * Use case: when you need to read something that changes quickly than you can read it.
-        * You can combine result or remember the last element as in this example.
-        */
+       * Use case: when you need to read something that changes quickly than you can read it.
+       * You can combine result or remember the last element as in this example.
+       */
       def conflate = b.add(Flow[T].conflate(identity)((c, _) ⇒ c))
 
       val zip = b.add(ZipWith(Tuple3.apply[T, T, T] _).withAttributes(Attributes.inputBuffer(1, 1)))

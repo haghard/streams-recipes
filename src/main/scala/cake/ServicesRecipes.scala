@@ -7,7 +7,7 @@ object ServicesRecipes extends App {
 
   val c = new java.util.concurrent.CountDownLatch(1)
 
-  cake.ApplicationTaskService.gatherZip
+  cake.ProgramWithTask.gatherZip
     .runAsync { r ⇒
       println(r)
       c.countDown()

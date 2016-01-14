@@ -14,7 +14,7 @@ object DDDRecipes extends App {
   import ddd.account._
   import ddd.impl.AccountService._
   import ddd.impl.ReportingService._
-  import ddd.impl.ReportingStreamingService. { balances => pBalances }
+  import ddd.impl.ReportingStreamingService.{ balances ⇒ pBalances }
 
   val Account1 = "3445684569463567"
   val Account2 = "3463568456374573"
