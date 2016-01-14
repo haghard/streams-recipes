@@ -36,7 +36,6 @@ package object cake {
   trait ScalazParallelism[M[_]] {
     implicit def Executor: java.util.concurrent.ExecutorService
     def ND: scalaz.Nondeterminism[M]
-    def gatherP0: M[String]
   }
 
   //http://logji.blogspot.ru/2014/02/the-abstract-future.html
@@ -45,8 +44,6 @@ package object cake {
     type TwitterApi <: TwitterApiLike
     type ValidTweet = ValidationNel[String, Tweet]
 
-    def twitterContext: scalaz.Applicative[M] //Monad[M]
-
     protected trait TwitterApiLike {
       def load(query: String): M[ValidTweet]
       def reduce(query: String): M[ValidTweet]
@@ -54,21 +51,21 @@ package object cake {
     }
 
     def twitterApi: TwitterApi
+    def twitterContext: scalaz.Applicative[M] //Monad[M]
   }
 
-  trait DbServiceModule[M[_]] { mixin: ScalazParallelism[M] =>
+  trait UserModule[M[_]] { mixin: ScalazParallelism[M] =>
     type Record
-    type DbApi <: DbApiLike
+    type UserApi <: DbUserLike
     type ValidRecord = ValidationNel[String, Record]
 
-    def dbContext: scalaz.Applicative[M] //Monad[M]
-
-    protected trait DbApiLike {
+    protected trait DbUserLike {
       def one(query: String): M[ValidRecord]
       def page(query: String): M[ValidRecord]
     }
 
-    def dbApi: DbApi
+    def dbApi: UserApi
+    def dbContext: scalaz.Applicative[M] //Monad[M]
   }
 
   /*
@@ -131,11 +128,10 @@ package object cake {
     override lazy val twitterApi = new ScalazFutureApi()
   }
 
-  trait ScalazTaskTwitter extends TwitterModule[Task] {
-    mixin: ScalazParallelism[Task] =>
-
+  trait ScalazTaskTwitter extends TwitterModule[Task] { mixin: ScalazParallelism[Task] =>
     override type Tweet = Int
     override type TwitterApi = TwitterApiLike
+
     override lazy val twitterContext: scalaz.Applicative[Task] = scalaz.Applicative[Task]
 
     final class ScalazTaskApi extends TwitterApiLike {
@@ -157,13 +153,13 @@ package object cake {
     override lazy val twitterApi = new ScalazTaskApi()
   }
 
-  trait ScalazFutureDbService extends DbServiceModule[scalaz.concurrent.Future] { mixin: ScalazParallelism[scalaz.concurrent.Future] =>
+  trait ScalazFutureDbService extends UserModule[scalaz.concurrent.Future] { mixin: ScalazParallelism[scalaz.concurrent.Future] =>
     override type Record = Int
-    override type DbApi = ScalazFutureApi
+    override type UserApi = ScalazFutureApi
 
     override lazy val dbContext: scalaz.Applicative[scalaz.concurrent.Future] = scalaz.Applicative[scalaz.concurrent.Future]
 
-    final class ScalazFutureApi extends DbApiLike {
+    final class ScalazFutureApi extends DbUserLike {
       override def one(query: String) =
         scalaz.concurrent.Future {
           Thread.sleep(200)
@@ -189,17 +185,16 @@ package object cake {
     override lazy val dbApi = new ScalazFutureApi()
   }
 
-  trait ScalazTaskDbService extends DbServiceModule[Task] { mixin: ScalazParallelism[Task] =>
+  trait MySqlTaskDbService extends UserModule[Task] with ScalazTaskTwitter { mixin: ScalazParallelism[Task] =>
     override type Record = Int
-    override type DbApi = ScalazTaskApi
+    override type UserApi = MySqlApi
 
     override lazy val dbContext: scalaz.Applicative[Task] = scalaz.Applicative[Task] //Monad[Task]
 
-    final class ScalazTaskApi extends DbApiLike {
-      override def one(query: String) =
-        Task { 1.successNel[String] }(Executor)
+    final class MySqlApi extends DbUserLike {
+      override def one(query: String) = Task { 1.successNel[String] }(Executor)
 
-      override def page(query: String): Task[ValidRecord] = {
+      override def page(query: String): Task[ValidRecord] =
         Task {
           println(s"page:start ${Thread.currentThread().getName}")
           Thread.sleep(500l)
@@ -207,10 +202,9 @@ package object cake {
           (10.successNel[String] :: 11.successNel[String] :: /*"12 error".failureNel[Record] :: "13 error".failureNel[Record] ::*/ Nil).sequenceU
             .map(_.foldMap(i => i)(implicitly[Monoid[Record]]))
         }(Executor)
-      }
     }
 
-    override lazy val dbApi = new ScalazTaskApi()
+    override lazy val dbApi = new MySqlApi()
   }
 
   object KleisliSupport {
@@ -229,7 +223,7 @@ package object cake {
   }
 
   //http://blog.scalac.io/2015/10/15/shapeless-and-futures.html
-  object ShapelessMonad {
+  trait ShapelessMonadSupport {
     import shapeless._
     import shapeless.ops.function.FnToProduct
     import shapeless.ops.hlist.Tupler
@@ -309,36 +303,81 @@ package object cake {
       .traverse(fa)(a => Validation.fromTryCatchNonFatal[B](map(a)).toValidationNel)
   }
 
+  val program = new ScalazTaskTwitter with MySqlTaskDbService with ScalazParallelism[Task] {
+    override implicit lazy val Executor: java.util.concurrent.ExecutorService =
+      java.util.concurrent.Executors.newFixedThreadPool(3, new RecipesDaemons("tasks"))
+
+    override def ND = scalaz.Nondeterminism[Task]
+  }
+
+
   object ProgramWithFuture extends ScalazFutureTwitter with ScalazFutureDbService
     with ScalazParallelism[scalaz.concurrent.Future] {
 
     override implicit lazy val Executor = java.util.concurrent.Executors.newFixedThreadPool(3, new RecipesDaemons("futures"))
 
     override def ND = scalaz.Nondeterminism[scalaz.concurrent.Future]
-
-    override def gatherP0: concurrent.Future[String] = ???
   }
 
-  object ProgramWithTask extends ScalazTaskTwitter with ScalazTaskDbService with ScalazParallelism[Task] {
-    import KleisliSupport._
-    import ShapelessMonad._
+  object ProgramWithTask0 extends ScalazTaskTwitter with MySqlTaskDbService with ScalazParallelism[Task] with ShapelessMonadSupport {
 
-    override implicit lazy val Executor = java.util.concurrent.Executors.newFixedThreadPool(3, new RecipesDaemons("tasks"))
+    override implicit lazy val Executor: java.util.concurrent.ExecutorService =
+      java.util.concurrent.Executors.newFixedThreadPool(3, new RecipesDaemons("tasks0"))
 
-    override def ND = scalaz.Nondeterminism[scalaz.concurrent.Task]
+    override lazy val ND = scalaz.Nondeterminism[scalaz.concurrent.Task]
 
     /**
       * Concurrent execution with ApplicativeBuilder and Shapeless
       * It allows doing the same things as original Applicative Builder but this is not limited to 12 elements.
       */
-    override def gatherP0 =
+    def gather =
       ((twitterApi reduce "reduce page") ||@|| (dbApi page "select page") ||@|| (dbApi page "select page")) { (a: ValidTweet, b: ValidRecord, c: ValidRecord) ⇒
         s"[twitter:$a] - [db1:$b] - [db2:$c]" }
 
     /**
+      *
+      *
+      */
+    def gatherPHList = {
+      val tasks = (twitterApi reduce "reduce page") :: (dbApi page "select page") :: (twitterApi reduce "reduce page") :: shapeless.HNil
+      parallelHList(tasks).map { tupler: shapeless.::[ValidTweet,shapeless.::[ValidRecord,shapeless.::[ValidTweet,shapeless.HNil]]] =>
+        (tupler.head |@| tupler.tail.head |@| tupler.tail.tail.head) { case (a, b, c) => s"A:$a - B:$b - C:$c" }
+      }
+    }
+
+    /**
+      *
+      *
+      */
+    def gatherZip =
+      zip(
+        (twitterApi reduce "reduce page"),
+        (dbApi page "select page"),
+        (twitterApi reduce "reduce page")
+      ).map { tupler: (ValidTweet, ValidRecord, ValidTweet) => (tupler._1 |@| tupler._2 |@| tupler._3) { case (a, b, c) => s"A:$a B:$b C:$c" } }
+
+    /**
+      * Sequentual with ApplicativeBuilder and Shapeless
+      */
+    def gatherSHList = {
+      val tasks = (twitterApi reduce "reduce page") :: (dbApi page "select page") :: (twitterApi reduce "reduce page") :: shapeless.HNil
+      sequenceHList(tasks)
+    }
+  }
+
+
+  object ProgramWithTask extends ScalazTaskTwitter with MySqlTaskDbService with ScalazParallelism[Task] {
+    import KleisliSupport._
+
+    override implicit lazy val Executor: java.util.concurrent.ExecutorService =
+      java.util.concurrent.Executors.newFixedThreadPool(3, new RecipesDaemons("tasks1"))
+
+    override lazy val ND = scalaz.Nondeterminism[scalaz.concurrent.Task]
+
+    /**
       * Concurrent
       */
-    def gatherP =
+    def gather0 =
       (for {
         ex ← reader
         results <- ND.both((twitterApi reduce "reduce page"), (dbApi page "select page")).kleisliR
@@ -363,21 +402,6 @@ package object cake {
         (x |@| y) { case (a, b) ⇒ s"${Thread.currentThread().getName} - twitter:$a db:$b" }
       }
     */
-
-    def gatherPHList = {
-      val tasks = (twitterApi reduce "reduce page") :: (dbApi page "select page") :: (twitterApi reduce "reduce page") :: shapeless.HNil
-      parallelHList(tasks).map { tupler: shapeless.::[ValidTweet,shapeless.::[ValidRecord,shapeless.::[ValidTweet,shapeless.HNil]]] =>
-        (tupler.head |@| tupler.tail.head |@| tupler.tail.tail.head) { case (a, b, c) => s"A:$a - B:$b - C:$c" }
-      }
-    }
-
-    def gatherZip = {
-      zip(
-        (twitterApi reduce "reduce page"),
-        (dbApi page "select page"),
-        (twitterApi reduce "reduce page")
-      ).map { tupler: (ValidTweet, ValidRecord, ValidTweet) => (tupler._1 |@| tupler._2 |@| tupler._3) { case (a, b, c) => s"A:$a B:$b C:$c" } }
-    }
 
     /**
       * Sequentual
@@ -426,14 +450,6 @@ package object cake {
     // Sequentual with
     def gatherS6 =
       dbContext.sequence(List((twitterApi reduce "select page"), (dbApi page "select page")))
-
-    /**
-      * Sequentual with ApplicativeBuilder and Shapeless
-      */
-    def gatherSHList = {
-      val tasks = (twitterApi reduce "reduce page") :: (dbApi page "select page") :: (twitterApi reduce "reduce page") :: shapeless.HNil
-      sequenceHList(tasks)
-    }
   }
 
 /*
