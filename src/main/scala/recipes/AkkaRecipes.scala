@@ -157,7 +157,7 @@ object AkkaRecipes extends App {
   /**
    *
    */
-  def zipLast[T](in1: Source[T, Any], in2: Source[T, Any], in3: Source[T, Any]): Source[(T, T, T), Unit] = {
+  def conflateLast[T](in1: Source[T, Any], in2: Source[T, Any], in3: Source[T, Any]): Source[(T, T, T), Unit] = {
     Source.fromGraph(GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
 
@@ -166,6 +166,10 @@ object AkkaRecipes extends App {
       //Will repeat the last element if source is slower than sink
       def expand = b.add(Flow[T].expand[T, T](identity)(t ⇒ (t, t)))
 
+      /**
+        * Use case: when you need to read something that changes quickly than you can read it.
+        * You can combine result or remember the last element as in this example.
+        */
       def conflate = b.add(Flow[T].conflate(identity)((c, _) ⇒ c))
 
       val zip = b.add(ZipWith(Tuple3.apply[T, T, T] _).withAttributes(Attributes.inputBuffer(1, 1)))
@@ -187,7 +191,7 @@ object AkkaRecipes extends App {
       val slowIn = Source.tick(2.second, 2.second, ()).scan(0)((d, _) ⇒ d + 1)
       val evenSlowerIn = Source.tick(3.second, 3.second, ()).scan(0)((d, _) ⇒ d + 1)
 
-      zipLast(fastIn, slowIn, evenSlowerIn) ~> Sink.actorSubscriber(SyncActor.props2("akka-sink-0", statsD))
+      conflateLast(fastIn, slowIn, evenSlowerIn) ~> Sink.actorSubscriber(SyncActor.props2("akka-sink-0", statsD))
       ClosedShape
     }
   }
