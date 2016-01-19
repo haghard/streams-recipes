@@ -132,7 +132,7 @@ package object cake {
     override type Tweet = Int
     override type TwitterApi = TwitterApiLike
 
-    override lazy val twitterApp: scalaz.Applicative[Task] = scalaz.Applicative[Task]
+    override lazy val twitterApp = scalaz.Applicative[Task]
 
     final class ScalazTaskApi extends TwitterApiLike {
 
@@ -289,12 +289,13 @@ package object cake {
     val M = implicitly[Monad[M]]
     val ND = implicitly[Nondeterminism[M]]
 
-    override def zero = M.pure(m.zero)
+    override val zero = M.pure(m.zero)
 
     override def append(a: M[T], b: ⇒ M[T]): M[T] =
       ND.nmap2(a, b) { (l, r) ⇒
-        //println(s"${Thread.currentThread().getName}: $l append $r ")
-        m.append(l, r)
+        val res = m.append(l, r)
+        println(s"${Thread.currentThread().getName}: $l and $r = $res")
+        res
       }
   }
 
@@ -319,7 +320,9 @@ package object cake {
     override def ND = scalaz.Nondeterminism[scalaz.concurrent.Future]
   }
 
-  object ProgramWithTask0 extends ScalazTaskTwitter with MySqlTaskDbService with ScalazParallelism[Task] with ShapelessMonadSupport {
+  object ShapelessProgram extends ScalazTaskTwitter
+    with MySqlTaskDbService with ScalazParallelism[Task]
+    with ShapelessMonadSupport {
 
     override implicit lazy val Executor: java.util.concurrent.ExecutorService =
       java.util.concurrent.Executors.newFixedThreadPool(3, new RecipesDaemons("tasks0"))
@@ -366,7 +369,8 @@ package object cake {
   }
 
 
-  object ProgramWithTask extends ScalazTaskTwitter with MySqlTaskDbService with ScalazParallelism[Task] {
+  object ProgramWithTask extends ScalazTaskTwitter with MySqlTaskDbService
+    with ScalazParallelism[Task] {
     import KleisliSupport._
 
     override implicit lazy val Executor: java.util.concurrent.ExecutorService =
