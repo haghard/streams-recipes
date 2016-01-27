@@ -243,22 +243,6 @@ object ScalazRecipes extends App {
   }
 
   /**
-   * Usage:
-   * val src: Process[Task, Char] = Process.emitAll(Seq('a', 'b', 'c', 'd', 'e', 'g'))
-   * (src |> count).runLog.run
-   * Vector(\/-(a), -\/(1), \/-(b), -\/(2), \/-(c), -\/(3), \/-(d), -\/(4), \/-(e), -\/(5), \/-(g), -\/(6))
-   *
-   */
-  def count[A]: Process1[A, Long \/ A] = {
-    def go(acc: Long): Process1[A, Long \/ A] = {
-      Process.receive1[A, Long \/ A] { element: A ⇒
-        Process.emitAll(Seq(\/-(element), -\/(acc + 1))) ++ go(acc + 1)
-      }
-    }
-    go(0L)
-  }
-
-  /**
    * It's different from scenario03_1 only in dropping the whole buffer
    * Source publish data into queue.
    * We have a dropLastStrategy process that will track queue size and the whole buffer if it exceeds waterMark
@@ -383,4 +367,66 @@ object ScalazRecipes extends App {
 
     interleaveN(async.boundedQueue[Int](2 << 7)(Ex), sources)(Ex) to statsDOut0(s, statsDInstance, "scalaz-sink7:1|c")
   }
+
+  //Examples:
+
+  /**
+   * Usage:
+   * val src: Process[Task, Char] = Process.emitAll(Seq('a', 'b', 'c', 'd', 'e', 'g'))
+   * (src |> count).runLog.run
+   * Vector(\/-(a), -\/(1), \/-(b), -\/(2), \/-(c), -\/(3), \/-(d), -\/(4), \/-(e), -\/(5), \/-(g), -\/(6))
+   *
+   */
+  def count[A]: Process1[A, Long \/ A] = {
+    def go(acc: Long): Process1[A, Long \/ A] = {
+      Process.receive1[A, Long \/ A] { element: A ⇒
+        Process.emitAll(Seq(\/-(element), -\/(acc + 1))) ++ go(acc + 1)
+      }
+    }
+    go(0L)
+  }
+
+  /**
+   * A Tee that drop from left while the predicate `p` is true for the
+   * values, then continue with the Tee `rest`
+   *
+   */
+  def dropWhileL[L, R, O](p: L ⇒ Boolean)(rest: Tee[L, R, O]): Tee[L, R, O] =
+    Process.awaitL[L].flatMap { v ⇒
+      if (p(v)) dropWhileL(p)(rest)
+      else tee.feed1L(v)(rest)
+    }
+
+  /*
+   * A Tee that drop from right while the predicate `p` is true for the
+   * values, then continue with the Tee `rest`
+   *
+   **/
+  def dropWhileR[L, R, O](p: R ⇒ Boolean)(rest: Tee[L, R, O]): Tee[L, R, O] =
+    Process.awaitR[R].flatMap { v ⇒
+      if (p(v)) dropWhileR(p)(rest)
+      else tee.feed1R(v)(rest)
+    }
+
+  /**
+    * Could be used for cassandra's tables join for examples
+    */
+  def sortedJoin[L, R, T](keyL: L ⇒ T, keyR: R ⇒ T)(implicit o: Ordering[T]) = {
+    def joinTee: Tee[L, R, (L, R)] = Process.awaitL[L].flatMap { l ⇒
+      Process.awaitR[R].flatMap { r ⇒
+        val lk = keyL(l)
+        val rk = keyR(r)
+        o.compare(lk, rk) match {
+          case 0  ⇒ Process.emit((l, r)) ++ joinTee
+          case -1 ⇒ dropWhileL((o.lt(_: T, rk)).compose(keyL))(tee.feed1R(r)(joinTee))
+          case 1  ⇒ dropWhileR((o.lt(_: T, lk)).compose(keyR))(tee.feed1L(l)(joinTee))
+        }
+      }
+    }
+
+    joinTee
+  }
+
+  //result is List((2 -> "2"), (5 -> "5"), (8 ->"8"))
+  //(scalaz.stream.Process(1, 2, 3, 4, 5, 6, 7, 8, 9) tee scalaz.stream.Process("2", "5", "8"))(ScalazRecipes.sortedLoin(identity, _.toInt)).toStream.toList
 }

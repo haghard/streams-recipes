@@ -3,8 +3,6 @@ import java.util.concurrent.ExecutorService
 import scala.reflect.ClassTag
 import recipes.ScalazRecipes.RecipesDaemons
 
-import scalaz.concurrent
-
 package object cake {
   import scala.concurrent.Future
   import scalaz.concurrent.Task
@@ -51,7 +49,7 @@ package object cake {
     }
 
     def twitterApi: TwitterApi
-    def twitterApp: scalaz.Applicative[M] //Monad[M]
+    def twitterApp: scalaz.Apply[M] //Applicative[M] //Monad[M]
   }
 
   trait UserModule[M[_]] { mixin: ScalazParallelism[M] =>
@@ -65,7 +63,7 @@ package object cake {
     }
 
     def dbApi: UserApi
-    def dbApp: scalaz.Applicative[M] //Monad[M]
+    def dbApp: scalaz.Apply[M] //scalaz.Applicative[M] //Monad[M]
   }
 
   /*
@@ -104,8 +102,11 @@ package object cake {
     mixin: ScalazParallelism[scalaz.concurrent.Future] =>
     override type Tweet = Int
     override type TwitterApi = ScalazFutureApi
+
+    override lazy val twitterApp = scalaz.Apply[scalaz.concurrent.Future]
+
     //Monad
-    override lazy val twitterApp: scalaz.Applicative[scalaz.concurrent.Future] = scalaz.Applicative[scalaz.concurrent.Future]
+    //scalaz.Applicative[scalaz.concurrent.Future] = scalaz.Applicative[scalaz.concurrent.Future]
 
     final class ScalazFutureApi extends TwitterApiLike {
 
@@ -132,7 +133,7 @@ package object cake {
     override type Tweet = Int
     override type TwitterApi = TwitterApiLike
 
-    override lazy val twitterApp = scalaz.Applicative[Task]
+    override lazy val twitterApp = scalaz.Apply[Task] //scalaz.Applicative[Task]
 
     final class ScalazTaskApi extends TwitterApiLike {
 
@@ -157,7 +158,9 @@ package object cake {
     override type Record = Int
     override type UserApi = ScalazFutureApi
 
-    override lazy val dbApp: scalaz.Applicative[scalaz.concurrent.Future] = scalaz.Applicative[scalaz.concurrent.Future]
+    override lazy val dbApp = scalaz.Apply[scalaz.concurrent.Future]
+
+    //scalaz.Applicative[scalaz.concurrent.Future] = scalaz.Applicative[scalaz.concurrent.Future]
 
     final class ScalazFutureApi extends DbUserLike {
       override def one(query: String) =
@@ -189,7 +192,8 @@ package object cake {
     override type Record = Int
     override type UserApi = MySqlApi
 
-    override lazy val dbApp: scalaz.Applicative[Task] = scalaz.Applicative[Task] //Monad[Task]
+    override lazy val dbApp = scalaz.Apply[Task]
+      //scalaz.Applicative[Task] //Monad[Task]
 
     final class MySqlApi extends DbUserLike {
       override def one(query: String) = Task { 1.successNel[String] }(Executor)
@@ -248,7 +252,7 @@ package object cake {
         HListOfMonad[M, M[H] :: In, H :: Out] = new HListOfMonad[M, M[H] :: In, H :: Out] {
           //concurrent
           override def parallelHList(list: M[H] :: In)(implicit nd: scalaz.Nondeterminism[M]): M[H :: Out] =
-            nd.mapBoth(list.head, ev.parallelHList(list.tail)) { (a, b) => a :: b }
+            nd.mapBoth(list.head, ev.parallelHList(list.tail))(_ :: _)
 
           //sequentual
           override def sequenceHList(list: M[H] :: In): M[H :: Out] =
@@ -452,8 +456,7 @@ package object cake {
     }
 
     // Sequentual with
-    def gatherS6 =
-      dbApp.sequence(List((twitterApi reduce "select page"), (dbApi page "select page")))
+    //def gatherS6 = dbApp.sequence(List((twitterApi reduce "select page"), (dbApi page "select page")))
   }
 
 /*
