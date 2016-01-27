@@ -35,7 +35,7 @@ object ScalazRecipes extends App {
 
   def signal = async.signalOf(0)(Strategy.Executor(Executors.newFixedThreadPool(2, new RecipesDaemons("signal"))))
 
-  scenario02.run[Task].run
+  scenario01.run[Task].run
 
   def naturalsEvery(latency: Long): Process[Task, Int] = {
     def go(i: Int): Process[Task, Int] =
@@ -145,12 +145,14 @@ object ScalazRecipes extends App {
    */
   def scenario01: Process[Task, Unit] = {
     val sourceDelay = 20l
-    val latency: Duration = 5 seconds
+    val latency: Duration = 25 seconds
     val srcMessage = "scalaz-source1:1|c"
     val sinkMessage = "scalaz-sink1:1|c"
 
     val src = (naturalsEvery(sourceDelay) observe statsDin(statsDInstance, srcMessage))
     (src throughTumblingWindow latency)(Ex) to statsDin(statsDInstance, sinkMessage)
+    //(src.throughSlidingWindow(latency, 5))(Ex) to statsDin(statsDInstance, sinkMessage)
+    //(src throughAllWindow latency)(Ex) to statsDin(statsDInstance, sinkMessage)
   }
 
   /**
@@ -409,8 +411,8 @@ object ScalazRecipes extends App {
     }
 
   /**
-    * Could be used for cassandra's tables join for examples
-    */
+   * Could be used for cassandra's tables join for examples
+   */
   def sortedJoin[L, R, T](keyL: L ⇒ T, keyR: R ⇒ T)(implicit o: Ordering[T]) = {
     def joinTee: Tee[L, R, (L, R)] = Process.awaitL[L].flatMap { l ⇒
       Process.awaitR[R].flatMap { r ⇒
