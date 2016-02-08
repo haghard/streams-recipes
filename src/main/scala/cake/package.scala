@@ -49,7 +49,7 @@ package object cake {
     }
 
     def twitterApi: TwitterApi
-    def twitterApp: scalaz.Apply[M] //Applicative[M] //Monad[M]
+    def twitterApp: scalaz.Apply[M]
   }
 
   trait UserModule[M[_]] { mixin: ScalazParallelism[M] =>
@@ -63,7 +63,7 @@ package object cake {
     }
 
     def dbApi: UserApi
-    def dbApp: scalaz.Apply[M] //scalaz.Applicative[M] //Monad[M]
+    def dbApp: scalaz.Apply[M] //scalaz.Applicative[M] or Monad[M]
   }
 
   /*
@@ -145,7 +145,7 @@ package object cake {
           Thread.sleep(400)
           println(s"reduce:stop ${Thread.currentThread().getName}")
           (1.successNel[String] :: 2.successNel[String] :: /*"3 error".failureNel[Tweet] :: "4 error".failureNel[Tweet] ::*/ Nil).sequenceU
-          .map(_.foldMap(t=>t)(implicitly[Monoid[Tweet]]))
+          .map(_.foldMap(identity)(implicitly[Monoid[Tweet]]))
         }(Executor)
 
       override protected def take(n: Int): List[Tweet] = List.range(0, n)
@@ -193,7 +193,6 @@ package object cake {
     override type UserApi = MySqlApi
 
     override lazy val dbApp = scalaz.Apply[Task]
-      //scalaz.Applicative[Task] //Monad[Task]
 
     final class MySqlApi extends DbUserLike {
       override def one(query: String) = Task { 1.successNel[String] }(Executor)

@@ -36,7 +36,7 @@ javacOptions += "-Xmx2G"
 promptTheme := ScalapenosTheme
 
 libraryDependencies ++= Seq(
-  "com.typesafe.akka" %% "akka-stream-experimental" % "2.0.1",
+  "com.typesafe.akka" %% "akka-stream"    % "2.4.2-RC2",
   //"org.scalaz.stream" %% "scalaz-stream" % "0.8",
   "org.http4s"        %% "jawn-streamz"   % "0.7.0", //https://github.com/rossabaker/jawn-streamz
   "org.spire-math"    %% "jawn-spray"     % "0.8.3", //"scalaz-stream" % "0.8",

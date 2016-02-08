@@ -30,8 +30,7 @@ import scalaz.{ \/-, -\/, \/ }
 //runMain recipes.AkkaRecipes
 object AkkaRecipes extends App {
 
-  //https://groups.google.com/forum/#!topic/akka-user/MdvVehdco94
-
+  //achieve before 2.0 behavior with stream.materializer.auto-fusing=off
   val config = ConfigFactory.parseString(
     """
       |akka {
@@ -82,7 +81,7 @@ object AkkaRecipes extends App {
   def sys: ActorSystem = ActorSystem("Sys", ConfigFactory.empty().withFallback(config))
   def sys20: ActorSystem = ActorSystem("Sys20", ConfigFactory.empty().withFallback(config20))
 
-  implicit val system = sys20
+  //implicit val system = sys20
 
   val decider: akka.stream.Supervision.Decider = {
     case ex: Throwable ⇒
@@ -91,18 +90,18 @@ object AkkaRecipes extends App {
   }
 
   val Settings = ActorMaterializerSettings.create(system = sys)
-    .withInputBuffer(32, 32)
+    .withInputBuffer(1, 1)
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher")
 
-  val Settings20 = ActorMaterializerSettings.create(system = sys)
+  val Settings20 = ActorMaterializerSettings.create(system = sys20)
     .withInputBuffer(32, 32)
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher")
 
   //implicit val Mat20 = ActorMaterializer(Settings20)
 
-  RunnableGraph.fromGraph(scenario0).run()(ActorMaterializer(Settings))
+  RunnableGraph.fromGraph(scenario0).run()(ActorMaterializer(Settings)(sys))
 
   //RunnableGraph.fromGraph(scenario1).run()(Mat)
   //RunnableGraph.fromGraph(scenario2).run()
@@ -116,13 +115,13 @@ object AkkaRecipes extends App {
    * Tumbling windows discretize a stream into non-overlapping windows
    * Using conflate as rate detached operation
    */
-  def tumblingWindow[T](name: String, duration: FiniteDuration): Sink[T, Unit] =
+  def tumblingWindow[T](name: String, duration: FiniteDuration): Sink[T, akka.NotUsed] =
     (Flow[T].conflate(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
       .to(Sink.foreach(acc ⇒ println(s"$name number:$acc")))
       .withAttributes(Attributes.inputBuffer(1, 1))
 
-  def tumblingWindowWithFilter[T](name: String, duration: FiniteDuration)(filter: Long ⇒ Boolean): Sink[T, Unit] =
+  def tumblingWindowWithFilter[T](name: String, duration: FiniteDuration)(filter: Long ⇒ Boolean): Sink[T, akka.NotUsed] =
     (Flow[T].conflate(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
       .to(Sink.foreach { acc ⇒ if (filter(acc)) println(s"$name number:$acc satisfied") else println(s"number:$acc unsatisfied") })
@@ -132,7 +131,7 @@ object AkkaRecipes extends App {
    * Sliding windows discretize a stream into overlapping windows
    * Using conflate as rate detached operation
    */
-  def slidingWindow[T](name: String, duration: FiniteDuration, numOfTimeUnits: Long = 5): Sink[T, Unit] = {
+  def slidingWindow[T](name: String, duration: FiniteDuration, numOfTimeUnits: Long = 5): Sink[T, akka.NotUsed] = {
     val nano = 1000000000
     (Flow[T].conflate(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
@@ -144,7 +143,7 @@ object AkkaRecipes extends App {
   /**
    *
    */
-  def allWindow[T](name: String, duration: FiniteDuration): Sink[T, Unit] =
+  def allWindow[T](name: String, duration: FiniteDuration): Sink[T, akka.NotUsed] =
     (Flow[T].conflate(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
       .scan(0l)(_ + _)
@@ -155,52 +154,53 @@ object AkkaRecipes extends App {
     s"${List.fill(i)(" ★ ").mkString} number:$acc interval:$sec"
 
   /**
-   *
+   * Situation: 3 sources with different rates.
+   * We use conflate before zip stage, hence we constantly update last element for every source in the tuple.
+   * When zip stage is getting onNext signal it sends the tuple with latest values inside.
+   * Source's rates stay the same as in the beginning. Sink performs with a rate that equal to slowest source.
    */
-  def conflateLast[T](in1: Source[T, Any], in2: Source[T, Any], in3: Source[T, Any]): Source[(T, T, T), Unit] = {
-    Source.fromGraph(GraphDSL.create() { implicit b ⇒
-      import GraphDSL.Implicits._
+  def scenario0: Graph[ClosedShape, akka.NotUsed] = {
 
-      //Use case: when you need to read something that changes slower than you can read it.
-      //Examples: exchanges rates, some measurements
-      //Will repeat the last element if source is slower than sink
-      def expand = b.add(Flow[T].expand[T, T](identity)(t ⇒ (t, t)))
+    def last3[T](in1: Source[T, akka.NotUsed],
+                 in2: Source[T, akka.NotUsed],
+                 in3: Source[T, akka.NotUsed]): Source[(T, T, T), akka.NotUsed] =
+      Source.fromGraph(GraphDSL.create() { implicit b ⇒
+        import GraphDSL.Implicits._
 
-      /**
-       * Use case: when you need to read something that changes quickly than you can read it.
-       * You can combine result or remember the last element as in this example.
-       */
-      def conflate = b.add(Flow[T].conflate(identity)((c, _) ⇒ c))
+        def conflate = b.add(Flow[T].withAttributes(Attributes.inputBuffer(1, 1)).conflate(identity)((c, _) ⇒ c))
 
-      val zip = b.add(ZipWith(Tuple3.apply[T, T, T] _).withAttributes(Attributes.inputBuffer(1, 1)))
+        val zip = b.add(ZipWith(Tuple3.apply[T, T, T] _).withAttributes(Attributes.inputBuffer(1, 1)))
 
-      in1 ~> conflate ~> zip.in0
-      in2 ~> conflate ~> zip.in1
-      in3 ~> conflate ~> zip.in2
+        in1 ~> conflate ~> zip.in0
+        in2 ~> conflate ~> zip.in1
+        in3 ~> conflate ~> zip.in2
 
-      SourceShape(zip.out)
-    })
-  }
+        SourceShape(zip.out)
+      })
 
-  def scenario0: Graph[ClosedShape, Unit] = {
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
 
-      //Source.unfoldInf(0)((d) ⇒ (d + 1, d))
-      val fastIn = Source.tick(1.second, 1.second, ()).scan(0)((d, _) ⇒ d + 1)
-      val slowIn = Source.tick(2.second, 2.second, ()).scan(0)((d, _) ⇒ d + 1)
-      val evenSlowerIn = Source.tick(3.second, 3.second, ()).scan(0)((d, _) ⇒ d + 1)
+      val fastest = throttledSrc(statsD, 1 second, 10.milliseconds, Int.MaxValue, "akka-source0_fastest")
+      val middle = throttledSrc(statsD, 1 second, 20.milliseconds, Int.MaxValue, "akka-source0_middle")
+      val slowest = throttledSrc(statsD, 1 second, 30.milliseconds, Int.MaxValue, "akka-source0_slowest")
 
-      conflateLast(fastIn, slowIn, evenSlowerIn) ~> Sink.actorSubscriber(SyncActor.props2("akka-sink-0", statsD))
+      last3(fastest, middle, slowest).alsoTo(allWindow[(Int, Int, Int)]("akka-scenario0", 2 seconds)) ~>
+        Sink.actorSubscriber(SyncActor.props2("akka-sink0", statsD))
       ClosedShape
     }
   }
+
+  //Source.unfoldInf(0)((d) ⇒ (d + 1, d))
+  //Source.tick(1.second, 1.second, ()).scan(0)((d, _) ⇒ d + 1)
+  //Source.tick(2.second, 2.second, ()).scan(0)((d, _) ⇒ d + 1)
+  //Source.tick(3.second, 3.second, ()).scan(0)((d, _) ⇒ d + 1)
 
   /**
    * Situation: A source and a sink perform on the same rates.
    * Result: The source and the sink are going on the same rate.
    */
-  def scenario1: Graph[ClosedShape, Unit] = {
+  def scenario1: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit builder ⇒
       import GraphDSL.Implicits._
       val source = throttledSrc(statsD, 1 second, 20 milliseconds, Int.MaxValue, "akka-source1")
@@ -218,7 +218,7 @@ object AkkaRecipes extends App {
    * Result: The source's rate is going to decrease proportionally with the sink's rate.
    *
    */
-  def scenario2: Graph[ClosedShape, Unit] = {
+  def scenario2: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit builder ⇒
       import GraphDSL.Implicits._
       val source = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source2")
@@ -234,7 +234,7 @@ object AkkaRecipes extends App {
    * We are using buffer with OverflowStrategy.dropHead  between them, it will drop the oldest items.
    * Result: The sink's rate is going to be decrease but the source's rate will be stayed on the initial level.
    */
-  def scenario3: Graph[ClosedShape, Unit] = {
+  def scenario3: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit builder ⇒
       import GraphDSL.Implicits._
       val source = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source3")
@@ -247,7 +247,7 @@ object AkkaRecipes extends App {
     }
   }
 
-  def scenario4: Graph[ClosedShape, Unit] = {
+  def scenario4: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit builder ⇒
       import GraphDSL.Implicits._
       val source = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source4")
@@ -270,7 +270,7 @@ object AkkaRecipes extends App {
    * Result: publisher rate and fast consumer rates stay the same.
    * Degrading consumers rate goes down but doesn't affect the whole flow.
    */
-  def scenario5: Graph[ClosedShape, Unit] = {
+  def scenario5: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit builder ⇒
       import GraphDSL.Implicits._
       val source = throttledSrc(statsD, 1 second, 10 milliseconds, 20000, "akka-source5")
@@ -300,7 +300,7 @@ object AkkaRecipes extends App {
     }
   }
 
-  def scenario6: Graph[ClosedShape, Unit] = {
+  def scenario6: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit builder ⇒
       import GraphDSL.Implicits._
       val source = throttledSrc(statsD, 1 second, 10 milliseconds, 20000, "akka-source6")
@@ -319,9 +319,10 @@ object AkkaRecipes extends App {
    * Merge[In] – (N inputs, 1 output) picks randomly from inputs pushing them one by one to its output
    * Several sources with different rates fan-in in single merge followed by sink
    * -Result: Sink rate = sum(sources)
+   *
    * @return
    */
-  def scenario7: Graph[ClosedShape, Unit] = {
+  def scenario7: Graph[ClosedShape, akka.NotUsed] = {
     val latencies = List(20l, 30l, 40l, 45l).iterator
     val srcs = List("akka-source7_0", "akka-source7_1", "akka-source7_2", "akka-source7_3")
 
@@ -498,7 +499,7 @@ object AkkaRecipes extends App {
    * Execute nested flows in PARALLEL and merge results
    * Parallel fan-out fan-in
    */
-  def scenario8: Graph[ClosedShape, Unit] = {
+  def scenario8: Graph[ClosedShape, akka.NotUsed] = {
     val parallelism = 4
     val bufferSize = 128
 
@@ -538,7 +539,7 @@ object AkkaRecipes extends App {
    *
    *
    */
-  def scenario08: Graph[ClosedShape, Unit] = {
+  def scenario08: Graph[ClosedShape, akka.NotUsed] = {
     val source = throttledSrc(statsD, 1 second, 100 milliseconds, Int.MaxValue, "akka-source-08")
     val errorSink = Sink.actorSubscriber(SyncActor.props("akka-sink-error08", statsD, 1l)) //slow sink
     val sink = Sink.actorSubscriber(SyncActor.props("akka-sink-08", statsD, 0l))
@@ -559,12 +560,12 @@ object AkkaRecipes extends App {
   /**
    * A Fast source with conflate flow that buffer incoming message and produce single element
    */
-  def scenario9: Graph[ClosedShape, Unit] = {
+  def scenario9: Graph[ClosedShape, akka.NotUsed] = {
     val source = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source9")
     val sink = Sink.actorSubscriber(DegradingActor.props2("akka-sink9", statsD, 0l))
 
     //conflate as buffer but without backpressure support
-    def conflate0: Flow[Int, Int, Unit] =
+    def conflate0: Flow[Int, Int, akka.NotUsed] =
       Flow[Int].conflate(Vector(_))((acc, element) ⇒ acc :+ element)
         .mapConcat(identity)
 
@@ -584,7 +585,7 @@ object AkkaRecipes extends App {
    * Allow to progress top flow independently from bottom
    * using Conflate combinator
    */
-  def scenario9_1: Graph[ClosedShape, Unit] = {
+  def scenario9_1: Graph[ClosedShape, akka.NotUsed] = {
     val sink = Sink.actorSubscriber(DegradingActor.props2("akka-source9_1", statsD, 0l))
 
     val aggregatedSource = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-sink9_1")
@@ -604,7 +605,7 @@ object AkkaRecipes extends App {
     def combine(current: Long) = this.copy(this.totalSamples + 1, this.sum + current)
   }
 
-  def every[T](interval: FiniteDuration): Flow[T, T, Unit] =
+  def every[T](interval: FiniteDuration): Flow[T, T, akka.NotUsed] =
     Flow.fromGraph(
       GraphDSL.create() { implicit b ⇒
         import GraphDSL.Implicits._
@@ -619,7 +620,7 @@ object AkkaRecipes extends App {
   /**
    * Almost same as ``every``
    */
-  def throttledFlow[T](interval: FiniteDuration): Flow[T, T, Unit] = {
+  def throttledFlow[T](interval: FiniteDuration): Flow[T, T, akka.NotUsed] = {
     Flow.fromGraph(
       GraphDSL.create() { implicit b ⇒
         import GraphDSL.Implicits._
@@ -635,7 +636,7 @@ object AkkaRecipes extends App {
    * Sink's rate is equal to sum of 2 sources
    *
    */
-  def scenario10: Graph[ClosedShape, Unit] =
+  def scenario10: Graph[ClosedShape, akka.NotUsed] =
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
       val source = throttledSrc(statsD, 1 second, 20 milliseconds, Int.MaxValue, "akka-source10")
@@ -644,7 +645,7 @@ object AkkaRecipes extends App {
       ClosedShape
     }
 
-  def heartbeats[T](interval: FiniteDuration, zero: T): Flow[T, T, Unit] =
+  def heartbeats[T](interval: FiniteDuration, zero: T): Flow[T, T, akka.NotUsed] =
     Flow.fromGraph(
       GraphDSL.create() { implicit builder ⇒
         import GraphDSL.Implicits._
@@ -656,7 +657,7 @@ object AkkaRecipes extends App {
     )
 
   //Detached flows with conflate + conflate
-  def scenario11: Graph[ClosedShape, Unit] = {
+  def scenario11: Graph[ClosedShape, akka.NotUsed] = {
     val srcSlow = throttledSrc(statsD, 1 second, 1000 milliseconds, Int.MaxValue, "akka-source11_0")
       .conflate(identity)(_ + _)
 
@@ -674,12 +675,10 @@ object AkkaRecipes extends App {
   }
 
   //Detached flows with expand + conflate
-  def scenario12: Graph[ClosedShape, Unit] = {
-    val srcFast = throttledSrc(statsD, 1 second, 200 milliseconds, Int.MaxValue,
-      "akka-source12_1").conflate(identity)(_ + _)
-
-    val srcSlow = throttledSrc(statsD, 1 second, 1000 milliseconds, Int.MaxValue,
-      "akka-source12_0").expand(identity) { r ⇒ (r + r, r) }
+  /*
+  def scenario12: Graph[ClosedShape, akka.NotUsed] = {
+    val srcFast = throttledSrc(statsD, 1 second, 200 milliseconds, Int.MaxValue, "akka-source12_1").conflate(identity)(_ + _)
+    val srcSlow = throttledSrc(statsD, 1 second, 1000 milliseconds, Int.MaxValue, "akka-source12_0").expand(identity) { r ⇒ (r + r, r) }
 
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
@@ -689,13 +688,13 @@ object AkkaRecipes extends App {
       zip.out ~> Sink.actorSubscriber(DegradingActor.props2("akka-sink12", statsD, 0l))
       ClosedShape
     }
-  }
+  }*/
 
   /**
    * External source
    * In 2.0 for this purpose you should can use  [[Source.queue.offer]]
    */
-  def scenario13(mat: ActorMaterializer): Graph[ClosedShape, Unit] = {
+  def scenario13(mat: ActorMaterializer): Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
       //no backpressure there, just dropping
@@ -716,7 +715,7 @@ object AkkaRecipes extends App {
   /**
    * External Producer through Source.queue
    */
-  def scenario13_1(mat: ActorMaterializer): Graph[ClosedShape, Unit] = {
+  def scenario13_1(mat: ActorMaterializer): Graph[ClosedShape, akka.NotUsed] = {
     implicit val Ctx = mat.executionContext
     implicit val ExtCtx = sys.dispatchers.lookup("akka.blocking-dispatcher")
 
@@ -762,7 +761,7 @@ object AkkaRecipes extends App {
    * for each item received from the external service.
    * Each stage should support non-blocking back pressure.
    */
-  def scenario14: Graph[ClosedShape, Unit] = {
+  def scenario14: Graph[ClosedShape, akka.NotUsed] = {
     val batchedSource = Source.actorPublisher[Vector[Item]](BatchProducer.props)
     val sink = Sink.actorSubscriber[Int](DegradingActor.props2("akka-sink14", statsD, 10l))
     val external = Flow[Item].buffer(1, OverflowStrategy.backpressure).map(r ⇒ r.num)
@@ -799,7 +798,7 @@ object AkkaRecipes extends App {
    *                                               +--|Worker|--+
    *                                                  +------+
    */
-  def scenario15: Graph[ClosedShape, Unit] = {
+  def scenario15: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
       val out = sys.actorOf(Props(classOf[RecordsSink], "sink15", statsD).withDispatcher("akka.flow-dispatcher"), "akka-sink15")
@@ -813,12 +812,12 @@ object AkkaRecipes extends App {
   /**
    * 2 subscribers for single file from tail
    */
-  def scenario16(mat: ActorMaterializer): Graph[ClosedShape, Unit] = {
+  def scenario16(mat: ActorMaterializer): Graph[ClosedShape, akka.NotUsed] = {
     val log = "./example.log"
     val n = 50l
     implicit val ec = mat.executionContext
 
-    def tailer: Source[String, Unit] = {
+    def tailer: Source[String, akka.NotUsed] = {
       val proc = new java.lang.ProcessBuilder()
         .command("tail", s"-n$n", "-f", log)
         .start()
@@ -860,7 +859,7 @@ object AkkaRecipes extends App {
   /**
    * Create a source which is throttled to a number of message per second.
    */
-  def throttledSrc(statsD: InetSocketAddress, delay: FiniteDuration, interval: FiniteDuration, limit: Int, name: String): Source[Int, Unit] = {
+  def throttledSrc(statsD: InetSocketAddress, delay: FiniteDuration, interval: FiniteDuration, limit: Int, name: String): Source[Int, akka.NotUsed] =
     Source.fromGraph(
       GraphDSL.create() { implicit b ⇒
         import GraphDSL.Implicits._
@@ -893,7 +892,6 @@ object AkkaRecipes extends App {
         SourceShape(sendMap.outlet)
       }
     )
-  }
 }
 
 trait StatsD {
@@ -1111,7 +1109,6 @@ class SyncActor private (name: String, val address: InetSocketAddress, delay: Lo
       send(s"$name:1|c")
 
     case OnNext(msg: (Int, Int, Int)) ⇒
-      println(msg)
       send(s"$name:1|c")
 
     case OnNext(msg: String) ⇒
@@ -1285,4 +1282,37 @@ object BatchProducer {
   case class Item(num: Int)
 
   def props: Props = Props[BatchProducer].withDispatcher("akka.flow-dispatcher")
+}
+
+import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.duration.Deadline
+import scala.concurrent.Future
+
+object RateLimiter {
+  case object RateLimitExceeded extends RuntimeException
+}
+
+class RateLimiter(requests: Int, period: FiniteDuration) {
+  import RateLimiter._
+
+  private val startTimes =
+    Array.fill(requests)(Deadline.now - period)
+
+  //the index of the next slot to be used
+  private var cursor = 0
+
+  private def enqueue(time: Deadline) = {
+    startTimes(cursor) = time
+    cursor += 1
+    if (cursor == requests) cursor = 0
+  }
+
+  def require[T](block: ⇒ Future[T]): Future[T] = {
+    val now = Deadline.now
+    if ((now - startTimes(cursor)) < period) Future.failed(RateLimitExceeded)
+    else {
+      enqueue(now)
+      block
+    }
+  }
 }
