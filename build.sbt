@@ -43,7 +43,9 @@ libraryDependencies ++= Seq(
   //"io.underscore"     %% "csvside"        % "0.10.1",
   "org.spire-math"    %% "cats-core"      % "0.4.0-SNAPSHOT",
   "com.chuusai"       %% "shapeless"      % "2.2.5",
-  "org.hdrhistogram"  %  "HdrHistogram"   % "2.1.7"
+  "org.hdrhistogram"  %  "HdrHistogram"   % "2.1.7",
+  "com.esri.geometry" %   "esri-geometry-api" % "1.2.1",
+  "io.spray"          %%  "spray-json"        % "1.3.2"
 )
 
 cancelable in Global := true

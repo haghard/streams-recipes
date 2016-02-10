@@ -1,5 +1,6 @@
 package recipes
 
+import java.io.FileInputStream
 import java.net.{ InetAddress, InetSocketAddress }
 import java.nio.ByteBuffer
 import java.nio.channels.DatagramChannel
@@ -11,19 +12,19 @@ import akka.stream._
 import akka.stream.actor.ActorPublisherMessage.{ Cancel, Request }
 import akka.stream.actor.ActorSubscriberMessage.{ OnComplete, OnError, OnNext }
 import akka.stream.actor._
-import akka.stream.io.Framing
+import akka.stream.io.{ IOResult, Framing }
 import akka.stream.scaladsl._
 import akka.stream.stage._
 import akka.util.ByteString
+import com.esri.core.geometry.Point
 import com.typesafe.config.ConfigFactory
 import recipes.BatchProducer.Item
 import recipes.BalancerRouter.DBObject
-import scala.concurrent.Future
+import scala.concurrent.{ ExecutionContext, Future }
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.duration.Deadline
 
 import scala.collection.mutable
-import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.concurrent.forkjoin.ThreadLocalRandom
 import scala.language.postfixOps
@@ -109,9 +110,14 @@ object AkkaRecipes extends App {
   //RunnableGraph.fromGraph(scenario5).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario6).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario7).run()(ActorMaterializer(Settings)(sys))
-  RunnableGraph.fromGraph(scenario8).run()(ActorMaterializer(Settings)(sys))
+  //RunnableGraph.fromGraph(scenario8).run()(ActorMaterializer(Settings)(sys))
 
-  //RunnableGraph.fromGraph(scenario15).run()
+  val mat = ActorMaterializer(Settings)(sys)
+  //RunnableGraph.fromGraph(scenario16(mat)).run()(ActorMaterializer(Settings)(sys))
+
+  scenario17.run()(mat).onComplete { _ ⇒
+    sys.terminate()
+  }(mat.executionContext)
 
   /**
    * Tumbling windows discretize a stream into non-overlapping windows
@@ -563,8 +569,8 @@ object AkkaRecipes extends App {
       }))
 
       source ~> balancer.in
-                balancer.out0 ~> Flow[String].buffer(64, OverflowStrategy.dropHead) ~> errorSink
-                balancer.out1 ~> sink
+      balancer.out0 ~> Flow[String].buffer(64, OverflowStrategy.dropHead) ~> errorSink
+      balancer.out1 ~> sink
       ClosedShape
     }
   }
@@ -767,11 +773,10 @@ object AkkaRecipes extends App {
    * The whole pipeline is going to slow down up to sink's rate
    * http://fehmicansaglam.net/connecting-dots-with-akka-stream/
    *
-   * In this scenario let us assume that we are reading a bulk of items from an internal system,
+   * In this scenario let's assume that we are reading a batch of items from an internal system,
    * making a request for each item to an external service,
-   * then sending an event to a stream (e.g. Kafka) or don't sent
-   * for each item received from the external service.
-   * Each stage should support non-blocking back pressure.
+   * then sending an event to a stream (e.g. Kafka)
+   * for each item received from the external service
    */
   def scenario14: Graph[ClosedShape, akka.NotUsed] = {
     val batchedSource = Source.actorPublisher[Vector[Item]](BatchProducer.props)
@@ -821,51 +826,96 @@ object AkkaRecipes extends App {
     }
   }
 
+  def tailer(path: String, n: Int)(implicit ex: ExecutionContext): Source[String, akka.NotUsed] = {
+    val proc = new java.lang.ProcessBuilder()
+      .command("tail", s"-n$n", "-f", path)
+      .start()
+    proc.getOutputStream.close()
+    val input = proc.getInputStream
+
+    def readChunk(): scala.concurrent.Future[ByteString] = Future {
+      val buffer = new Array[Byte](1024 * 6)
+      val read = (input read buffer)
+      println(s"available: $read")
+      if (read > 0) ByteString.fromArray(buffer, 0, read) else ByteString.empty
+    }
+
+    val publisher = Source.repeat(0)
+      .mapAsync(1)(_ ⇒ readChunk())
+      .takeWhile(_.nonEmpty)
+      .via(Framing.delimiter(ByteString("\n"), maximumFrameLength = 10000, allowTruncation = true))
+      .transform(() ⇒ new PushStage[ByteString, ByteString] {
+        override def onPush(elem: ByteString, ctx: Context[ByteString]): SyncDirective = ctx.push(elem ++ ByteString('\n'))
+        override def postStop(): Unit = {
+          println("tail has done")
+          proc.destroy()
+        }
+      }).runWith(Sink.asPublisher(true))(mat)
+
+    Source.fromPublisher(publisher).map(_.utf8String)
+  }
+
   /**
    * 2 subscribers for single file from tail
    */
   def scenario16(mat: ActorMaterializer): Graph[ClosedShape, akka.NotUsed] = {
     val log = "./example.log"
-    val n = 50l
+    val n = 50
     implicit val ec = mat.executionContext
-
-    def tailer: Source[String, akka.NotUsed] = {
-      val proc = new java.lang.ProcessBuilder()
-        .command("tail", s"-n$n", "-f", log)
-        .start()
-      proc.getOutputStream.close()
-      val input = proc.getInputStream
-
-      def readChunk(): scala.concurrent.Future[ByteString] = Future {
-        val buffer = new Array[Byte](1024 * 6)
-        val read = (input read buffer)
-        println(s"available: $read")
-        if (read > 0) ByteString.fromArray(buffer, 0, read) else ByteString.empty
-      }
-
-      val publisher = Source.repeat(0)
-        .mapAsync(1)(_ ⇒ readChunk())
-        .takeWhile(_.nonEmpty)
-        .via(Framing.delimiter(ByteString("\n"), maximumFrameLength = 10000, allowTruncation = true))
-        .transform(() ⇒ new PushStage[ByteString, ByteString] {
-          override def onPush(elem: ByteString, ctx: Context[ByteString]): SyncDirective = ctx.push(elem ++ ByteString('\n'))
-          override def postStop(): Unit = {
-            println("tail has done")
-            proc.destroy()
-          }
-        })
-        .runWith(Sink.asPublisher(true))(mat)
-
-      Source.fromPublisher(publisher).map { x ⇒ x.utf8String.slice(6, 80) + "..." }
-    }
 
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
       val broadcast = b.add(Broadcast[String](2))
-      tailer ~> broadcast ~> Sink.actorSubscriber[String](SyncActor.props4("akka-source16_0", statsD, 500l, n))
-      broadcast ~> Flow[String].buffer(32, OverflowStrategy.backpressure) ~> Sink.actorSubscriber[String](SyncActor.props4("akka-source16_1", statsD, 1000l, n))
+      tailer(log, n) ~> broadcast ~> Sink.actorSubscriber[String](SyncActor.props4("akka-sink16_0", statsD, 500l, n))
+      broadcast ~> Flow[String].buffer(32, OverflowStrategy.backpressure) ~>
+        Sink.actorSubscriber[String](SyncActor.props4("akka-sink16_1", statsD, 1000l, n))
       ClosedShape
     }
+  }
+
+  /**
+    *
+    *
+    */
+  def scenario17(): RunnableGraph[Future[IOResult]] = {
+    import GeoJsonProtocol._
+    import spray.json._
+    type Histogram = Map[String, Long]
+
+    val delimiter = Framing.delimiter(ByteString('\n'), Int.MaxValue, true)
+
+    def table(line: String) = new StringBuilder().append("\n").append("*****************")
+      .append("\n").append(line).append("\n").append("*****************").toString()
+
+    def borough(features: IndexedSeq[Feature], point: Point) =
+      features.find(_.geometry.contains(point)).map(_("borough").convertTo[String])
+
+    def featuresMap(): IndexedSeq[Feature] = {
+      val src = scala.io.Source.fromFile("nyc-borough-boundaries-polygon.geojson")
+      val geo = src.mkString
+      src.close()
+      geo.parseJson.convertTo[Features].sortBy { f ⇒
+        val borough = f("boroughCode").convertTo[Int]
+        (borough, -f.geometry.area2D())
+      }
+    }
+
+    val areaMap = featuresMap()
+
+    def updateHistogram(hist: Histogram, region: Option[String]) =
+      region.fold(hist) { r ⇒ hist.updated(r, hist.getOrElse(r, 0l) + 1) }
+
+    val src = (StreamConverters.fromInputStream(() ⇒ new FileInputStream("./taxi.log")) via delimiter).map { line ⇒
+      val fields = line.utf8String.split(",")
+      borough(areaMap, new Point(fields(10).toDouble, fields(11).toDouble))
+    }.scan[Histogram](Map.empty)(updateHistogram).map(_.toVector.sortBy(-_._2))
+
+    val sink = Sink.actorSubscriber[String](SyncActor.props4("akka-sink_17", statsD, 500l, 5000))
+
+    val printFlow = Flow[Vector[(String, Long)]].buffer(1, OverflowStrategy.backpressure)
+      .map(vector ⇒ table(vector.mkString("\n")))
+
+    (src via printFlow to sink)
   }
 
   /**
