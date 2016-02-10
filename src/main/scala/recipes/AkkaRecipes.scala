@@ -18,6 +18,9 @@ import akka.util.ByteString
 import com.typesafe.config.ConfigFactory
 import recipes.BatchProducer.Item
 import recipes.BalancerRouter.DBObject
+import scala.concurrent.Future
+import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.duration.Deadline
 
 import scala.collection.mutable
 import scala.concurrent.Future
@@ -81,8 +84,6 @@ object AkkaRecipes extends App {
   def sys: ActorSystem = ActorSystem("Sys", ConfigFactory.empty().withFallback(config))
   def sys20: ActorSystem = ActorSystem("Sys20", ConfigFactory.empty().withFallback(config20))
 
-  //implicit val system = sys20
-
   val decider: akka.stream.Supervision.Decider = {
     case ex: Throwable ⇒
       println(ex.getMessage)
@@ -90,7 +91,7 @@ object AkkaRecipes extends App {
   }
 
   val Settings = ActorMaterializerSettings.create(system = sys)
-    .withInputBuffer(1, 1)
+    .withInputBuffer(32, 32)
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher")
 
@@ -101,14 +102,15 @@ object AkkaRecipes extends App {
 
   //implicit val Mat20 = ActorMaterializer(Settings20)
 
-  RunnableGraph.fromGraph(scenario0).run()(ActorMaterializer(Settings)(sys))
-
-  //RunnableGraph.fromGraph(scenario1).run()(Mat)
+  //RunnableGraph.fromGraph(scenario0).run()(ActorMaterializer(Settings)(sys))
+  //RunnableGraph.fromGraph(scenario1).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario2).run()
   //RunnableGraph.fromGraph(scenario3).run()
-  //RunnableGraph.fromGraph(scenario4).run()(Mat20)
+  //RunnableGraph.fromGraph(scenario5).run()(ActorMaterializer(Settings)(sys))
+  //RunnableGraph.fromGraph(scenario6).run()(ActorMaterializer(Settings)(sys))
+  //RunnableGraph.fromGraph(scenario7).run()(ActorMaterializer(Settings)(sys))
+  RunnableGraph.fromGraph(scenario8).run()(ActorMaterializer(Settings)(sys))
 
-  //RunnableGraph.fromGraph(scenario7).run()
   //RunnableGraph.fromGraph(scenario15).run()
 
   /**
@@ -207,7 +209,7 @@ object AkkaRecipes extends App {
       val sink = Sink.actorSubscriber(SyncActor.props2("akka-sink1", statsD))
 
       /*slidingWindow("akka-scenario1", 2 seconds)*/
-      (source alsoTo tumblingWindowWithFilter("akka-scenario1", 2 seconds) { _ >= 100l }) ~> sink
+      (source alsoTo tumblingWindowWithFilter("akka-scenario1", 2 seconds) { _ >= 97l }) ~> sink
       ClosedShape
     }
   }
@@ -215,7 +217,7 @@ object AkkaRecipes extends App {
   /**
    * Situation: A source and a sink perform on the same rate in the beginning, the sink gets slower later, increases delay with every message.
    * We are using buffer with OverflowStrategy.backpressure between them, which provide backpressure.
-   * Result: The source's rate is going to decrease proportionally with the sink's rate.
+   * Result: The source's rate is going to decreased proportionally with the sink's rate.
    *
    */
   def scenario2: Graph[ClosedShape, akka.NotUsed] = {
@@ -232,7 +234,7 @@ object AkkaRecipes extends App {
   /**
    * Situation: A source and a sink perform on the same rate in the beginning, the sink gets slower later, increases delay with every message.
    * We are using buffer with OverflowStrategy.dropHead  between them, it will drop the oldest items.
-   * Result: The sink's rate is going to be decrease but the source's rate will be stayed on the initial level.
+   * Result: The sink's rate is going to be decreased but the source's rate will be stayed on the initial level.
    */
   def scenario3: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit builder ⇒
@@ -247,6 +249,10 @@ object AkkaRecipes extends App {
     }
   }
 
+  /**
+   * Fast publisher and 2 sinks, The first is fast and the second is degrading.
+   * Result: The whole pipeline rate is going to be decreased up to slow sink.
+   */
   def scenario4: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit builder ⇒
       import GraphDSL.Implicits._
@@ -255,7 +261,7 @@ object AkkaRecipes extends App {
       val slowSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink4_slow", statsD, 1l))
 
       //I want branches to be run in parallel
-      val broadcast = builder.add(Broadcast[Int](2).addAttributes(Attributes.asyncBoundary))
+      val broadcast = builder.add(Broadcast[Int](2) /*.addAttributes(Attributes.asyncBoundary)*/ )
 
       (source alsoTo allWindow("akka-scenario4", 5 seconds)) ~> broadcast ~> fastSink
       broadcast ~> slowSink
@@ -264,11 +270,12 @@ object AkkaRecipes extends App {
   }
 
   /**
-   * Fast publisher ans 3 sinks, 1 fast and 2 degrading. Degrading consumers are
-   * getting messages through buffer with OverflowStrategy.dropTail strategy
    *
-   * Result: publisher rate and fast consumer rates stay the same.
-   * Degrading consumers rate goes down but doesn't affect the whole flow.
+   * Fast publisher and 3 sinks, The first is fast and the last two are degrading with different rates.
+   * All sinks are getting messages through buffer with OverflowStrategy.dropTail strategy
+   *
+   * Result: Sink's rate and the fists sink rates stay the same.
+   * Degrading sinks rate goes down but doesn't affect the whole flow because of dropTail.
    */
   def scenario5: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit builder ⇒
@@ -276,8 +283,8 @@ object AkkaRecipes extends App {
       val source = throttledSrc(statsD, 1 second, 10 milliseconds, 20000, "akka-source5")
 
       val fastSink = Sink.actorSubscriber(SyncActor.props("akka-sink5_0", statsD, 0l))
-      val degradingSink1 = Sink.actorSubscriber(DegradingActor.props2("akka-sink5_1", statsD, 8l))
-      val degradingSink2 = Sink.actorSubscriber(DegradingActor.props2("akka-sink5_2", statsD, 10l))
+      val degradingSink1 = Sink.actorSubscriber(DegradingActor.props2("akka-sink5_1", statsD, 2l))
+      val degradingSink2 = Sink.actorSubscriber(DegradingActor.props2("akka-sink5_2", statsD, 4l))
 
       //val buffer = Flow[Int].buffer(1000, OverflowStrategy.dropTail)
       //val buffer = Flow[Int].buffer(128, OverflowStrategy.backpressure)
@@ -300,13 +307,21 @@ object AkkaRecipes extends App {
     }
   }
 
+  /**
+   *
+   * Fast source is connected with two sinks through Balance stage.
+   * We use Balance to achieve parallelism here.
+   * The first sink is fast and the second is degrading.
+   *
+   * Result: Sink's rate to sum approximatly equals to source's rate.
+   */
   def scenario6: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit builder ⇒
       import GraphDSL.Implicits._
-      val source = throttledSrc(statsD, 1 second, 10 milliseconds, 20000, "akka-source6")
+      val source = throttledSrc(statsD, 1 second, 10 milliseconds, 50000, "akka-source6")
 
-      val fastSink = Sink.actorSubscriber(SyncActor.props("akka-sink6_0", statsD, 12l))
-      val slowingDownSink = Sink.actorSubscriber(DegradingActor.props("akka-sink6_1", statsD, 14l, 1l))
+      val fastSink = Sink.actorSubscriber(SyncActor.props("akka-sink6_0", statsD, 0l))
+      val slowingDownSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink6_1", statsD, 2l))
       val balancer = builder.add(Balance[Int](2))
 
       source ~> balancer ~> fastSink
@@ -316,17 +331,17 @@ object AkkaRecipes extends App {
   }
 
   /**
+   *
    * Merge[In] – (N inputs, 1 output) picks randomly from inputs pushing them one by one to its output
    * Several sources with different rates fan-in in single merge followed by sink
-   * -Result: Sink rate = sum(sources)
+   * Result: Sink rate = sum(sources)
    *
-   * @return
    */
   def scenario7: Graph[ClosedShape, akka.NotUsed] = {
     val latencies = List(20l, 30l, 40l, 45l).iterator
-    val srcs = List("akka-source7_0", "akka-source7_1", "akka-source7_2", "akka-source7_3")
+    val names = List("akka-source7_0", "akka-source7_1", "akka-source7_2", "akka-source7_3")
 
-    lazy val sources = srcs.map { name ⇒
+    lazy val sources = names.map { name ⇒
       Source.actorPublisher[Int](Props(classOf[TopicReader], name, statsD, latencies.next()).withDispatcher("akka.flow-dispatcher"))
     }
 
@@ -344,8 +359,8 @@ object AkkaRecipes extends App {
     val queryStreams = Source.fromGraph(
       GraphDSL.create() { implicit b ⇒
         import GraphDSL.Implicits._
-        val merge = b.add(Merge[Int](srcs.size))
-        srcs.foreach { name ⇒
+        val merge = b.add(Merge[Int](names.size))
+        names.foreach { name ⇒
           Source.actorPublisher(Props(classOf[TopicReader], name, statsD, latencies.next())
             .withDispatcher("akka.flow-dispatcher")) ~> merge
         }
@@ -496,35 +511,32 @@ object AkkaRecipes extends App {
   }
 
   /**
-   * Execute nested flows in PARALLEL and merge results
+   * Execute nested flows in parallel and merge results
    * Parallel fan-out fan-in
    */
   def scenario8: Graph[ClosedShape, akka.NotUsed] = {
     val parallelism = 4
     val bufferSize = 128
 
-    val sink = Sink.actorSubscriber(SyncActor.props("akka-sink8", statsD, 0l))
-
     val latencies = List(20l, 30l, 40l, 45l)
-    val source = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source8")
 
-    def parAction(sleep: Long) = Flow[Int].buffer(bufferSize, OverflowStrategy.backpressure)
-      .map { r ⇒ Thread.sleep(sleep); r }
+    def action(sleep: Long) =
+      Flow[Int].buffer(bufferSize, OverflowStrategy.backpressure).map { r ⇒ Thread.sleep(sleep); r }
 
     def buffAttributes = Attributes.inputBuffer(initial = bufferSize, max = bufferSize)
 
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
       //val balancer = b.add(new RoundRobinStage4[Int].withAttributes(buffAttributes))
+
+      val source = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source8")
+      val sink = Sink.actorSubscriber(SyncActor.props("akka-sink8", statsD, 0l))
       val balancer = b.add(Balance[Int](parallelism))
       val merge = b.add(Merge[Int](parallelism).withAttributes(buffAttributes))
 
       (source alsoTo allWindow("akka-scenario8", 5 seconds)) ~> balancer
 
-      latencies.zipWithIndex.foreach {
-        case (l, ind) ⇒
-          balancer.outArray(ind) ~> parAction(l) ~> merge
-      }
+      latencies.zipWithIndex.foreach { case (l, ind) ⇒ balancer.outArray(ind) ~> action(l) ~> merge }
 
       //balancer.out0 ~> parAction(latencies(0)) ~> merge
       //balancer.out1 ~> parAction(latencies(1)) ~> merge
@@ -551,8 +563,8 @@ object AkkaRecipes extends App {
       }))
 
       source ~> balancer.in
-      balancer.out0 ~> Flow[String].buffer(64, OverflowStrategy.dropHead) ~> errorSink
-      balancer.out1 ~> sink
+                balancer.out0 ~> Flow[String].buffer(64, OverflowStrategy.dropHead) ~> errorSink
+                balancer.out1 ~> sink
       ClosedShape
     }
   }
@@ -997,6 +1009,7 @@ class RecordsSink(name: String, val address: InetSocketAddress) extends Actor wi
 
 /**
  * Same is throttledSource
+ *
  * @param name
  * @param address
  * @param delay
@@ -1106,6 +1119,7 @@ class SyncActor private (name: String, val address: InetSocketAddress, delay: Lo
 
   override def receive: Receive = {
     case OnNext(msg: Int) ⇒
+      //println(Thread.currentThread().getName + " synch")
       send(s"$name:1|c")
 
     case OnNext(msg: (Int, Int, Int)) ⇒
@@ -1171,9 +1185,12 @@ object DegradingActor {
     Props(new DegradingActor(name, address, delayPerMsg)).withDispatcher("akka.flow-dispatcher")
 }
 
-class DegradingActor private (val name: String, val address: InetSocketAddress, delayPerMsg: Long, initialDelay: Long) extends ActorSubscriber with StatsD {
-  override protected val requestStrategy: RequestStrategy = OneByOneRequestStrategy
+class DegradingActor private (val name: String, val address: InetSocketAddress, delayPerMsg: Long, initialDelay: Long)
+    extends ActorSubscriber with StatsD {
+
   var delay = 0l
+
+  override protected val requestStrategy: RequestStrategy = OneByOneRequestStrategy
 
   private def this(name: String, statsD: InetSocketAddress) {
     this(name, statsD, 0, 0)
@@ -1185,6 +1202,7 @@ class DegradingActor private (val name: String, val address: InetSocketAddress, 
 
   override def receive: Receive = {
     case OnNext(msg: Int) ⇒
+      //println(Thread.currentThread().getName + " degrading")
       delay += delayPerMsg
       val latency = initialDelay + (delay / 1000)
       Thread.sleep(latency, (delay % 1000).toInt)
@@ -1284,22 +1302,17 @@ object BatchProducer {
   def props: Props = Props[BatchProducer].withDispatcher("akka.flow-dispatcher")
 }
 
-import scala.concurrent.duration.FiniteDuration
-import scala.concurrent.duration.Deadline
-import scala.concurrent.Future
-
-object RateLimiter {
+object IndividualRateLimiter {
   case object RateLimitExceeded extends RuntimeException
 }
 
-class RateLimiter(requests: Int, period: FiniteDuration) {
-  import RateLimiter._
-
-  private val startTimes =
-    Array.fill(requests)(Deadline.now - period)
+class IndividualRateLimiter(requests: Int, period: FiniteDuration) {
+  import IndividualRateLimiter._
 
   //the index of the next slot to be used
   private var cursor = 0
+
+  private val startTimes = Array.fill(requests)(Deadline.now - period)
 
   private def enqueue(time: Deadline) = {
     startTimes(cursor) = time
