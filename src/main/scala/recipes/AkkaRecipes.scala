@@ -124,13 +124,13 @@ object AkkaRecipes extends App {
    * Using conflate as rate detached operation
    */
   def tumblingWindow[T](name: String, duration: FiniteDuration): Sink[T, akka.NotUsed] =
-    (Flow[T].conflate(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
+    (Flow[T].conflateWithSeed(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
       .to(Sink.foreach(acc ⇒ println(s"$name number:$acc")))
       .withAttributes(Attributes.inputBuffer(1, 1))
 
   def tumblingWindowWithFilter[T](name: String, duration: FiniteDuration)(filter: Long ⇒ Boolean): Sink[T, akka.NotUsed] =
-    (Flow[T].conflate(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
+    (Flow[T].conflateWithSeed(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
       .to(Sink.foreach { acc ⇒ if (filter(acc)) println(s"$name number:$acc satisfied") else println(s"number:$acc unsatisfied") })
       .withAttributes(Attributes.inputBuffer(1, 1))
@@ -141,7 +141,7 @@ object AkkaRecipes extends App {
    */
   def slidingWindow[T](name: String, duration: FiniteDuration, numOfTimeUnits: Long = 5): Sink[T, akka.NotUsed] = {
     val nano = 1000000000
-    (Flow[T].conflate(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
+    (Flow[T].conflateWithSeed(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
       .scan((0l, 0, System.nanoTime())) { case ((acc, iter, last), v) ⇒ if (iter == numOfTimeUnits - 1) (v, 0, System.nanoTime()) else (acc + v, iter + 1, last) }
       .to(Sink.foreach { case (acc, iter, ts) ⇒ println(buildProgress(iter, acc, (System.nanoTime() - ts) / nano)) })
@@ -152,7 +152,7 @@ object AkkaRecipes extends App {
    *
    */
   def allWindow[T](name: String, duration: FiniteDuration): Sink[T, akka.NotUsed] =
-    (Flow[T].conflate(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
+    (Flow[T].conflateWithSeed(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
       .scan(0l)(_ + _)
       .to(Sink.foreach(acc ⇒ println(s"$name: $acc")))
@@ -175,7 +175,7 @@ object AkkaRecipes extends App {
       Source.fromGraph(GraphDSL.create() { implicit b ⇒
         import GraphDSL.Implicits._
 
-        def conflate = b.add(Flow[T].withAttributes(Attributes.inputBuffer(1, 1)).conflate(identity)((c, _) ⇒ c))
+        def conflate = b.add(Flow[T].withAttributes(Attributes.inputBuffer(1, 1)).conflateWithSeed(identity)((c, _) ⇒ c))
 
         val zip = b.add(ZipWith(Tuple3.apply[T, T, T] _).withAttributes(Attributes.inputBuffer(1, 1)))
 
@@ -584,7 +584,7 @@ object AkkaRecipes extends App {
 
     //conflate as buffer but without backpressure support
     def conflate0: Flow[Int, Int, akka.NotUsed] =
-      Flow[Int].conflate(Vector(_))((acc, element) ⇒ acc :+ element)
+      Flow[Int].conflateWithSeed(Vector(_))((acc, element) ⇒ acc :+ element)
         .mapConcat(identity)
 
     def buffer = Flow[Int].buffer(128, OverflowStrategy.backpressure)
@@ -610,7 +610,7 @@ object AkkaRecipes extends App {
       .scan(State(0l, 0l)) {
         _ combine _
       }
-      .conflate(_.sum)(Keep.left)
+      .conflateWithSeed(_.sum)(Keep.left)
 
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
@@ -677,10 +677,10 @@ object AkkaRecipes extends App {
   //Detached flows with conflate + conflate
   def scenario11: Graph[ClosedShape, akka.NotUsed] = {
     val srcSlow = throttledSrc(statsD, 1 second, 1000 milliseconds, Int.MaxValue, "akka-source11_0")
-      .conflate(identity)(_ + _)
+      .conflateWithSeed(identity)(_ + _)
 
     val srcFast = throttledSrc(statsD, 1 second, 200 milliseconds, Int.MaxValue, "akka-source11_1")
-      .conflate(identity)(_ + _)
+      .conflateWithSeed(identity)(_ + _)
 
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
@@ -874,9 +874,9 @@ object AkkaRecipes extends App {
   }
 
   /**
-    *
-    *
-    */
+   *
+   *
+   */
   def scenario17(): RunnableGraph[Future[IOResult]] = {
     import GeoJsonProtocol._
     import spray.json._
