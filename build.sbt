@@ -10,13 +10,11 @@ ScalariformKeys.preferences := ScalariformKeys.preferences.value
   .setPreference(AlignParameters, true)
   .setPreference(AlignSingleLineCaseStatements, true)
 
-
 name := "stream-recipes"
 
 version := "0.1"
 
 scalaVersion := "2.11.7"
-
 
 resolvers ++= Seq(
   Resolver.defaultLocal,
@@ -35,8 +33,9 @@ javacOptions += "-Xmx2G"
 
 promptTheme := ScalapenosTheme
 
+val akkaStreamV = "2.4.2"
+
 libraryDependencies ++= Seq(
-  "com.typesafe.akka" %% "akka-stream"    % "2.4.2-RC3",
   //"org.scalaz.stream" %% "scalaz-stream" % "0.8",
   "org.http4s"        %% "jawn-streamz"   % "0.7.0", //https://github.com/rossabaker/jawn-streamz
   "org.spire-math"    %% "jawn-spray"     % "0.8.3", //"scalaz-stream" % "0.8",
@@ -45,7 +44,15 @@ libraryDependencies ++= Seq(
   "com.chuusai"       %% "shapeless"      % "2.2.5",
   "org.hdrhistogram"  %  "HdrHistogram"   % "2.1.7",
   "com.esri.geometry" %  "esri-geometry-api" % "1.2.1",
-  "io.spray"          %% "spray-json"        % "1.3.2"
+  "io.spray"          %% "spray-json"        % "1.3.2",
+  "com.typesafe.akka" %% "akka-stream"       % akkaStreamV
 )
+
+/*
+  "com.softwaremill.reactivekafka" %% "reactive-kafka-core"  % "0.9.0",
+  "com.typesafe.akka" %% "akka-http-experimental"       % akkaStreamV,
+  "com.typesafe.akka" %% "akka-http-spray-json-experimental" % akkaStreamV,
+  "com.typesafe.play" %% "play-json"                        % "2.4.6"
+*/
 
 cancelable in Global := true

@@ -12,7 +12,6 @@ import akka.stream._
 import akka.stream.actor.ActorPublisherMessage.{ Cancel, Request }
 import akka.stream.actor.ActorSubscriberMessage.{ OnComplete, OnError, OnNext }
 import akka.stream.actor._
-import akka.stream.io.{ IOResult, Framing }
 import akka.stream.scaladsl._
 import akka.stream.stage._
 import akka.util.ByteString
