@@ -30,6 +30,8 @@ import scala.language.postfixOps
 import scala.util.{ Failure, Success }
 import scalaz.{ \/-, -\/, \/ }
 
+//http://doc.akka.io/docs/akka/2.4.2/scala/stream/migration-guide-2.0-2.4-scala.html
+
 //runMain recipes.AkkaRecipes
 object AkkaRecipes extends App {
 
@@ -692,10 +694,20 @@ object AkkaRecipes extends App {
   }
 
   //Detached flows with expand + conflate
-  /*
+
   def scenario12: Graph[ClosedShape, akka.NotUsed] = {
-    val srcFast = throttledSrc(statsD, 1 second, 200 milliseconds, Int.MaxValue, "akka-source12_1").conflate(identity)(_ + _)
-    val srcSlow = throttledSrc(statsD, 1 second, 1000 milliseconds, Int.MaxValue, "akka-source12_0").expand(identity) { r ⇒ (r + r, r) }
+    val srcFast = throttledSrc(statsD, 1 second, 200 milliseconds, Int.MaxValue, "akka-source12_1")
+      .conflate(_ + _)
+    val srcSlow = throttledSrc(statsD, 1 second, 1000 milliseconds, Int.MaxValue, "akka-source12_0")
+      .expand(Iterator.continually(_))
+
+      /*.expand(i => {
+      var state = 0 // If state needs to be be kept during the expansion process then this state will need to be managed by the Iterator
+      Iterator.continually({
+        state += 1
+        (i, state)
+      })
+    })*/
 
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
@@ -705,7 +717,7 @@ object AkkaRecipes extends App {
       zip.out ~> Sink.actorSubscriber(DegradingActor.props2("akka-sink12", statsD, 0l))
       ClosedShape
     }
-  }*/
+  }
 
   /**
    * External source
