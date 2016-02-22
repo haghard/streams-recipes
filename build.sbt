@@ -41,7 +41,7 @@ libraryDependencies ++= Seq(
   "org.spire-math"    %% "jawn-spray"     % "0.8.3", //"scalaz-stream" % "0.8",
   //"io.underscore"     %% "csvside"        % "0.10.1",
   "org.spire-math"    %% "cats-core"      % "0.4.0-SNAPSHOT",
-  "com.chuusai"       %% "shapeless"      % "2.2.5",
+  "com.chuusai"       %% "shapeless"      % "2.3.0-RC3",
   "org.hdrhistogram"  %  "HdrHistogram"   % "2.1.7",
   "com.esri.geometry" %  "esri-geometry-api" % "1.2.1",
   "io.spray"          %% "spray-json"        % "1.3.2",

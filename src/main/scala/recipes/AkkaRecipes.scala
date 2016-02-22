@@ -112,13 +112,15 @@ object AkkaRecipes extends App {
   //RunnableGraph.fromGraph(scenario6).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario7).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario8).run()(ActorMaterializer(Settings)(sys))
+  RunnableGraph.fromGraph(scenario12).run()(ActorMaterializer(Settings)(sys))
 
   val mat = ActorMaterializer(Settings)(sys)
   //RunnableGraph.fromGraph(scenario16(mat)).run()(ActorMaterializer(Settings)(sys))
 
+  /*
   scenario17.run()(mat).onComplete { _ ⇒
     sys.terminate()
-  }(mat.executionContext)
+  }(mat.executionContext)*/
 
   /**
    * Tumbling windows discretize a stream into non-overlapping windows
@@ -694,14 +696,13 @@ object AkkaRecipes extends App {
   }
 
   //Detached flows with expand + conflate
-
   def scenario12: Graph[ClosedShape, akka.NotUsed] = {
     val srcFast = throttledSrc(statsD, 1 second, 200 milliseconds, Int.MaxValue, "akka-source12_1")
       .conflate(_ + _)
     val srcSlow = throttledSrc(statsD, 1 second, 1000 milliseconds, Int.MaxValue, "akka-source12_0")
       .expand(Iterator.continually(_))
 
-      /*.expand(i => {
+    /*.expand(i => {
       var state = 0 // If state needs to be be kept during the expansion process then this state will need to be managed by the Iterator
       Iterator.continually({
         state += 1
@@ -711,7 +712,7 @@ object AkkaRecipes extends App {
 
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
-      val zip = b.add(Zip[Int, Int].withAttributes(Attributes.inputBuffer(1, 1)))
+      val zip = b.add(Zip[Int, Int].withAttributes(Attributes.inputBuffer(16, 32)))
       srcFast ~> zip.in0
       srcSlow ~> zip.in1
       zip.out ~> Sink.actorSubscriber(DegradingActor.props2("akka-sink12", statsD, 0l))
