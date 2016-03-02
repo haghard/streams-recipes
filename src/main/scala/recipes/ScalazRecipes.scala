@@ -31,10 +31,6 @@ object ScalazRecipes extends App {
 
   def grafanaInstance = new Grafana { override val address = statsD }
 
-  def sleep(latency: Long) = Process.repeatEval(Task.delay(Thread.sleep(latency)))
-
-  def signal = async.signalOf(0)(Strategy.Executor(Executors.newFixedThreadPool(2, new RecipesDaemons("signal"))))
-
   scenario07.run[Task].run
 
   def naturalsEvery(latency: Long): Process[Task, Int] = {
@@ -57,12 +53,6 @@ object ScalazRecipes extends App {
     s.set(x).map(_ ⇒ statsD send message)
   }
 
-  def statsDOut(s: scalaz.stream.async.mutable.Signal[Int], statsD: Grafana, message: String) = sink.lift[Task, (Long, Int)] { x: (Long, Int) ⇒
-    val latency = 0 + (x._1 / 1000)
-    Thread.sleep(latency, x._1 % 1000 toInt)
-    s.set(x._2).map(_ ⇒ statsD send message)
-  }
-
   def broadcastN[T](n: Int, source: Process[Task, T], bufferSize: Int = 4)(implicit S: Strategy): Process[Task, Seq[Process[Task, T]]] = {
     val queues = (0 until n).map(_ ⇒ async.boundedQueue[T](bufferSize)(S))
     val broadcast = queues./:(source)((src, q) ⇒ (src observe q.enqueue)).onComplete(Process.eval(Task.gatherUnordered(queues.map(_.close))))
@@ -80,8 +70,7 @@ object ScalazRecipes extends App {
   def interleaveN[T](q: scalaz.stream.async.mutable.Queue[T], processes: List[Process[Task, T]])(implicit S: Strategy): Process[Task, T] = {
     val merge = processes.tail./:(processes.head to q.enqueue) { (acc: Process[Task, Unit], p: Process[Task, T]) ⇒
       (acc merge (p to q.enqueue))(S)
-    }
-    merge.onComplete(Process.eval(q.close))
+    }.onComplete(Process.eval(q.close))
     (merge.drain merge q.dequeue)(S)
   }
 
@@ -95,7 +84,8 @@ object ScalazRecipes extends App {
 
   /**
    * What is time series data ?
-   * Measurements taken at regular intervals and each measurement has ts attached to it.
+   *
+    * Measurements taken at regular intervals and each measurement has ts attached to it.
    * If we have a log from some production system so we have lines with ts attached to it
    * it isn't a time series data.
    * So time series data is a continuous measurement at a regular interval
@@ -114,7 +104,7 @@ object ScalazRecipes extends App {
     /**
      * Count window
      */
-    def throughAllWindow(aggregateInterval: Duration)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
+    def countWindow(aggregateInterval: Duration)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
       (discreteStep(aggregateInterval.toMillis) wye p)(tumblingWye[T](aggregateInterval, false))(S)
 
     /**
