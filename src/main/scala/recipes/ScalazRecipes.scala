@@ -15,7 +15,7 @@ object ScalazRecipes extends App {
   val showLimit = 1000
   val observePeriod = 5000
   val limit = Int.MaxValue
-  val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.47"), 8125)
+  val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.182"), 8125)
   val Ex = Strategy.Executor(new ForkJoinPool(Runtime.getRuntime.availableProcessors()))
 
   case class RecipesDaemons(name: String) extends ThreadFactory {
@@ -29,13 +29,13 @@ object ScalazRecipes extends App {
     }
   }
 
-  def statsDInstance = new StatsD { override val address = statsD }
+  def grafanaInstance = new Grafana { override val address = statsD }
 
   def sleep(latency: Long) = Process.repeatEval(Task.delay(Thread.sleep(latency)))
 
   def signal = async.signalOf(0)(Strategy.Executor(Executors.newFixedThreadPool(2, new RecipesDaemons("signal"))))
 
-  scenario01.run[Task].run
+  scenario07.run[Task].run
 
   def naturalsEvery(latency: Long): Process[Task, Int] = {
     def go(i: Int): Process[Task, Int] =
@@ -49,15 +49,15 @@ object ScalazRecipes extends App {
     go(0)
   }
 
-  def statsDin(statsD: StatsD, message: String) = sink.lift[Task, Int] { _ ⇒
+  def grafana(statsD: Grafana, message: String) = sink.lift[Task, Int] { _ ⇒
     Task.delay(statsD send message)
   }
 
-  def statsDOut0(s: scalaz.stream.async.mutable.Signal[Int], statsD: StatsD, message: String) = sink.lift[Task, Int] { x: Int ⇒
+  def statsDOut0(s: scalaz.stream.async.mutable.Signal[Int], statsD: Grafana, message: String) = sink.lift[Task, Int] { x: Int ⇒
     s.set(x).map(_ ⇒ statsD send message)
   }
 
-  def statsDOut(s: scalaz.stream.async.mutable.Signal[Int], statsD: StatsD, message: String) = sink.lift[Task, (Long, Int)] { x: (Long, Int) ⇒
+  def statsDOut(s: scalaz.stream.async.mutable.Signal[Int], statsD: Grafana, message: String) = sink.lift[Task, (Long, Int)] { x: (Long, Int) ⇒
     val latency = 0 + (x._1 / 1000)
     Thread.sleep(latency, x._1 % 1000 toInt)
     s.set(x._2).map(_ ⇒ statsD send message)
@@ -77,20 +77,38 @@ object ScalazRecipes extends App {
     (broadcast.drain merge Process.emit(queues.map(_.dequeue)))(S)
   }
 
-  def interleaveN[T](q: scalaz.stream.async.mutable.Queue[T], ps: List[Process[Task, T]])(implicit S: Strategy): Process[Task, T] = {
-    val merge = ps.tail./:(ps.head to q.enqueue) { (acc, c) ⇒ (acc merge (c to q.enqueue))(S) }.onComplete(Process.eval(q.close))
+  def interleaveN[T](q: scalaz.stream.async.mutable.Queue[T], processes: List[Process[Task, T]])(implicit S: Strategy): Process[Task, T] = {
+    val merge = processes.tail./:(processes.head to q.enqueue) { (acc: Process[Task, Unit], p: Process[Task, T]) ⇒
+      (acc merge (p to q.enqueue))(S)
+    }
+    merge.onComplete(Process.eval(q.close))
     (merge.drain merge q.dequeue)(S)
   }
 
   implicit class SinkOps[A](left: Sink[Task, A]) {
-    def parallel(right: Sink[Task, A]) = {
-      left.zipWith(right)((l, r) ⇒ {
+    def nondeterminstically(right: Sink[Task, A]) = {
+      (left zipWith right) { (l, r) ⇒
         (a: A) ⇒ Nondeterminism[Task].mapBoth(l(a), r(a))((_, _) ⇒ ())
-      })
+      }
     }
   }
 
-  implicit class ProcessOps[T](val p: Process[Task, T]) extends AnyVal {
+  /**
+   * What is time series data ?
+   * Measurements taken at regular intervals and each measurement has ts attached to it.
+   * If we have a log from some production system so we have lines with ts attached to it
+   * it isn't a time series data.
+   * So time series data is a continuous measurement at a regular interval
+   *
+   * Of cause you can turn lines with ts into time series
+   *
+   *
+   * TimeSeries:
+   *   TumblingWindow: discretize a stream into non-overlapping windows
+   *   SlidingWindow: discretize a stream into overlapping windows
+   *
+   */
+  implicit class TimeSeriesProcessesOps[T](val p: Process[Task, T]) extends AnyVal {
     import scalaz.stream.ReceiveY.{ HaltOne, ReceiveL, ReceiveR }
 
     /**
@@ -102,13 +120,13 @@ object ScalazRecipes extends App {
     /**
      * Tumbling windows discretize a stream into non-overlapping windows
      */
-    def throughTumblingWindow(aggregateInterval: Duration)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
+    def tumblingWindow(aggregateInterval: Duration)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
       (discreteStep(aggregateInterval.toMillis) wye p)(tumblingWye[T](aggregateInterval))(S)
 
     /**
      * Sliding windows discretize a stream into overlapping windows
      */
-    def throughSlidingWindow(aggregateInterval: Duration, numOfUnits: Int)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
+    def slidingWindow(aggregateInterval: Duration, numOfUnits: Int)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
       (discreteStep(aggregateInterval.toMillis / numOfUnits) wye p)(tumblingWye[T](aggregateInterval))(S)
 
     private def tumblingWye[I](duration: Duration, reset: Boolean = true): scalaz.stream.Wye[Long, I, I] = {
@@ -149,8 +167,8 @@ object ScalazRecipes extends App {
     val srcMessage = "scalaz-source1:1|c"
     val sinkMessage = "scalaz-sink1:1|c"
 
-    val src = (naturalsEvery(sourceDelay) observe statsDin(statsDInstance, srcMessage))
-    (src throughTumblingWindow latency)(Ex) to statsDin(statsDInstance, sinkMessage)
+    val src = (naturalsEvery(sourceDelay) observe grafana(grafanaInstance, srcMessage))
+    (src tumblingWindow latency)(Ex) to grafana(grafanaInstance, sinkMessage)
     //(src.throughSlidingWindow(latency, 5))(Ex) to statsDin(statsDInstance, sinkMessage)
     //(src throughAllWindow latency)(Ex) to statsDin(statsDInstance, sinkMessage)
   }
@@ -169,7 +187,7 @@ object ScalazRecipes extends App {
     val sinkMessage = "scalaz-sink2:1|c"
     val queue = async.boundedQueue[Int](bufferSize)(Ex)
 
-    (naturalsEvery(sourceDelay) observe queue.enqueue to statsDin(statsDInstance, srcMessage))
+    (naturalsEvery(sourceDelay) observe queue.enqueue to grafana(grafanaInstance, srcMessage))
       .onComplete(Process.eval_(queue.close))
       .run.runAsync(_ ⇒ ())
 
@@ -180,13 +198,15 @@ object ScalazRecipes extends App {
         _ = Thread.sleep(0 + (updated / 1000), updated % 1000 toInt)
         _ ← scalaz.State.put(updated)
       } yield v
-    }) throughSlidingWindow (triggerInterval, 5))(Ex) to statsDin(statsDInstance, sinkMessage)
+    }) slidingWindow (triggerInterval, 5))(Ex) to grafana(grafanaInstance, sinkMessage)
   }
 
   /**
-   * Situation: A source and a sink perform on the same rate in the beginning, the sink gets slower later, increases delay with every message.
-   * We are using circular buffer as buffer between them, it will override elements if no space in buffer.
-   * Result: The sink's rate is going to be decrease but the source's rate will be stayed on the initial level.
+   * Situation:
+   *  A source and a sink perform on the same rate in the beginning, the sink gets slower later, increases delay with every message.
+   *  We are using circular buffer as buffer between them, it will override elements if no space in the buffer.
+   * Result:
+   *  The sink's rate is going to be decreased but the source's rate stays on the initial level.
    */
   def scenario03: Process[Task, Unit] = {
     val delayPerMsg = 1l
@@ -198,7 +218,7 @@ object ScalazRecipes extends App {
     val srcMessage = "scalaz-source3:1|c"
     val sinkMessage = "scalaz-sink3:1|c"
 
-    (naturalsEvery(sourceDelay) observe cBuffer.enqueue to statsDin(statsDInstance, srcMessage))
+    (naturalsEvery(sourceDelay) observe cBuffer.enqueue to grafana(grafanaInstance, srcMessage))
       .onComplete(Process.eval_(cBuffer.close))
       .run.runAsync(_ ⇒ ())
 
@@ -209,11 +229,19 @@ object ScalazRecipes extends App {
         _ = Thread.sleep(0 + (updated / 1000), updated % 1000 toInt)
         _ ← scalaz.State.put(updated)
       } yield n
-    } throughTumblingWindow window)(Ex) to statsDin(statsDInstance, sinkMessage)
+    } tumblingWindow window)(Ex) to grafana(grafanaInstance, sinkMessage)
   }
 
   /**
-   * It behaves like scenario03. The only difference being that we are using queue instead of circular buffer
+   * This behaves like scenario03. The only difference being that we are using queue instead of circular buffer
+   *
+   *
+   *                      +--------+
+   *               +------|dropLast|
+   *               |      +--------+
+   * +------+   +-----+   +----+
+   * |source|---|queue|---|sink|
+   * +------+   +-----+   +----+
    */
   def scenario03_1: Process[Task, Unit] = {
     val delayPerMsg = 1l
@@ -228,161 +256,187 @@ object ScalazRecipes extends App {
 
     def dropLastCleaner = (queue.size.discrete.filter(_ > waterMark) zip queue.dequeue).drain
 
-    (naturalsEvery(sourceDelay) observe queue.enqueue to statsDin(statsDInstance, srcMessage))
+    ((naturalsEvery(sourceDelay) tumblingWindow window) observe queue.enqueue to grafana(grafanaInstance, srcMessage))
       .onComplete(Process.eval_(queue.close))
       .run.runAsync(_ ⇒ ())
 
     val qSink = (queue.dequeue.stateScan(0l) { number: Int ⇒
       for {
         latency ← scalaz.State.get[Long]
-        updated = latency + delayPerMsg
-        _ = Thread.sleep(0 + (updated / 1000), updated % 1000 toInt)
-        _ ← scalaz.State.put(updated)
+        increased = latency + delayPerMsg
+        _ = Thread.sleep(0 + (increased / 1000), increased % 1000 toInt)
+        _ ← scalaz.State.put(increased)
       } yield number
-    } throughTumblingWindow window)(Ex) to statsDin(statsDInstance, sinkMessage)
+    } tumblingWindow window)(Ex) to grafana(grafanaInstance, sinkMessage)
 
     mergeN(Process(qSink, dropLastCleaner))(Ex)
   }
 
   /**
-   * It's different from scenario03_1 only in dropping the whole buffer
-   * Source publish data into queue.
-   * We have a dropLastStrategy process that will track queue size and the whole buffer if it exceeds waterMark
+   * This one is different from scenario03_1 only in dropping the whole buffer when waterMark is reached
+   *                      +----------+
+   *               +------|dropBuffer|
+   *               |      +----------+
+   * +------+   +-----+   +----+
+   * |source|---|queue|---|sink|
+   * +------+   +-----+   +----+
+   *
    */
   def scenario03_2: Process[Task, Unit] = {
     val delayPerMsg = 1l
     val bufferSize = 1 << 7
     val waterMark = bufferSize - 5
-    val producerRate = 10
+    val sourceDelay = 10
+    val window: Duration = 5 seconds
     val queue = async.boundedQueue[Int](bufferSize)(Ex)
 
-    val s = signal
     val srcMessage = "scalaz-source3_2:1|c"
     val sinkMessage = "scalaz-sink3_2:1|c"
 
-    def dropBufferProcess = (queue.size.discrete.filter(_ > waterMark) zip queue.dequeueBatch(waterMark)).drain
+    val dropBufferProcess = (queue.size.discrete.filter(_ > waterMark) zip (queue dequeueBatch waterMark)).drain
 
-    ((naturals zip sleep(producerRate)).map(_._1) observe queue.enqueue to statsDin(statsDInstance, srcMessage))
+    ((naturalsEvery(sourceDelay) tumblingWindow window) observe queue.enqueue to grafana(grafanaInstance, srcMessage))
       .onComplete(Process.eval_(queue.close))
       .run[Task].runAsync(_ ⇒ ())
 
-    (s.continuous zip sleep(observePeriod))
-      .to(sink.lift[Task, (Int, Unit)] { x ⇒ Task.delay(println(s"scalaz-scenario03_2: ${x._1}")) })
-      .run.runAsync(_ ⇒ ())
-
-    val qSink = queue.dequeue.stateScan(0l) { number: Int ⇒
+    val sink = (queue.dequeue.stateScan(0l) { ind: Int ⇒
       for {
-        latency ← scalaz.State.get[Long]
-        increased = latency + delayPerMsg
+        currentLatency ← scalaz.State.get[Long]
+        increased = currentLatency + delayPerMsg
+        _ = Thread.sleep(0 + (increased / 1000), increased % 1000 toInt)
         _ ← scalaz.State.put(increased)
-      } yield (increased, number)
-    } to statsDOut(s, statsDInstance, sinkMessage)
+      } yield ind
+    } tumblingWindow window)(Ex) to grafana(grafanaInstance, sinkMessage)
 
-    mergeN(Process(qSink, dropBufferProcess))(Ex)
+    mergeN(Process(sink, dropBufferProcess))(Ex)
   }
 
   /**
-   * Situation:
+   * A fast source do broadcast into two sinks. The first sink is fast and the second is getting slower.
+   * Result: The whole flow rate is going to be decreased up to slow sink.
    *
+   *                +------+  +-----+
+   *             +--|queue0|--|sink0|
+   * +-------+   |  +------+  +-----+
+   * |source0|---|
+   * +-------+   |  +------+  +-----+
+   *             +--|queue1|--|sink1|
+   *                +------+  +-----+
    */
   def scenario04: Process[Task, Unit] = {
-    val delayPerMsg = 2l
-    val s0 = signal
-    val s1 = signal
+    val delayPerMsg = 1l
+    val window = 5 seconds
     val producerRate = 10
-    val srcMessage = "scalaz-source4:1|c"
-    val sinkMessage0 = "scalaz-sink4_0:1|c"
-    val sinkMessage1 = "scalaz-sink4_1:1|c"
+    val srcMessage = "scalaz-source_4:1|c"
+    val sinkMessage0 = "scalaz-sink_4_1:1|c"
+    val sinkMessage1 = "scalaz-sink_4_2:1|c"
 
-    val src = (naturals zip sleep(producerRate)).map(_._1) observe statsDin(statsDInstance, srcMessage)
-
-    (s1.continuous zip sleep(observePeriod)) //or s0
-      .to(sink.lift[Task, (Int, Unit)] { x ⇒ Task.delay(println(s"scalaz-scenario04: ${x._1}")) })
-      .run.runAsync(_ ⇒ ())
+    val src = (naturalsEvery(producerRate) tumblingWindow window) observe grafana(grafanaInstance, srcMessage)
 
     (for {
       outlets ← broadcastN(2, src)(Ex)
 
-      out0 = outlets(0).stateScan(0l) { number: Int ⇒
+      out0 = outlets(0) to grafana(grafanaInstance, sinkMessage0)
+
+      out1 = outlets(1).stateScan(0l) { number: Int ⇒
         for {
           latency ← scalaz.State.get[Long]
           increased = latency + delayPerMsg
+          _ = Thread.sleep(0 + (increased / 1000), increased % 1000 toInt)
           _ ← scalaz.State.put(increased)
-        } yield (increased, number)
-      } to statsDOut(s0, statsDInstance, sinkMessage0)
+        } yield number
+      } to grafana(grafanaInstance, sinkMessage1)
 
-      out1 = outlets(1) to statsDOut0(s1, statsDInstance, sinkMessage1)
       _ ← (out0 merge out1)(Ex)
     } yield ())
   }
 
   /**
-   * Situation:
+   * A fast source do broadcast into two sinks. The first sink is fast and the second is getting slower.
+   * We use drop strategy when waterMark is exceeded
+   * Result: source and fast sink's rate stay the same, slow sink is going down
    *
+   *                    +----- drop
+   *                    |
+   *                +------+  +-----+
+   *             +--|queue0|--|sink0|
+   * +-------+   |  +------+  +-----+
+   * |source0|---|
+   * +-------+   |  +------+  +-----+
+   *             +--|queue1|--|sink1|
+   *                +------+  +-----+
+   *                    |
+   *                    +----- drop
    */
   def scenario05: Process[Task, Unit] = {
-    val delayPerMsg = 2l
-    val s0 = signal
-    val s1 = signal
-    val producerRate = 10
+    val delayPerMsg = 1l
+    val sourceDelay = 10
+    val window = 5 seconds
     val bufferSize = 1 << 7
     val waterMark = bufferSize - 5
     val srcMessage = "scalaz-source5:1|c"
     val sinkMessage0 = "scalaz-sink5_0:1|c"
     val sinkMessage1 = "scalaz-sink5_1:1|c"
-    val src = (naturals zip sleep(producerRate)).map(_._1) observe statsDin(statsDInstance, srcMessage)
 
-    (s1.continuous zip sleep(observePeriod)) //or s0
-      .to(sink.lift[Task, (Int, Unit)] { x ⇒ Task.delay(println(s"scalaz-scenario05: ${x._1}")) })
-      .run.runAsync(_ ⇒ ())
+    val src = (naturalsEvery(sourceDelay) tumblingWindow window) observe grafana(grafanaInstance, srcMessage)
 
     (for {
       outlets ← broadcastN2(2, src, waterMark, bufferSize)(Ex)
 
-      out0 = outlets(0).stateScan(0l) { number: Int ⇒
+      out0 = outlets(0) to grafana(grafanaInstance, sinkMessage0)
+
+      out1 = outlets(1).stateScan(0l) { number: Int ⇒
         for {
           latency ← scalaz.State.get[Long]
           increased = latency + delayPerMsg
+          _ = Thread.sleep(0 + (increased / 1000), increased % 1000 toInt)
           _ ← scalaz.State.put(increased)
-        } yield (increased, number)
-      } to statsDOut(s0, statsDInstance, sinkMessage0)
+        } yield number
+      } to grafana(grafanaInstance, sinkMessage1)
 
-      out1 = outlets(1) to statsDOut0(s1, statsDInstance, sinkMessage1)
       _ ← (out0 merge out1)(Ex)
     } yield ())
   }
 
   /**
    * Situation:
+   * Multiple sources operating on different rates merged in one source
+   * Sink's rate = sum(sources)
+   *
+   * +----+
+   * |src0|-+
+   * +----+ |
+   * +----+ | +------------+  +----+
+   * |src1|---|boundedQueue|--|sink|
+   * +----+ | +------------+  +----+
+   * +----+ |
+   * |src2|-+
+   * +----+
    *
    */
   def scenario07: Process[Task, Unit] = {
-    val s = signal
+    val window = 10 seconds
     val latencies = List(20l, 30l, 40l, 45l)
+    def srcMessage(n: Int) = s"scalaz-source7_$n:1|c"
+
     val sources = latencies.zipWithIndex.map { ms ⇒
-      (naturals zip sleep(ms._1)).map(_._1) observe statsDin(statsDInstance, s"scalaz-source07_${ms._2}:1|c")
+      naturalsEvery(ms._1) observe grafana(grafanaInstance, srcMessage(ms._2))
     }
 
-    (s.continuous zip sleep(observePeriod))
-      .to(sink.lift[Task, (Int, Unit)] { x ⇒ Task.delay(println(s"scalaz-scenario07: ${x._1}")) })
-      .run.runAsync(_ ⇒ ())
-
-    interleaveN(async.boundedQueue[Int](2 << 7)(Ex), sources)(Ex) to statsDOut0(s, statsDInstance, "scalaz-sink7:1|c")
+    (interleaveN(async.boundedQueue[Int](2 << 7)(Ex), sources)(Ex) slidingWindow (window, 5)) to grafana(grafanaInstance, "scalaz-sink7:1|c")
   }
-
-  //Examples:
 
   /**
    * Usage:
-   * val src: Process[Task, Char] = Process.emitAll(Seq('a', 'b', 'c', 'd', 'e', 'g'))
+   * val src: Process[Task, Char] = Process.emitAll(Seq('a', 'b', 'c', 'd','e'))
    * (src |> count).runLog.run
-   * Vector(\/-(a), -\/(1), \/-(b), -\/(2), \/-(c), -\/(3), \/-(d), -\/(4), \/-(e), -\/(5), \/-(g), -\/(6))
+   * Vector(-\/(1), \/-(a), -\/(2), \/-(b), -\/(3), \/-(c), -\/(4), \/-(d), -\/(5), \/-(e))
    *
    */
   def count[A]: Process1[A, Long \/ A] = {
     def go(acc: Long): Process1[A, Long \/ A] = {
       Process.receive1[A, Long \/ A] { element: A ⇒
-        Process.emitAll(Seq(\/-(element), -\/(acc + 1))) ++ go(acc + 1)
+        Process.emitAll(Seq(-\/(acc + 1), \/-(element))) ++ go(acc + 1)
       }
     }
     go(0L)

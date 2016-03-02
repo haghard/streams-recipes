@@ -671,6 +671,8 @@ object AkkaRecipes extends App {
       GraphDSL.create() { implicit builder ⇒
         import GraphDSL.Implicits._
         val heartbeats = builder.add(Source.tick(interval, interval, zero))
+        //0 - preferred port
+        //1 - secondary port
         val merge = builder.add(MergePreferred[T](1))
         heartbeats ~> merge.in(0)
         FlowShape(merge.preferred, merge.out)
@@ -749,7 +751,7 @@ object AkkaRecipes extends App {
     implicit val Ctx = mat.executionContext
     implicit val ExtCtx = sys.dispatchers.lookup("akka.blocking-dispatcher")
 
-    val pubStatsD = new StatsD {
+    val pubStatsD = new Grafana {
       override val address = statsD
     }
     val (queue, publisher) = Source.queue[Option[Int]](1 << 7, OverflowStrategy.backpressure)
@@ -968,7 +970,7 @@ object AkkaRecipes extends App {
     )
 }
 
-trait StatsD {
+trait Grafana {
   val Encoding = "utf-8"
   val sendBuffer = (ByteBuffer allocate 1024)
   val channel = DatagramChannel.open()
@@ -1062,7 +1064,7 @@ class Worker(name: String) extends Actor with ActorLogging {
   }
 }
 
-class RecordsSink(name: String, val address: InetSocketAddress) extends Actor with ActorLogging with StatsD {
+class RecordsSink(name: String, val address: InetSocketAddress) extends Actor with ActorLogging with Grafana {
   override def receive = {
     case BalancerRouter.Done(id) ⇒
       send(s"$name:1|c")
@@ -1076,7 +1078,7 @@ class RecordsSink(name: String, val address: InetSocketAddress) extends Actor wi
  * @param address
  * @param delay
  */
-class TopicReader(name: String, val address: InetSocketAddress, delay: Long) extends ActorPublisher[Int] with StatsD {
+class TopicReader(name: String, val address: InetSocketAddress, delay: Long) extends ActorPublisher[Int] with Grafana {
   val Limit = 10000
   var progress = 0
   val observeGap = 1000
@@ -1111,7 +1113,7 @@ object PubSubSink {
     Props(new PubSubSink(name, address)).withDispatcher("akka.flow-dispatcher")
 }
 
-class PubSubSink private (name: String, val address: InetSocketAddress, delay: Long) extends ActorSubscriber with ActorPublisher[Long] with StatsD {
+class PubSubSink private (name: String, val address: InetSocketAddress, delay: Long) extends ActorSubscriber with ActorPublisher[Long] with Grafana {
   private val queue = mutable.Queue[Long]()
 
   override protected val requestStrategy = new MaxInFlightRequestStrategy(10) {
@@ -1167,7 +1169,7 @@ object SyncActor {
     Props(new SyncActor(name, address, delay, limit)).withDispatcher("akka.flow-dispatcher")
 }
 
-class SyncActor private (name: String, val address: InetSocketAddress, delay: Long, limit: Long) extends ActorSubscriber with StatsD {
+class SyncActor private (name: String, val address: InetSocketAddress, delay: Long, limit: Long) extends ActorSubscriber with Grafana {
   var count = 0
   override protected val requestStrategy = OneByOneRequestStrategy
 
@@ -1211,7 +1213,7 @@ object BatchActor {
     Props(new BatchActor(name, address, delay, bufferSize)).withDispatcher("akka.flow-dispatcher")
 }
 
-class BatchActor private (name: String, val address: InetSocketAddress, delay: Long, bufferSize: Int) extends ActorSubscriber with StatsD {
+class BatchActor private (name: String, val address: InetSocketAddress, delay: Long, bufferSize: Int) extends ActorSubscriber with Grafana {
   private val queue = new mutable.Queue[Int]()
 
   override protected val requestStrategy = new MaxInFlightRequestStrategy(bufferSize) {
@@ -1248,7 +1250,7 @@ object DegradingActor {
 }
 
 class DegradingActor private (val name: String, val address: InetSocketAddress, delayPerMsg: Long, initialDelay: Long)
-    extends ActorSubscriber with StatsD {
+    extends ActorSubscriber with Grafana {
 
   var delay = 0l
 
@@ -1284,7 +1286,7 @@ class DegradingActor private (val name: String, val address: InetSocketAddress, 
   }
 }
 
-class DbCursorPublisher(name: String, val end: Long, val address: InetSocketAddress) extends ActorPublisher[Long] with StatsD with ActorLogging {
+class DbCursorPublisher(name: String, val end: Long, val address: InetSocketAddress) extends ActorPublisher[Long] with Grafana with ActorLogging {
   var limit = 0l
   var seqN = 0l
   val showPeriod = 50

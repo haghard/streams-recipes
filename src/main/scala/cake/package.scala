@@ -1,14 +1,12 @@
-import java.util.concurrent.ExecutorService
-
+import util.Try
 import scala.reflect.ClassTag
+import java.util.concurrent.ExecutorService
 import recipes.ScalazRecipes.RecipesDaemons
 
 package object cake {
   import scala.concurrent.Future
   import scalaz.concurrent.Task
   import scalaz._, Scalaz._
-
-  import util.Try
   import scalaz.concurrent.{Task => ZTask}
   import scala.concurrent.{ExecutionContext, Future => SFuture, Promise}
 
