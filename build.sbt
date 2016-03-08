@@ -36,16 +36,15 @@ promptTheme := ScalapenosTheme
 val akkaStreamV = "2.4.2"
 
 libraryDependencies ++= Seq(
-  //"org.scalaz.stream" %% "scalaz-stream" % "0.8",
-  "org.http4s"        %% "jawn-streamz"   % "0.7.0", //https://github.com/rossabaker/jawn-streamz
-  "org.spire-math"    %% "jawn-spray"     % "0.8.3", //"scalaz-stream" % "0.8",
+  "org.http4s"        %% "jawn-streamz"   % "0.8.1", //https://github.com/rossabaker/jawn-streamz
+  "org.spire-math"    %% "jawn-spray"     % "0.8.4",
   //"io.underscore"     %% "csvside"        % "0.10.1",
-  "org.spire-math"    %% "cats-core"      % "0.4.0-SNAPSHOT",
   "com.chuusai"       %% "shapeless"      % "2.3.0-RC3",
   "org.hdrhistogram"  %  "HdrHistogram"   % "2.1.7",
   "com.esri.geometry" %  "esri-geometry-api" % "1.2.1",
   "io.spray"          %% "spray-json"        % "1.3.2",
-  "com.typesafe.akka" %% "akka-stream"       % akkaStreamV
+  "com.typesafe.akka" %% "akka-stream"       % akkaStreamV,
+  "io.reactivex"      %% "rxscala"           % "0.26.0"
 )
 
 /*

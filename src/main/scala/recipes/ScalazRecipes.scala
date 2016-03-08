@@ -1,16 +1,20 @@
 package recipes
 
+import java.io.FileInputStream
 import java.net.{ InetAddress, InetSocketAddress }
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.{ Executors, ForkJoinPool, ThreadFactory }
+import java.util.concurrent.{ ForkJoinPool, ThreadFactory }
 
+import scodec.bits.ByteVector
+
+import scala.util.Random
 import scalaz.{ Nondeterminism, -\/, \/-, \/ }
 import scalaz.stream._
 import scalaz.stream.merge._
 import scalaz.concurrent.{ Strategy, Task }
 import scala.concurrent.duration._
 
-//runMain recipes.ScalazRecipes
+///runMain recipes.ScalazRecipes
 object ScalazRecipes extends App {
   val showLimit = 1000
   val observePeriod = 5000
@@ -31,7 +35,8 @@ object ScalazRecipes extends App {
 
   def grafanaInstance = new Grafana { override val address = statsD }
 
-  scenario07.run[Task].run
+  //scenario07.run[Task].unsafePerformSync
+  scenario08.run[Task].unsafePerformSync
 
   def naturalsEvery(latency: Long): Process[Task, Int] = {
     def go(i: Int): Process[Task, Int] =
@@ -85,7 +90,7 @@ object ScalazRecipes extends App {
   /**
    * What is time series data ?
    *
-    * Measurements taken at regular intervals and each measurement has ts attached to it.
+   * Measurements taken at regular intervals and each measurement has ts attached to it.
    * If we have a log from some production system so we have lines with ts attached to it
    * it isn't a time series data.
    * So time series data is a continuous measurement at a regular interval
@@ -248,7 +253,7 @@ object ScalazRecipes extends App {
 
     ((naturalsEvery(sourceDelay) tumblingWindow window) observe queue.enqueue to grafana(grafanaInstance, srcMessage))
       .onComplete(Process.eval_(queue.close))
-      .run.runAsync(_ ⇒ ())
+      .run.unsafePerformAsync(_ ⇒ ())
 
     val qSink = (queue.dequeue.stateScan(0l) { number: Int ⇒
       for {
@@ -287,7 +292,7 @@ object ScalazRecipes extends App {
 
     ((naturalsEvery(sourceDelay) tumblingWindow window) observe queue.enqueue to grafana(grafanaInstance, srcMessage))
       .onComplete(Process.eval_(queue.close))
-      .run[Task].runAsync(_ ⇒ ())
+      .run[Task].unsafePerformAsync(_ ⇒ ())
 
     val sink = (queue.dequeue.stateScan(0l) { ind: Int ⇒
       for {
@@ -389,8 +394,7 @@ object ScalazRecipes extends App {
   }
 
   /**
-   * Situation:
-   * Multiple sources operating on different rates merged in one source
+   * Situation: Multiple sources operating on different rates have merged into one sink
    * Sink's rate = sum(sources)
    *
    * +----+
@@ -426,7 +430,7 @@ object ScalazRecipes extends App {
   def count[A]: Process1[A, Long \/ A] = {
     def go(acc: Long): Process1[A, Long \/ A] = {
       Process.receive1[A, Long \/ A] { element: A ⇒
-        Process.emitAll(Seq(-\/(acc + 1), \/-(element))) ++ go(acc + 1)
+        Process.emitAll(Seq(-\/(acc + 1l), \/-(element))) ++ go(acc + 1)
       }
     }
     go(0L)
@@ -472,7 +476,19 @@ object ScalazRecipes extends App {
 
     joinTee
   }
-
   //result is List((2 -> "2"), (5 -> "5"), (8 ->"8"))
   //(scalaz.stream.Process(1, 2, 3, 4, 5, 6, 7, 8, 9) tee scalaz.stream.Process("2", "5", "8"))(ScalazRecipes.sortedLoin(identity, _.toInt)).toStream.toList
+
+  /**
+   * Json streaming
+   */
+  def scenario08: Process[Task, Unit] = {
+    import jawnstreamz._
+    implicit val facade = jawn.support.spray.Parser.facade
+    implicit val scheduler = scalaz.stream.DefaultScheduler
+    val chunkSizes: Process[Task, Int] = Process.emitAll(Stream.continually(Random.nextInt(50)))
+    val jsonSource = (chunkSizes through io.chunkR(new FileInputStream("array.json")))
+    val laggedSource: Process[Task, ByteVector] = (jsonSource zipWith time.awakeEvery(Random.nextInt(1000).millis))((chunk, _) ⇒ chunk)
+    (laggedSource.unwrapJsonArray.map(_.prettyPrint) to io.stdOutLines)
+  }
 }

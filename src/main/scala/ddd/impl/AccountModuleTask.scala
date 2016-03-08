@@ -12,6 +12,9 @@ import java.util.Date
 import scalaz.Kleisli._
 import scalaz.concurrent.Task
 
+//Note: deprecation warning can be disabled by importing Validation.FlatMap._ (#637)
+import Validation.FlatMap._
+
 trait AccountModuleTask extends AccountModule[Task, Account, Amount, Balance] {
   mixin: { def executor: java.util.concurrent.ExecutorService } ⇒
 
@@ -26,7 +29,7 @@ trait AccountModuleTask extends AccountModule[Task, Account, Amount, Balance] {
         repo.query(no)
           .fold({ error ⇒ error.toString().failureNel[Account] }, { account: Option[Account] ⇒
             account.fold(accountType match {
-              case Checking ⇒ Account.checkingAccount(no, name, openingDate, None, Balance()).flatMap(repo.store)
+              case Checking ⇒ Account.checkingAccount(no, name, openingDate, None, Balance()).flatMap(r ⇒ repo.store(r))
               case Savings ⇒ rate map { r ⇒
                 Account.savingsAccount(no, name, r, openingDate, None, Balance()).flatMap(repo.store)
               } getOrElse s"Rate needs to be given for savings account".failureNel[Account]
