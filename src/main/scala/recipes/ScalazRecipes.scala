@@ -7,6 +7,7 @@ import java.util.concurrent.{ ForkJoinPool, ThreadFactory }
 
 import scodec.bits.ByteVector
 
+import scala.concurrent.forkjoin.ThreadLocalRandom
 import scala.util.Random
 import scalaz.{ Nondeterminism, -\/, \/-, \/ }
 import scalaz.stream._
@@ -486,7 +487,14 @@ object ScalazRecipes extends App {
     import jawnstreamz._
     implicit val facade = jawn.support.spray.Parser.facade
     implicit val scheduler = scalaz.stream.DefaultScheduler
-    val chunkSizes: Process[Task, Int] = Process.emitAll(Stream.continually(Random.nextInt(50)))
+
+    val chunkSizes: Process[Task, Int] =
+      Process.repeatEval(Task.delay {
+        val n = ThreadLocalRandom.current().nextInt(20, 50)
+        println(s"read chunk of bytes: $n")
+        n
+      })
+
     val jsonSource = (chunkSizes through io.chunkR(new FileInputStream("array.json")))
     val laggedSource: Process[Task, ByteVector] = (jsonSource zipWith time.awakeEvery(Random.nextInt(1000).millis))((chunk, _) ⇒ chunk)
     (laggedSource.unwrapJsonArray.map(_.prettyPrint) to io.stdOutLines)
