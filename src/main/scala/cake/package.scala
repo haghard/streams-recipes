@@ -392,13 +392,12 @@ package object cake {
     /**
       * Concurrent
       */
-    def gatherP1 =
-      ND.gatherUnordered(Seq(twitterApi.reduce("reduce page"), dbApi.page("select page"))).map(_.sequenceU)
+    def gatherP1 = ND.gatherUnordered(Seq(twitterApi.reduce("reduce page"), dbApi.page("select page"))).map(_.sequenceU)
 
     /**
       * Concurrent
       */
-    def gatherP2 = ND.mapBoth(twitterApi.reduce("reduce page"), dbApi.page("select page")) { (x, y) =>
+    def gatherP2 = ND.mapBoth((twitterApi reduce "reduce page"),(dbApi page "select page")) { (x, y) =>
       (x |@| y) { case (a, b) ⇒ s"${Thread.currentThread().getName} - twitter:$a db:$b" }
     }
 
@@ -414,16 +413,16 @@ package object cake {
       */
     def gatherS1 =
       twitterApp.apply2(
-        twitterApi.reduce("select page"),
-        dbApi.page("select page")
+        (twitterApi reduce "select page"),
+        (dbApi page "select page")
       ) { (x, y) => ((x |@| y) { case (a, b) ⇒ s"twitter:$a db:$b"}) }
 
     /**
       * Sequentual
       */
     def gatherS2 = for {
-      x <- twitterApi.reduce("select page")
-      y <- dbApi.page("select page")
+      x <- (twitterApi reduce "select page")
+      y <- (dbApi page "select page")
     } yield ((x |@| y) { case (a, b) ⇒ s"twitter:$a db:$b"})
 
 
@@ -441,8 +440,8 @@ package object cake {
       */
     def gatherS4 =
       twitterApp.ap2(
-        twitterApi.reduce("select page"),
-        dbApi.page("select page")
+        (twitterApi reduce "select page"),
+        (dbApi page "select page")
       )(Task { (x: ValidTweet, y: ValidRecord) => (x |@| y) { case (a, b) ⇒ s"twitter:$a db:$b"} }(Executor))
 
     /**

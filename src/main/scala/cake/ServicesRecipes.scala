@@ -8,19 +8,19 @@ object ServicesRecipes extends App {
   val c = new java.util.concurrent.CountDownLatch(3)
 
   cake.ShapelessProgram.gather
-    .runAsync { r ⇒
+    .unsafePerformAsync { r ⇒
       println(r)
       c.countDown()
     }
 
   cake.ShapelessProgram.gatherZip
-    .runAsync { r ⇒
+    .unsafePerformAsync { r ⇒
       println(r)
       c.countDown()
     }
 
   cake.ProgramWithTask.gatherS5
-    .runAsync { r ⇒
+    .unsafePerformAsync { r ⇒
       println(r)
       c.countDown()
     }
