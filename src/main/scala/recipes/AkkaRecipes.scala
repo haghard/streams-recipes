@@ -17,18 +17,17 @@ import akka.stream.stage._
 import akka.util.ByteString
 import com.esri.core.geometry.Point
 import com.typesafe.config.ConfigFactory
-import recipes.BatchProducer.Item
+import recipes.AkkaRecipes.LogEntry
 import recipes.BalancerRouter.DBObject
-import scala.concurrent.{ ExecutionContext, Future }
-import scala.concurrent.duration.FiniteDuration
-import scala.concurrent.duration.Deadline
+import recipes.BatchProducer.Item
 
-import scala.collection.mutable
-import scala.concurrent.duration._
+import scala.collection.{immutable, mutable}
+import scala.concurrent.duration.{ Deadline, FiniteDuration, _ }
 import scala.concurrent.forkjoin.ThreadLocalRandom
+import scala.concurrent.{ ExecutionContext, Future }
 import scala.language.postfixOps
 import scala.util.{ Failure, Success }
-import scalaz.{ \/-, -\/, \/ }
+import scalaz.{ -\/, \/, \/- }
 
 //http://doc.akka.io/docs/akka/2.4.2/scala/stream/migration-guide-2.0-2.4-scala.html
 
@@ -84,6 +83,7 @@ object AkkaRecipes extends App {
   val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.47"), 8125)
 
   def sys: ActorSystem = ActorSystem("Sys", ConfigFactory.empty().withFallback(config))
+
   def sys20: ActorSystem = ActorSystem("Sys20", ConfigFactory.empty().withFallback(config20))
 
   val decider: akka.stream.Supervision.Decider = {
@@ -112,7 +112,9 @@ object AkkaRecipes extends App {
   //RunnableGraph.fromGraph(scenario6).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario7).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario8).run()(ActorMaterializer(Settings)(sys))
-  RunnableGraph.fromGraph(scenario12).run()(ActorMaterializer(Settings)(sys))
+  //RunnableGraph.fromGraph(scenario12).run()(ActorMaterializer(Settings)(sys))
+
+  RunnableGraph.fromGraph(scenario18).run()(ActorMaterializer(Settings)(sys))
 
   val mat = ActorMaterializer(Settings)(sys)
   //RunnableGraph.fromGraph(scenario16(mat)).run()(ActorMaterializer(Settings)(sys))
@@ -218,7 +220,9 @@ object AkkaRecipes extends App {
       val sink = Sink.actorSubscriber(SyncActor.props2("akka-sink1", statsD))
 
       /*slidingWindow("akka-scenario1", 2 seconds)*/
-      (source alsoTo tumblingWindowWithFilter("akka-scenario1", 2 seconds) { _ >= 97l }) ~> sink
+      (source alsoTo tumblingWindowWithFilter("akka-scenario1", 2 seconds) {
+        _ >= 97l
+      }) ~> sink
       ClosedShape
     }
   }
@@ -413,8 +417,7 @@ object AkkaRecipes extends App {
       setHandler(in, new InHandler {
         override def onPush(): Unit = {
           pending = validationLogic(grab(in)).fold(
-            { err: A ⇒ Option(-\/(err, error)) },
-            { v: T ⇒ Option(\/-(v, out)) }
+            { err: A ⇒ Option(-\/(err, error)) }, { v: T ⇒ Option(\/-(v, out)) }
           )
           tryPush
         }
@@ -679,6 +682,24 @@ object AkkaRecipes extends App {
       }
     )
 
+  /*
+    For cases where back-pressuring is not a viable strategy, one may want to drop events from the fast producer, or accumulate them
+    while waiting for the slow producer, or viceversa interpolate the output of the slow producer to cope with the fast one.
+    This can be done with the conflate and expand operations.
+    The conflate operator allows us to fold elements of a fast producer attached to a slow consumer.
+    For instance, dropping every event except for the last one would be just :
+      val skipped = fastProducer.conflate(identity)((oldMsg, newMsg) => newMsg)
+
+    On the other side, one can use expand to cope with request from a consumer that is faster than we are producing.
+    For instance, plain repetition is just:
+      val repeatedStream = slowProducer.expand(identity)(s => (s, s))
+
+
+    More complex cases can be handled by defining custom processing stages.
+    This can be done by extending an abstract class called GraphStage.
+
+  */
+
   //Detached flows with conflate + conflate
   def scenario11: Graph[ClosedShape, akka.NotUsed] = {
     val srcSlow = throttledSrc(statsD, 1 second, 1000 milliseconds, Int.MaxValue, "akka-source11_0")
@@ -818,16 +839,16 @@ object AkkaRecipes extends App {
   /**
    * Router pulls from the DbCursorPublisher and runs parallel processing for records
    * Router dictates rate to publisher
-   *                                                  Parallel
-   *                                                  +------+
-   *                                               +--|Worker|--+
-   *                                               |  +------+  |
+   * Parallel
+   * +------+
+   * +--|Worker|--+
+   * |  +------+  |
    * +-----------------+     +--------------+      |  +------+  |  +-----------+
    * |DbCursorPublisher|-----|BalancerRouter|------|--|Worker|-----|RecordsSink|
    * +-----------------+     +--------------+      |  +------+  |  +-----------+
-   *                                               |  +------+  |
-   *                                               +--|Worker|--+
-   *                                                  +------+
+   * |  +------+  |
+   * +--|Worker|--+
+   * +------+
    */
   def scenario15: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit b ⇒
@@ -860,6 +881,7 @@ object AkkaRecipes extends App {
       .via(Framing.delimiter(ByteString("\n"), maximumFrameLength = 10000, allowTruncation = true))
       .transform(() ⇒ new PushStage[ByteString, ByteString] {
         override def onPush(elem: ByteString, ctx: Context[ByteString]): SyncDirective = ctx.push(elem ++ ByteString('\n'))
+
         override def postStop(): Unit = {
           println("tail has done")
           proc.destroy()
@@ -930,6 +952,38 @@ object AkkaRecipes extends App {
       .map(vector ⇒ table(vector.mkString("\n")))
 
     (src via printFlow to sink)
+  }
+
+  case class LogEntry(ts: Long, message: String)
+
+  def scenario18(): Graph[ClosedShape, akka.NotUsed] = {
+    /*
+    val delimiter = Framing.delimiter(ByteString('\n'), Int.MaxValue, true)
+    val logEntries = (StreamConverters.fromInputStream(() ⇒ new FileInputStream("./taxi.log")) via delimiter).map { line ⇒
+      val fields = line.utf8String.split(",")
+      LogEntry(fields(0).toLong, fields(1))
+    }*/
+
+    val logEntries = Source.fromIterator(() ⇒
+      Iterator(
+        LogEntry(1000, "aaa"),
+        LogEntry(3000, "bbb"),
+        LogEntry(4000, "bbb"),
+        LogEntry(7000, "bbb"),
+        LogEntry(5000, "bbb"),
+        LogEntry(9000, "bbb"),
+        LogEntry(11000, "bbb")
+      )
+    )
+
+    val rateSrc = new RateAdaptor[LogEntry](_.ts)
+    val sink = Sink.actorSubscriber[LogEntry](SyncActor.props("akka-sink_18", statsD, 0))
+
+    GraphDSL.create() { implicit b ⇒
+      import GraphDSL.Implicits._
+      logEntries ~> rateSrc ~> sink
+      ClosedShape
+    }
   }
 
   /**
@@ -1003,6 +1057,7 @@ object BalancerRouter {
  * Manually managed router
  */
 class BalancerRouter extends ActorSubscriber with ActorLogging {
+
   import BalancerRouter._
 
   val MaxInFlight = 32
@@ -1054,6 +1109,7 @@ class BalancerRouter extends ActorSubscriber with ActorLogging {
 }
 
 class Worker(name: String) extends Actor with ActorLogging {
+
   import BalancerRouter._
 
   override def receive = {
@@ -1198,6 +1254,9 @@ class SyncActor private (name: String, val address: InetSocketAddress, delay: Lo
         context.system.stop(self)
       }
 
+    case OnNext(log: LogEntry) ⇒
+      send(s"$name:1|c")
+
     case OnError(ex) ⇒
       println(s"OnError SyncActor: ${ex.getMessage}")
       context.system.stop(self)
@@ -1338,7 +1397,8 @@ class BatchProducer extends ActorPublisher[Vector[Item]] with ActorLogging {
     context.system.scheduler.scheduleOnce(100 millis) {
       var i = 0
       val batch = Vector.fill(rnd.nextInt(1, 10)) {
-        i += 1; Item(i)
+        i += 1;
+        Item(i)
       }
       self ! Result(id + 1, batch.size, batch)
     }(context.system.dispatchers.lookup("akka.flow-dispatcher"))
@@ -1367,10 +1427,13 @@ object BatchProducer {
 }
 
 object IndividualRateLimiter {
+
   case object RateLimitExceeded extends RuntimeException
+
 }
 
 class IndividualRateLimiter(requests: Int, period: FiniteDuration) {
+
   import IndividualRateLimiter._
 
   //the index of the next slot to be used
@@ -1392,4 +1455,138 @@ class IndividualRateLimiter(requests: Int, period: FiniteDuration) {
       block
     }
   }
+}
+
+
+//Custom linear processing stages using GraphStage
+
+class RateAdaptor[T](time: T ⇒ Long) extends GraphStage[FlowShape[T, T]] {
+  var firstEventTime = 0L
+  var firstActualTime = 0L
+
+  val in = Inlet[T]("RateAdaptor.in")
+  val out = Outlet[T]("RateAdaptor.out")
+
+  override def shape: FlowShape[T, T] = FlowShape.of(in, out)
+
+  override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
+    new GraphStageLogic(shape) {
+      setHandler(in, new InHandler {
+        override def onPush(): Unit = {
+          val elem = grab(in)
+          val actualTime = System.currentTimeMillis
+          val eventTime = time(elem)
+          val actualDelay = actualTime - firstActualTime
+          val eventDelay = eventTime - firstEventTime
+
+          if (firstActualTime != 0L) {
+            if (actualDelay < eventDelay) {
+              val latency = eventDelay - actualDelay
+              println(latency)
+              Thread.sleep(latency)
+            }
+          } else {
+            firstActualTime = actualTime
+            firstEventTime = eventTime
+          }
+          push(out, elem)
+        }
+      })
+
+      setHandler(out, new OutHandler {
+        override def onPull(): Unit = pull(in)
+      })
+    }
+}
+
+
+/**
+  Those classes from Akka Documentation
+
+  val resultFuture = Source(1 to 5)
+    .via(new Filter(_ % 2 == 0))
+    .via(new Duplicator())
+    .runWith(sink)
+*/
+class Filter[A](p: A => Boolean) extends GraphStage[FlowShape[A, A]] {
+  val in = Inlet[A]("Filter.in")
+  val out = Outlet[A]("Filter.out")
+
+  val shape = FlowShape.of(in, out)
+
+  override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
+    new GraphStageLogic(shape) {
+      setHandler(in, new InHandler {
+        override def onPush(): Unit = {
+          val elem = grab(in)
+          if (p(elem)) push(out, elem) else pull(in)
+        }
+      })
+      setHandler(out, new OutHandler {
+        override def onPull(): Unit = {
+          pull(in)
+        }
+      })
+    }
+}
+
+class Duplicator[A] extends GraphStage[FlowShape[A, A]] {
+  val in = Inlet[A]("Duplicator.in")
+  val out = Outlet[A]("Duplicator.out")
+
+  val shape = FlowShape.of(in, out)
+
+  override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
+    new GraphStageLogic(shape) {
+      //all mutable state MUST be inside the GraphStageLogic
+      var lastElem: Option[A] = None
+
+      setHandler(in, new InHandler {
+        override def onPush(): Unit = {
+          val elem = grab(in)
+          lastElem = Option(elem)
+          push(out, elem)
+        }
+
+        override def onUpstreamFinish(): Unit = {
+          if (lastElem.isDefined) emit(out, lastElem.get)
+          complete(out)
+        }
+      })
+
+      setHandler(out, new OutHandler {
+        override def onPull(): Unit = {
+          if (lastElem.isDefined) {
+            push(out, lastElem.get)
+            lastElem = None
+          } else {
+            pull(in)
+          }
+        }
+      })
+    }
+}
+
+//Same as Duplicator but use emitMultiple to avoid mutable state
+class DuplicatorN[A] extends GraphStage[FlowShape[A, A]] {
+  val in = Inlet[A]("Duplicator.in")
+  val out = Outlet[A]("Duplicator.out")
+
+  val shape = FlowShape.of(in, out)
+
+  override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
+    new GraphStageLogic(shape) {
+      setHandler(in, new InHandler {
+        override def onPush(): Unit = {
+          val elem = grab(in)
+          // this will temporarily suspend this handler until the two elems
+          // are emitted and then reinstates it
+          emitMultiple(out, immutable.Iterable(elem, elem))
+        }
+      })
+
+      setHandler(out, new OutHandler {
+        override def onPull() = pull(in)
+      })
+    }
 }
