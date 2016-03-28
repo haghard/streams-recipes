@@ -21,7 +21,7 @@ import recipes.AkkaRecipes.LogEntry
 import recipes.BalancerRouter.DBObject
 import recipes.BatchProducer.Item
 
-import scala.collection.{immutable, mutable}
+import scala.collection.{ immutable, mutable }
 import scala.concurrent.duration.{ Deadline, FiniteDuration, _ }
 import scala.concurrent.forkjoin.ThreadLocalRandom
 import scala.concurrent.{ ExecutionContext, Future }
@@ -403,7 +403,7 @@ object AkkaRecipes extends App {
     }
   }
 
-  final class DisjunctionRouterStage[T, A](validationLogic: T ⇒ A \/ T) extends GraphStage[FanOutShape2[T, A, T]] {
+  final class DisjunctionRouter[T, A](validationLogic: T ⇒ A \/ T) extends GraphStage[FanOutShape2[T, A, T]] {
     val in = Inlet[T]("in")
     val error = Outlet[A]("error")
     val out = Outlet[T]("out")
@@ -570,13 +570,13 @@ object AkkaRecipes extends App {
 
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
-      val balancer = b.add(new DisjunctionRouterStage[Int, String]({ el: Int ⇒
+      val router = b.add(new DisjunctionRouter[Int, String]({ el: Int ⇒
         if (el % 10 == 0) -\/(s"error element $el") else \/-(el)
       }))
 
-      source ~> balancer.in
-      balancer.out0 ~> Flow[String].buffer(64, OverflowStrategy.dropHead) ~> errorSink
-      balancer.out1 ~> sink
+      source ~> router.in
+      router.out0 ~> Flow[String].buffer(64, OverflowStrategy.dropHead) ~> errorSink
+      router.out1 ~> sink
       ClosedShape
     }
   }
@@ -840,15 +840,15 @@ object AkkaRecipes extends App {
    * Router pulls from the DbCursorPublisher and runs parallel processing for records
    * Router dictates rate to publisher
    * Parallel
-   * +------+
-   * +--|Worker|--+
-   * |  +------+  |
+   *                                                  +------+
+   *                                               +--|Worker|--+
+   *                                               |  +------+  |
    * +-----------------+     +--------------+      |  +------+  |  +-----------+
    * |DbCursorPublisher|-----|BalancerRouter|------|--|Worker|-----|RecordsSink|
    * +-----------------+     +--------------+      |  +------+  |  +-----------+
-   * |  +------+  |
-   * +--|Worker|--+
-   * +------+
+   *                                               |  +------+  |
+   *                                               +--|Worker|--+
+   *                                                  +------+
    */
   def scenario15: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit b ⇒
@@ -977,7 +977,7 @@ object AkkaRecipes extends App {
     )
 
     val rateSrc = new RateAdaptor[LogEntry](_.ts)
-    val sink = Sink.actorSubscriber[LogEntry](SyncActor.props("akka-sink_18", statsD, 0))
+    val sink = Sink.actorSubscriber[LogEntry](SyncActor.props2("akka-sink_18", statsD))
 
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
@@ -1457,7 +1457,6 @@ class IndividualRateLimiter(requests: Int, period: FiniteDuration) {
   }
 }
 
-
 //Custom linear processing stages using GraphStage
 
 class RateAdaptor[T](time: T ⇒ Long) extends GraphStage[FlowShape[T, T]] {
@@ -1499,16 +1498,15 @@ class RateAdaptor[T](time: T ⇒ Long) extends GraphStage[FlowShape[T, T]] {
     }
 }
 
-
 /**
-  Those classes from Akka Documentation
-
-  val resultFuture = Source(1 to 5)
-    .via(new Filter(_ % 2 == 0))
-    .via(new Duplicator())
-    .runWith(sink)
-*/
-class Filter[A](p: A => Boolean) extends GraphStage[FlowShape[A, A]] {
+ * Those classes from Akka Documentation
+ *
+ * val resultFuture = Source(1 to 5)
+ * .via(new Filter(_ % 2 == 0))
+ * .via(new Duplicator())
+ * .runWith(sink)
+ */
+class Filter[A](p: A ⇒ Boolean) extends GraphStage[FlowShape[A, A]] {
   val in = Inlet[A]("Filter.in")
   val out = Outlet[A]("Filter.out")
 

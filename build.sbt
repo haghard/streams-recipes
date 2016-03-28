@@ -14,7 +14,7 @@ name := "stream-recipes"
 
 version := "0.1"
 
-scalaVersion := "2.11.7"
+scalaVersion := "2.11.8"
 
 resolvers ++= Seq(
   Resolver.defaultLocal,
@@ -26,7 +26,8 @@ resolvers ++= Seq(
   "Awesome Utilities" at "https://dl.bintray.com/davegurnell/maven",
   "Sonatype Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
   "Local Maven Repository" at "file://"+Path.userHome.absolutePath+"/.m2/repository",
-  "Apache Staging" at "https://repository.apache.org/content/repositories/staging/"
+  "Apache Staging" at "https://repository.apache.org/content/repositories/staging/",
+  Resolver.bintrayRepo("mfglabs", "maven")
 )
 
 javacOptions += "-Xmx2G"
@@ -39,11 +40,12 @@ libraryDependencies ++= Seq(
   "org.http4s"        %% "jawn-streamz"   % "0.8.1", //https://github.com/rossabaker/jawn-streamz
   "org.spire-math"    %% "jawn-spray"     % "0.8.4",
   //"io.underscore"     %% "csvside"        % "0.10.1",
-  "com.chuusai"       %% "shapeless"      % "2.3.0-RC3",
+  //"com.chuusai"       %% "shapeless"      % "2.3.0",
   "org.hdrhistogram"  %  "HdrHistogram"   % "2.1.7",
   "com.esri.geometry" %  "esri-geometry-api" % "1.2.1",
   "io.spray"          %% "spray-json"        % "1.3.2",
   "com.typesafe.akka" %% "akka-stream"       % akkaStreamV,
+  "com.mfglabs"       %% "akka-stream-extensions-shapeless" % "0.10.0",
   "io.reactivex"      %% "rxscala"           % "0.26.0"
 )
 
