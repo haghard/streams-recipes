@@ -1480,9 +1480,9 @@ class RateAdaptor[T](time: T ⇒ Long) extends GraphStage[FlowShape[T, T]] {
 
           if (firstActualTime != 0L) {
             if (actualDelay < eventDelay) {
-              val latency = eventDelay - actualDelay
-              println(latency)
-              Thread.sleep(latency)
+              val iterationLatency = eventDelay - actualDelay
+              println(iterationLatency)
+              Thread.sleep(iterationLatency)
             }
           } else {
             firstActualTime = actualTime
