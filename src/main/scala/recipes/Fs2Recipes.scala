@@ -25,6 +25,9 @@ import scala.concurrent.duration._
 
 //runMain recipes.Fs2Recipes
 object Fs2Recipes extends GrafanaSupport with App {
+  implicit val scheduler = Executors.newScheduledThreadPool(2, RecipesDaemons("naturals"))
+  implicit val qStrategy = fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(2, RecipesDaemons("queue")))
+
   case class State[T](item: T, ts: Long = System.currentTimeMillis(), count: Long = 0)
 
   def grafanaTask(statsD: Grafana, msg: String): Task[Unit] = Task.delay { statsD send msg }
@@ -41,13 +44,9 @@ object Fs2Recipes extends GrafanaSupport with App {
     }
   }
 
-  implicit val qStrategy = fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(2, RecipesDaemons("queue")))
-
-  implicit val scheduler = Executors.newScheduledThreadPool(2, RecipesDaemons("naturals"))
-
   scenario02.runLog.run.run
 
-  private def buildProgress(acc: Long, sec: Long) = s"count:$acc interval: $sec sec"
+  private def buildProgress(acc: Long, sec: Long) = s"count:$acc interval:$sec sec"
 
   def tumblingWindow(acc: State[Int], timeWindow: Long): State[Int] = {
     if (System.currentTimeMillis() - acc.ts > timeWindow) {
