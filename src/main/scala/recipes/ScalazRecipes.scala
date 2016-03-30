@@ -185,7 +185,7 @@ object ScalazRecipes extends App {
 
     (naturalsEvery(sourceDelay) observe queue.enqueue to grafana(grafanaInstance, srcMessage))
       .onComplete(Process.eval_(queue.close))
-      .run.runAsync(_ ⇒ ())
+      .run.unsafePerformAsync(_ ⇒ ())
 
     (queue.dequeue.stateScan(0l)({ v: Int ⇒
       for {
@@ -216,7 +216,7 @@ object ScalazRecipes extends App {
 
     (naturalsEvery(sourceDelay) observe cBuffer.enqueue to grafana(grafanaInstance, srcMessage))
       .onComplete(Process.eval_(cBuffer.close))
-      .run.runAsync(_ ⇒ ())
+      .run.unsafePerformAsync(_ ⇒ ())
 
     (cBuffer.dequeue.stateScan(0l) { n: Int ⇒
       for {

@@ -46,7 +46,8 @@ libraryDependencies ++= Seq(
   "io.spray"          %% "spray-json"        % "1.3.2",
   "com.typesafe.akka" %% "akka-stream"       % akkaStreamV,
   "com.mfglabs"       %% "akka-stream-extensions-shapeless" % "0.10.0",
-  "io.reactivex"      %% "rxscala"           % "0.26.0"
+  "io.reactivex"      %% "rxscala"           % "0.26.0",
+  "co.fs2"            %% "fs2-core"          % "0.9.0-SNAPSHOT"
 )
 
 /*
