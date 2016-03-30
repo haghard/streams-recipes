@@ -49,7 +49,7 @@ object Fs2Recipes extends GrafanaSupport with App {
 
   private def buildProgress(acc: Long, sec: Long) = s"count:$acc interval: $sec sec"
 
-  def window(acc: State[Int], timeWindow: Long): State[Int] = {
+  def tumblingWindow(acc: State[Int], timeWindow: Long): State[Int] = {
     if (System.currentTimeMillis() - acc.ts > timeWindow) {
       println(buildProgress(acc.count, timeWindow / 1000))
       acc.copy(item = acc.item + 1, ts = System.currentTimeMillis(), count = 0)
@@ -61,7 +61,7 @@ object Fs2Recipes extends GrafanaSupport with App {
                q: mutable.Queue[Task, Int]): Stream[Task, Nothing] =
     time.awakeEvery(sourceDelay)(fs2.Strategy.fromExecutor(scheduler), scheduler)
       .scan(State(item = 0)) { (acc, d) ⇒
-        window(acc, timeWindow)
+        tumblingWindow(acc, timeWindow)
       }.evalMap[Task, Unit] { d: State[Int] ⇒
         grafanaTask(statsD, msg).flatMap(_ ⇒ q.enqueue1(d.item))
       }.drain
