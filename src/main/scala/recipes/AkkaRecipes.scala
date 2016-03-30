@@ -167,9 +167,11 @@ object AkkaRecipes extends App {
     s"${List.fill(i)(" ★ ").mkString} number:$acc interval:$sec"
 
   /**
-   * Situation: 3 sources with different rates.
-   * We use conflate before zip stage, hence we constantly update last element for every source in the tuple.
+   * Situation:
+   * We have 3 sources with different rates.
+   * We use conflate stage before zip, hence we constantly update last element for every source in the tuple.
    * When zip stage is getting onNext signal it sends the tuple with latest values inside.
+   * Result:
    * Source's rates stay the same as in the beginning. Sink performs with a rate that equal to slowest source.
    */
   def scenario0: Graph[ClosedShape, akka.NotUsed] = {
@@ -210,8 +212,10 @@ object AkkaRecipes extends App {
   //Source.tick(3.second, 3.second, ()).scan(0)((d, _) ⇒ d + 1)
 
   /**
-   * Situation: A source and a sink perform on the same rates.
-   * Result: The source and the sink are going on the same rate.
+   * Situation:
+   * A source and a sink perform on the same rates.
+   * Result:
+   * The source and the sink are going on the same rate.
    */
   def scenario1: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit builder ⇒
@@ -220,17 +224,16 @@ object AkkaRecipes extends App {
       val sink = Sink.actorSubscriber(SyncActor.props2("akka-sink1", statsD))
 
       /*slidingWindow("akka-scenario1", 2 seconds)*/
-      (source alsoTo tumblingWindowWithFilter("akka-scenario1", 2 seconds) {
-        _ >= 97l
-      }) ~> sink
+      (source alsoTo tumblingWindowWithFilter("akka-scenario1", 2 seconds) { _ >= 97l }) ~> sink
       ClosedShape
     }
   }
 
   /**
-   * Situation: A source and a sink perform on the same rate in the beginning, the sink gets slower later, increases delay with every message.
-   * We are using buffer with OverflowStrategy.backpressure between them, which provide backpressure.
-   * Result: The source's rate is going to decreased proportionally with the sink's rate.
+   * Situation:
+   * A source and a sink perform on the same rate in the beginning, the sink gets slower later increasing delay with every message.
+   * We are using buffer with OverflowStrategy.backpressure between them to provide backpressure.
+   * Result: The source's rate is going to decrease proportionately to the sink's rate.
    *
    */
   def scenario2: Graph[ClosedShape, akka.NotUsed] = {
