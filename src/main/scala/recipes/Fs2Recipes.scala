@@ -24,13 +24,9 @@ import scala.concurrent.duration._
 */
 
 //runMain recipes.Fs2Recipes
-object Fs2Recipes extends GrafanaSupport with App {
+object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
   implicit val scheduler = Executors.newScheduledThreadPool(2, RecipesDaemons("naturals"))
   implicit val qStrategy = fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(2, RecipesDaemons("queue")))
-
-  case class State[T](item: T, ts: Long = System.currentTimeMillis(), count: Long = 0)
-
-  def grafanaTask(statsD: Grafana, msg: String): Task[Unit] = Task.delay { statsD send msg }
 
   case class RecipesDaemons(name: String) extends ThreadFactory {
     private def namePrefix = s"$name-thread"
@@ -46,24 +42,13 @@ object Fs2Recipes extends GrafanaSupport with App {
 
   scenario02.runLog.run.run
 
-  private def buildProgress(acc: Long, sec: Long) = s"count:$acc interval:$sec sec"
-
-  def tumblingWindow(acc: State[Int], timeWindow: Long): State[Int] = {
-    if (System.currentTimeMillis() - acc.ts > timeWindow) {
-      println(buildProgress(acc.count, timeWindow / 1000))
-      acc.copy(item = acc.item + 1, ts = System.currentTimeMillis(), count = 0)
-    } else (acc.copy(item = acc.item + 1, count = acc.count + 1))
-  }
-
   def naturals(sourceDelay: Duration, timeWindow: Long,
                msg: String, statsD: Grafana,
                q: mutable.Queue[Task, Int]): Stream[Task, Nothing] =
     time.awakeEvery(sourceDelay)(fs2.Strategy.fromExecutor(scheduler), scheduler)
-      .scan(State(item = 0)) { (acc, d) ⇒
-        tumblingWindow(acc, timeWindow)
-      }.evalMap[Task, Unit] { d: State[Int] ⇒
-        grafanaTask(statsD, msg).flatMap(_ ⇒ q.enqueue1(d.item))
-      }.drain
+      .scan(State(item = 0)) { (acc, d) ⇒ tumblingWindow(acc, timeWindow) }
+      .evalMap[Task, Unit] { d: State[Int] ⇒ grafanaTask(statsD, msg).flatMap(_ ⇒ q.enqueue1(d.item)) }
+      .drain
 
   def injectLatency(state: (Long, Int), current: Int, delayPerMsg: Long) = {
     val latency = state._1 + delayPerMsg
@@ -91,10 +76,15 @@ object Fs2Recipes extends GrafanaSupport with App {
     val srcG = grafanaInstance
     val sinkG = grafanaInstance
 
+    val flow = Stream.eval(async.boundedQueue[Task, Int](bufferSize)).flatMap { q ⇒
+      naturals(sourceDelay, window, srcMessage, srcG, q) merge q.dequeue.scan((0l, 0))((acc, c) ⇒ injectLatency(acc, c, delayPerMsg))
+    }
+
+    /*
     val flow = for {
       q ← Stream.eval(async.boundedQueue[Task, Int](bufferSize))
       out ← naturals(sourceDelay, window, srcMessage, srcG, q) merge q.dequeue.scan((0l, 0))((acc, c) ⇒ injectLatency(acc, c, delayPerMsg))
-    } yield out
+    } yield out*/
 
     flow.evalMap[Task, Unit](_ ⇒ grafanaTask(sinkG, sinkMessage))
       .onError[Task, Unit] { ex: Throwable ⇒ fs2.Stream.eval(Task.now(println(ex.getMessage))) }
