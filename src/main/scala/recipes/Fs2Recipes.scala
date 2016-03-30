@@ -50,12 +50,6 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
       .evalMap[Task, Unit] { d: State[Int] ⇒ grafanaTask(statsD, msg).flatMap(_ ⇒ q.enqueue1(d.item)) }
       .drain
 
-  def injectLatency(state: (Long, Int), current: Int, delayPerMsg: Long) = {
-    val latency = state._1 + delayPerMsg
-    Thread.sleep(0 + (latency / 1000), latency % 1000 toInt)
-    (latency, current)
-  }
-
   /**
    * Situation:
    * A source and a sink perform on the same rate in the beginning, the sink gets slower later increasing latency with every message

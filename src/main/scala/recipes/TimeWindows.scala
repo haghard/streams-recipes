@@ -12,4 +12,10 @@ trait TimeWindows {
       acc.copy(item = acc.item + 1, ts = System.currentTimeMillis(), count = 0)
     } else acc.copy(item = acc.item + 1, count = acc.count + 1)
   }
+
+  def injectLatency(state: (Long, Int), current: Int, delayPerMsg: Long) = {
+    val latency = state._1 + delayPerMsg
+    Thread.sleep(0 + (latency / 1000), latency % 1000 toInt)
+    (latency, current)
+  }
 }
