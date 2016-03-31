@@ -47,7 +47,7 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
                q: mutable.Queue[Task, Int]): Stream[Task, Nothing] =
     time.awakeEvery(sourceDelay)(fs2.Strategy.fromExecutor(scheduler), scheduler)
       .scan(State(item = 0)) { (acc, d) ⇒ tumblingWindow(acc, timeWindow) }
-      .evalMap[Task, Unit] { d: State[Int] ⇒ grafanaTask(statsD, msg).flatMap(_ ⇒ q.enqueue1(d.item)) }
+      .evalMap[Task, Unit] { d: State[Int] ⇒ q.enqueue1(d.item).flatMap(_ ⇒ grafanaTask(statsD, msg)) }
       .drain
 
   /**
