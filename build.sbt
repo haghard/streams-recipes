@@ -34,7 +34,7 @@ javacOptions += "-Xmx2G"
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.4.2"
+val akkaStreamV = "2.4.3"
 
 libraryDependencies ++= Seq(
   "org.http4s"        %% "jawn-streamz"   % "0.8.1", //https://github.com/rossabaker/jawn-streamz

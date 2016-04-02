@@ -25,8 +25,6 @@ import scala.concurrent.duration._
 
 //runMain recipes.Fs2Recipes
 object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
-  implicit val scheduler = Executors.newScheduledThreadPool(2, RecipesDaemons("naturals"))
-  implicit val qStrategy = fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(2, RecipesDaemons("queue")))
 
   case class RecipesDaemons(name: String) extends ThreadFactory {
     private def namePrefix = s"$name-thread"
@@ -40,15 +38,17 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
     }
   }
 
-  scenario02.runLog.run.run
+  scenario03.runLog.run.run
 
   def naturals(sourceDelay: Duration, timeWindow: Long,
                msg: String, statsD: Grafana,
-               q: mutable.Queue[Task, Int]): Stream[Task, Nothing] =
+               q: mutable.Queue[Task, Int]): Stream[Task, Nothing] = {
+    implicit val scheduler = Executors.newScheduledThreadPool(2, RecipesDaemons("naturals"))
     time.awakeEvery(sourceDelay)(fs2.Strategy.fromExecutor(scheduler), scheduler)
       .scan(State(item = 0)) { (acc, d) ⇒ tumblingWindow(acc, timeWindow) }
       .evalMap[Task, Unit] { d: State[Int] ⇒ q.enqueue1(d.item).flatMap(_ ⇒ grafanaTask(statsD, msg)) }
       .drain
+  }
 
   /**
    * Situation:
@@ -64,11 +64,12 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
     val bufferSize = 1 << 7
     val sourceDelay = 10.millis
 
-    val srcMessage = "fs2-source02:1|c"
-    val sinkMessage = "fs2-sink02:1|c"
+    val srcMessage = "fs2_source_02:1|c"
+    val sinkMessage = "fs2_sink_02:1|c"
 
     val srcG = grafanaInstance
     val sinkG = grafanaInstance
+    implicit val qAsync = Task.asyncInstance(fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(2, RecipesDaemons("queue"))))
 
     val flow = Stream.eval(async.boundedQueue[Task, Int](bufferSize)).flatMap { q ⇒
       naturals(sourceDelay, window, srcMessage, srcG, q) merge q.dequeue.scan((0l, 0))((acc, c) ⇒ injectLatency(acc, c, delayPerMsg))
@@ -82,5 +83,49 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
 
     flow.evalMap[Task, Unit](_ ⇒ grafanaTask(sinkG, sinkMessage))
       .onError[Task, Unit] { ex: Throwable ⇒ fs2.Stream.eval(Task.now(println(ex.getMessage))) }
+  }
+
+  /**
+   *
+   * Situation:
+   *  A source and a sink perform on the same rate in the beginning, the sink gets slower later, increases delay with every message.
+   *  We are using a separate process that tracks size of queue, if it reaches the waterMark the top element will be dropped.
+   * Result:
+   *  The source's rate stays on original rate but sink's rate goes down.
+   *
+   *                      +-----+
+   *               +------|guard|
+   *               |      +-----+
+   * +------+   +-----+   +----+
+   * |source|---|queue|---|sink|
+   * +------+   +-----+   +----+
+   *
+   * Doesn't work as expected !!!!!
+   */
+  def scenario03: Stream[Task, Unit] = {
+    val delayPerMsg = 1l
+    val bufferSize = 1 << 7
+    val waterMark = bufferSize - 28
+    val sourceDelay = 10.millis
+    val window = 5000l
+
+    val srcMessage = "fs2_source_3:1|c"
+    val sinkMessage = "fs2_sink_3:1|c"
+    val srcG = grafanaInstance
+    val sinkG = grafanaInstance
+
+    val S = fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(4, RecipesDaemons("queue")))
+    val qAsync = Task.asyncInstance(S)
+    val queue = async.boundedQueue[Task, Int](bufferSize)
+
+    Stream.eval(queue).flatMap { q ⇒
+      wye.merge(
+        naturals(sourceDelay, window, srcMessage, srcG, q),
+        wye.merge(
+          (q.size.discrete.filter(_ > waterMark) zip q.dequeue).drain,
+          q.dequeue.scan((0l, 0))((acc, c) ⇒ injectLatency(acc, c, delayPerMsg)).evalMap[Task, Unit] { _ ⇒ grafanaTask(sinkG, sinkMessage) }
+        )(qAsync)
+      )(qAsync)
+    }.onError[Task, Unit] { ex: Throwable ⇒ fs2.Stream.eval(Task.now(println(ex.getMessage))) }
   }
 }
