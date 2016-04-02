@@ -116,9 +116,8 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
 
     val S = fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(4, RecipesDaemons("queue")))
     val qAsync = Task.asyncInstance(S)
-    val queue = async.boundedQueue[Task, Int](bufferSize)
 
-    Stream.eval(queue).flatMap { q ⇒
+    (Stream eval async.boundedQueue[Task, Int](bufferSize)(qAsync)).flatMap { q ⇒
       wye.merge(
         naturals(sourceDelay, window, srcMessage, srcG, q),
         wye.merge(
