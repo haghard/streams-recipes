@@ -43,10 +43,10 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
   def naturals(sourceDelay: Duration, timeWindow: Long,
                msg: String, statsD: Grafana,
                q: mutable.Queue[Task, Int]): Stream[Task, Nothing] = {
-    implicit val scheduler = Executors.newScheduledThreadPool(2, RecipesDaemons("naturals"))
+    implicit val scheduler = Executors.newScheduledThreadPool(2, RecipesDaemons("source"))
     time.awakeEvery(sourceDelay)(fs2.Strategy.fromExecutor(scheduler), scheduler)
       .scan(State(item = 0)) { (acc, d) ⇒ tumblingWindow(acc, timeWindow) }
-      .evalMap[Task, Unit] { d: State[Int] ⇒ q.enqueue1(d.item).flatMap(_ ⇒ grafanaTask(statsD, msg)) }
+      .evalMap[Task, Unit] { d: State[Int] ⇒ q.enqueue1(d.item).flatMap(_ ⇒ grafanaSink(statsD, msg)) }
       .drain
   }
 
@@ -81,7 +81,7 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
       out ← naturals(sourceDelay, window, srcMessage, srcG, q) merge q.dequeue.scan((0l, 0))((acc, c) ⇒ injectLatency(acc, c, delayPerMsg))
     } yield out*/
 
-    flow.evalMap[Task, Unit](_ ⇒ grafanaTask(sinkG, sinkMessage))
+    flow.evalMap[Task, Unit](_ ⇒ grafanaSink(sinkG, sinkMessage))
       .onError[Task, Unit] { ex: Throwable ⇒ fs2.Stream.eval(Task.now(println(ex.getMessage))) }
   }
 
@@ -101,30 +101,46 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
    * +------+   +-----+   +----+
    *
    * Doesn't work as expected !!!!!
+   * source degrades but do it slow
+   *
    */
   def scenario03: Stream[Task, Unit] = {
     val delayPerMsg = 1l
     val bufferSize = 1 << 7
-    val waterMark = bufferSize - 28
+    val waterMark = bufferSize - 10
     val sourceDelay = 10.millis
     val window = 5000l
+    val parallelism = 6
 
     val srcMessage = "fs2_source_3:1|c"
     val sinkMessage = "fs2_sink_3:1|c"
     val srcG = grafanaInstance
     val sinkG = grafanaInstance
 
-    val S = fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(4, RecipesDaemons("queue")))
-    val qAsync = Task.asyncInstance(S)
+    val S = fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(parallelism, RecipesDaemons("queue")))
+    val Async = Task.asyncInstance(S)
 
-    (Stream eval async.boundedQueue[Task, Int](bufferSize)(qAsync)).flatMap { q ⇒
+    (Stream eval async.boundedQueue[Task, Int](bufferSize)(Async)).flatMap { q ⇒
+      concurrent.join(parallelism)(
+        Stream[Task, Stream[Task, Unit]](
+          naturals(sourceDelay, window, srcMessage, srcG, q),
+          (q.size.discrete.filter(_ > waterMark).evalMap[Task, Int](_ ⇒ q.dequeue1)).drain,
+          q.dequeue.scan((0l, 0))((acc, c) ⇒ injectLatency(acc, c, delayPerMsg)).evalMap[Task, Unit] { _ ⇒ grafanaSink(sinkG, sinkMessage) }
+        )
+      )(Async)
+    }.onError[Task, Unit] { ex: Throwable ⇒ fs2.Stream.eval(Task.now(println(ex.getMessage))) }
+
+    /*
+    (Stream eval async.boundedQueue[Task, Int](bufferSize)(Async)).flatMap { q ⇒
       wye.merge(
         naturals(sourceDelay, window, srcMessage, srcG, q),
         wye.merge(
-          (q.size.discrete.filter(_ > waterMark) zip q.dequeue).drain,
-          q.dequeue.scan((0l, 0))((acc, c) ⇒ injectLatency(acc, c, delayPerMsg)).evalMap[Task, Unit] { _ ⇒ grafanaTask(sinkG, sinkMessage) }
-        )(qAsync)
-      )(qAsync)
+          (q.size.discrete.filter(_ > waterMark).evalMap[Task, Int](_ ⇒ q.dequeue1)).drain, /*zip q.dequeue).drain*/
+          q.dequeue.scan((0l, 0))((acc, c) ⇒ injectLatency(acc, c, delayPerMsg)).evalMap[Task, Unit] { _ ⇒ grafanaSink(sinkG, sinkMessage) }
+        )(Async)
+      )(Async)
     }.onError[Task, Unit] { ex: Throwable ⇒ fs2.Stream.eval(Task.now(println(ex.getMessage))) }
+    */
+
   }
 }

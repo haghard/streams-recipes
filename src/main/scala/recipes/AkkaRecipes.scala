@@ -80,7 +80,7 @@ object AkkaRecipes extends App {
       |}
     """.stripMargin)
 
-  val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.47"), 8125)
+  val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.182"), 8125)
 
   def sys: ActorSystem = ActorSystem("Sys", ConfigFactory.empty().withFallback(config))
 
@@ -114,8 +114,9 @@ object AkkaRecipes extends App {
   //RunnableGraph.fromGraph(scenario8).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario12).run()(ActorMaterializer(Settings)(sys))
 
-  RunnableGraph.fromGraph(scenario18).run()(ActorMaterializer(Settings)(sys))
+  RunnableGraph.fromGraph(scenario18).run()(ActorMaterializer(Settings20)(sys))
 
+  //for scenario15
   val mat = ActorMaterializer(Settings)(sys)
   //RunnableGraph.fromGraph(scenario16(mat)).run()(ActorMaterializer(Settings)(sys))
 
@@ -967,24 +968,23 @@ object AkkaRecipes extends App {
       LogEntry(fields(0).toLong, fields(1))
     }*/
 
+    val rnd = ThreadLocalRandom.current()
     val logEntries = Source.fromIterator(() ⇒
-      Iterator(
-        LogEntry(1000, "aaa"),
-        LogEntry(3000, "bbb"),
-        LogEntry(4000, "bbb"),
-        LogEntry(7000, "bbb"),
-        LogEntry(5000, "bbb"),
-        LogEntry(9000, "bbb"),
-        LogEntry(11000, "bbb")
-      )
+      Iterator.iterate(LogEntry(1000l, Thread.currentThread().getName)) { log ⇒
+        println(log.message)
+        log.copy(ts = log.ts + rnd.nextLong(1000l, 3000l))
+      }
     )
 
-    val rateSrc = new RateAdaptor[LogEntry](_.ts)
+    val ratedSource = new TimeStampedLogReader[LogEntry](_.ts)
     val sink = Sink.actorSubscriber[LogEntry](SyncActor.props2("akka-sink_18", statsD))
 
+    //async
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
-      logEntries ~> rateSrc ~> sink
+      (logEntries via ratedSource)
+        .withAttributes(Attributes.asyncBoundary)
+        .withAttributes(ActorAttributes.dispatcher("akka.blocking-dispatcher")) ~> sink
       ClosedShape
     }
   }
@@ -1430,24 +1430,21 @@ object BatchProducer {
 }
 
 object IndividualRateLimiter {
-
   case object RateLimitExceeded extends RuntimeException
-
 }
 
-class IndividualRateLimiter(requests: Int, period: FiniteDuration) {
-
+class IndividualRateLimiter(number: Int, period: FiniteDuration) {
   import IndividualRateLimiter._
 
   //the index of the next slot to be used
   private var cursor = 0
 
-  private val startTimes = Array.fill(requests)(Deadline.now - period)
+  private val startTimes = Array.fill(number)(Deadline.now - period)
 
   private def enqueue(time: Deadline) = {
     startTimes(cursor) = time
     cursor += 1
-    if (cursor == requests) cursor = 0
+    if (cursor == number) cursor = 0
   }
 
   def require[T](block: ⇒ Future[T]): Future[T] = {
@@ -1461,8 +1458,9 @@ class IndividualRateLimiter(requests: Int, period: FiniteDuration) {
 }
 
 //Custom linear processing stages using GraphStage
-
-class RateAdaptor[T](time: T ⇒ Long) extends GraphStage[FlowShape[T, T]] {
+//http://rnduja.github.io/2016/03/25/a_first_look_to_akka_stream/
+//This will become useful if you want to replay events from log (let's say) that have a ts attached.
+class TimeStampedLogReader[T](time: T ⇒ Long) extends GraphStage[FlowShape[T, T]] {
   var firstEventTime = 0L
   var firstActualTime = 0L
 
@@ -1471,6 +1469,7 @@ class RateAdaptor[T](time: T ⇒ Long) extends GraphStage[FlowShape[T, T]] {
 
   override def shape: FlowShape[T, T] = FlowShape.of(in, out)
 
+  //should be executed in separate dispatched due to Thread.sleep
   override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
     new GraphStageLogic(shape) {
       setHandler(in, new InHandler {

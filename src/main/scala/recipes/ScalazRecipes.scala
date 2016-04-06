@@ -9,6 +9,7 @@ import scodec.bits.ByteVector
 
 import scala.concurrent.forkjoin.ThreadLocalRandom
 import scala.util.Random
+import scalaz.stream.Process._
 import scalaz.{ Nondeterminism, -\/, \/-, \/ }
 import scalaz.stream._
 import scalaz.stream.merge._
@@ -431,10 +432,10 @@ object ScalazRecipes extends App {
   def count[A]: Process1[A, Long \/ A] = {
     def go(acc: Long): Process1[A, Long \/ A] = {
       Process.receive1[A, Long \/ A] { element: A ⇒
-        Process.emitAll(Seq(-\/(acc + 1l), \/-(element))) ++ go(acc + 1)
+        Process.emitAll(Seq(-\/(acc), \/-(element))) ++ go(acc + 1)
       }
     }
-    go(0L)
+    go(1L)
   }
 
   /**
@@ -479,6 +480,31 @@ object ScalazRecipes extends App {
   }
   //result is List((2 -> "2"), (5 -> "5"), (8 ->"8"))
   //(scalaz.stream.Process(1, 2, 3, 4, 5, 6, 7, 8, 9) tee scalaz.stream.Process("2", "5", "8"))(ScalazRecipes.sortedLoin(identity, _.toInt)).toStream.toList
+
+  /**
+   *
+   *
+   */
+  def mergeSorted[T: Ordering](left: List[T], right: List[T])(implicit ord: Ordering[T]): List[T] = {
+    val source0 = emitAll(left)
+    val source1 = emitAll(right)
+
+    def choice(l: T, r: T): Tee[T, T, T] =
+      if (ord.lt(l, r)) emit(l) ++ nextL(r) else emit(r) ++ nextR(l)
+
+    def nextR(l: T): Tee[T, T, T] =
+      tee.receiveROr[T, T, T](emit(l) ++ tee.passL)(r ⇒ choice(l, r))
+
+    def nextL(r: T): Tee[T, T, T] =
+      tee.receiveLOr[T, T, T](emit(r) ++ tee.passR)(l ⇒ choice(l, r))
+
+    def init: Tee[T, T, T] =
+      tee.receiveLOr[T, T, T](tee.passR)(nextR)
+
+    (source0 tee source1)(init).toSource.runLog.unsafePerformSync.toList
+  }
+
+  //mergeSorted(List(1,3,5,7), List(2,4,6,8,10))
 
   /**
    * Json streaming
