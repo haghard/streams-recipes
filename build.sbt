@@ -35,7 +35,7 @@ javacOptions += "-Xmx2G"
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.4.3"
+val akkaStreamV = "2.4.4"
 
 libraryDependencies ++= Seq(
   "org.http4s"        %% "jawn-streamz"   % "0.8.1", //https://github.com/rossabaker/jawn-streamz
@@ -44,10 +44,17 @@ libraryDependencies ++= Seq(
   "com.esri.geometry" %  "esri-geometry-api" % "1.2.1",
   "io.spray"          %% "spray-json"        % "1.3.2",
   "com.typesafe.akka" %% "akka-stream"       % akkaStreamV,
+
+  //"com.typesafe.play" %% "play-json"                            % "2.4.6",
+  //"com.typesafe.akka" %% "akka-http-core"                 %     akkaStreamV,
+  //"com.typesafe.akka" %% "akka-http-experimental"         %     akkaStreamV,
+  //"com.softwaremill.reactivekafka" %% "reactive-kafka-core"     % "0.9.0",
+
   "com.mfglabs"       %% "akka-stream-extensions-shapeless" % "0.10.0",
   "io.reactivex"      %% "rxscala"           % "0.26.0",
   "co.fs2"            %% "fs2-core"          % "0.9.0-SNAPSHOT",
   "oncue.quiver"      %% "core"              % "5.3.57"
 )
+
 
 cancelable in Global := true

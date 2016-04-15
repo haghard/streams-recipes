@@ -30,6 +30,7 @@ import scala.util.{ Failure, Success }
 import scalaz.{ -\/, \/, \/- }
 
 //http://doc.akka.io/docs/akka/2.4.2/scala/stream/migration-guide-2.0-2.4-scala.html
+//http://stackoverflow.com/questions/32459582/how-to-set-up-statsd-along-with-grafana-graphite-as-backend-for-kamon
 
 //runMain recipes.AkkaRecipes
 object AkkaRecipes extends App {
@@ -114,11 +115,13 @@ object AkkaRecipes extends App {
   //RunnableGraph.fromGraph(scenario8).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario12).run()(ActorMaterializer(Settings)(sys))
 
-  RunnableGraph.fromGraph(scenario18).run()(ActorMaterializer(Settings20)(sys))
+  //RunnableGraph.fromGraph(scenario18).run()(ActorMaterializer(Settings20)(sys))
 
   //for scenario15
-  val mat = ActorMaterializer(Settings)(sys)
+  val mat: Materializer = ActorMaterializer(Settings.withInputBuffer(1, 1))(sys)
   //RunnableGraph.fromGraph(scenario16(mat)).run()(ActorMaterializer(Settings)(sys))
+
+  RunnableGraph.fromGraph(scenario13_1(mat)).run()(mat)
 
   /*
   scenario17.run()(mat).onComplete { _ ⇒
@@ -729,14 +732,6 @@ object AkkaRecipes extends App {
     val srcSlow = throttledSrc(statsD, 1 second, 1000 milliseconds, Int.MaxValue, "akka-source12_0")
       .expand(Iterator.continually(_))
 
-    /*.expand(i => {
-      var state = 0 // If state needs to be be kept during the expansion process then this state will need to be managed by the Iterator
-      Iterator.continually({
-        state += 1
-        (i, state)
-      })
-    })*/
-
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
       val zip = b.add(Zip[Int, Int].withAttributes(Attributes.inputBuffer(16, 32)))
@@ -772,37 +767,38 @@ object AkkaRecipes extends App {
   /**
    * External Producer through Source.queue
    */
-  def scenario13_1(mat: ActorMaterializer): Graph[ClosedShape, akka.NotUsed] = {
+  def scenario13_1(implicit mat: Materializer): Graph[ClosedShape, akka.NotUsed] = {
     implicit val Ctx = mat.executionContext
     implicit val ExtCtx = sys.dispatchers.lookup("akka.blocking-dispatcher")
 
     val pubStatsD = new Grafana {
       override val address = statsD
     }
-    val (queue, publisher) = Source.queue[Option[Int]](1 << 7, OverflowStrategy.backpressure)
-      .takeWhile(_.isDefined).map(_.get)
+    val (queue, publisher) = Source.queue[Int](1 << 7, OverflowStrategy.backpressure)
       .toMat(Sink.asPublisher[Int](false))(Keep.both).run()(mat)
 
-    def externalProducer(q: SourceQueue[Option[Int]], pName: String, i: Int): Unit = {
-      if (i < Int.MaxValue)
-        (q.offer(Option(i))).onComplete {
-          _ match {
-            case Success(r) ⇒
-              (pubStatsD send pName)
-              externalProducer(q, pName, i + 1)
-            case Failure(ex) ⇒
-              println(ex.getMessage)
-              sys.scheduler.scheduleOnce(1 seconds)(externalProducer(q, pName, i))(ExtCtx) //retry
-          }
+    def externalProducer(q: akka.stream.scaladsl.SourceQueueWithComplete[Int], pName: String, elem: Int): Unit = {
+      if (elem < 10000) {
+        (q offer elem).onComplete {
+          case Success(QueueOfferResult.Enqueued) ⇒
+            (pubStatsD send pName)
+            externalProducer(q, pName, elem + 1)
+          case Failure(ex) ⇒
+            println(s"error: elem $elem error" + ex.getMessage)
+            sys.scheduler.scheduleOnce(1 seconds)(externalProducer(q, pName, elem))(ExtCtx) //retry
         }(ExtCtx)
-      else q.offer(None).onComplete(_ ⇒ (pubStatsD send pName))(ExtCtx)
+      } else {
+        println("External-producer is completed")
+        q.complete()
+        q.watchCompletion().onComplete { _ ⇒ println("watchCompletion") }(ExtCtx)
+      }
     }
 
     externalProducer(queue, "source_13_1:1|c", 0)
 
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
-      Source.fromPublisher(publisher) ~> Sink.actorSubscriber(DegradingActor.props2("akka-sink13", statsD, 1l))
+      (Source.fromPublisher(publisher) alsoTo allWindow("akka-scenario13_1", 3 seconds)) ~> Sink.actorSubscriber(DegradingActor.props2("akka-sink_13_1", statsD, 1l))
       ClosedShape
     }
   }
@@ -1315,7 +1311,7 @@ class DegradingActor private (val name: String, val address: InetSocketAddress, 
     extends ActorSubscriber with Grafana {
 
   var delay = 0l
-
+  var lastSeenMsg = 0
   override protected val requestStrategy: RequestStrategy = OneByOneRequestStrategy
 
   private def this(name: String, statsD: InetSocketAddress) {
@@ -1332,6 +1328,7 @@ class DegradingActor private (val name: String, val address: InetSocketAddress, 
       delay += delayPerMsg
       val latency = initialDelay + (delay / 1000)
       Thread.sleep(latency, (delay % 1000).toInt)
+      lastSeenMsg = msg
       send(s"$name:1|c")
 
     case OnNext(msg: Long) ⇒
@@ -1343,7 +1340,7 @@ class DegradingActor private (val name: String, val address: InetSocketAddress, 
       send(s"$name:1|c")
 
     case OnComplete ⇒
-      println(s"Complete DegradingActor")
+      println(s"Complete DegradingActor $lastSeenMsg")
       (context stop self)
   }
 }
@@ -1597,24 +1594,24 @@ class TimedGate[A](silencePeriod: FiniteDuration) extends GraphStage[FlowShape[A
   val shape = FlowShape.of(in, out)
 
   override def createLogic(inheritedAttributes: Attributes) = new TimerGraphStageLogic(shape) {
-      var open = false
-      setHandler(in, new InHandler {
-        override def onPush(): Unit = {
-          val elem = grab(in)
-          if (open) pull(in)
-          else {
-            push(out, elem)
-            open = true
-            scheduleOnce(None, silencePeriod)
-          }
+    var open = false
+    setHandler(in, new InHandler {
+      override def onPush(): Unit = {
+        val elem = grab(in)
+        if (open) pull(in)
+        else {
+          push(out, elem)
+          open = true
+          scheduleOnce(None, silencePeriod)
         }
-      })
-      setHandler(out, new OutHandler {
-        override def onPull(): Unit = pull(in)
-      })
-
-      override protected def onTimer(timerKey: Any): Unit = {
-        open = false
       }
+    })
+    setHandler(out, new OutHandler {
+      override def onPull(): Unit = pull(in)
+    })
+
+    override protected def onTimer(timerKey: Any): Unit = {
+      open = false
     }
+  }
 }

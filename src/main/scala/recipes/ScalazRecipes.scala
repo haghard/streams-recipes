@@ -481,6 +481,22 @@ object ScalazRecipes extends App {
   //result is List((2 -> "2"), (5 -> "5"), (8 ->"8"))
   //(scalaz.stream.Process(1, 2, 3, 4, 5, 6, 7, 8, 9) tee scalaz.stream.Process("2", "5", "8"))(ScalazRecipes.sortedLoin(identity, _.toInt)).toStream.toList
 
+  def unfoldN(streams: List[Iterator[Int]]) = {
+    import scalaz._, Scalaz._
+    val procs: List[Process[Task, Int]] = streams.map { iter ⇒
+      Process.unfold(iter) { it ⇒
+        val next = it.next
+        println(Thread.currentThread().getName + ":" + next)
+        it.hasNext.option(next -> it)
+      }
+    }
+
+    val pool = java.util.concurrent.Executors.newFixedThreadPool(3)
+    merge.mergeN(3)(Process.emitAll(procs))(Strategy.Executor(pool))
+  }
+
+  //recipes.ScalazRecipes.unfoldN(List(Iterator.range(1, 10), Iterator.range(1, 20), Iterator.range(1, 30))).runLog.unsafePerformSync
+
   /**
    *
    *
