@@ -497,6 +497,66 @@ object ScalazRecipes extends App {
 
   //recipes.ScalazRecipes.unfoldN(List(Iterator.range(1, 10), Iterator.range(1, 20), Iterator.range(1, 30))).runLog.unsafePerformSync
 
+  sealed trait GrowingState {
+    def count: Int
+  }
+  case class State(count: Int = 0) extends GrowingState
+
+  //Transducers
+
+  def distinct[T]: Process1[T,T] = {
+    def go(seen: Set[T]): Process1[T,T] = {
+      Process.await1[T].flatMap { v =>
+        if(seen(v)) go(seen)
+        else Process.emit(v) ++ go(seen + v)
+      }
+    }
+    go(Set.empty[T])
+  }
+
+  def monotonic[T <: GrowingState]: Process1[T,T] = {
+    def go(count: Long): Process1[T,T] = {
+      Process.await1[T].flatMap { state =>
+        if (state.count > count) Process.emit(state) ++ go(state.count)
+        else go(count)
+      }
+    }
+    go(0)
+  }
+
+  def balanced: Process1[Char, Boolean] = {
+    def init: Process1[Char, Boolean] = {
+      Process.receive1[Char, Boolean] {
+        case '{' => close ++ init
+        case _ => Process.emit(false)
+      }
+    }
+
+    def close: Process1[Char, Boolean] = {
+      Process.receive1[Char, Boolean] {
+        case '}' => Process.emit(true)
+        case '{' => close.flatMap {
+          case true => close
+          case false => Process.emit(false)
+        }
+        case _ => Process.emit(false)
+      }
+    }
+
+    init
+  }
+
+  //recipes.ScalazRecipes.runMonotonic
+  def runMonotonic =
+    (Process.unfold(Iterator(1, 1, 2, 1, 3, 2, 5, 3, 10)) { it ⇒
+      val next = it.next
+      if(it.hasNext) Option(State(next) -> it) else None
+    } pipe monotonic) to sink.lift[Task, GrowingState](state => Task.delay(println(state)))
+
+  //recipes.ScalazRecipes.runBalanced
+  def runBalanced =
+    (Process.emitAll(Seq('{','{', '{', '}', '}', '}')) pipe balanced) to sink.lift[Task, Boolean](state => Task.delay(println(state)))
+
   /**
    *
    *

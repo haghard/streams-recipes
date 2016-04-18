@@ -39,22 +39,32 @@ val akkaStreamV = "2.4.4"
 
 libraryDependencies ++= Seq(
   "org.http4s"        %% "jawn-streamz"   % "0.8.1", //https://github.com/rossabaker/jawn-streamz
+  "com.typesafe.akka" %% "akka-stream"       % akkaStreamV,
+
+  //"com.mfglabs"       %% "akka-stream-extensions-shapeless" % "0.10.0",
+
+  "com.chuusai"       %% "shapeless"         % "2.3.0",
+
+  "io.reactivex"      %% "rxscala"           % "0.26.0",
+  "io.monix"          %% "monix"             % "2.0-M2",
+  "co.fs2"            %% "fs2-core"          % "0.9.0-SNAPSHOT",
+
   "org.spire-math"    %% "jawn-spray"     % "0.8.4",
   "org.hdrhistogram"  %  "HdrHistogram"   % "2.1.7",
   "com.esri.geometry" %  "esri-geometry-api" % "1.2.1",
   "io.spray"          %% "spray-json"        % "1.3.2",
-  "com.typesafe.akka" %% "akka-stream"       % akkaStreamV,
 
-  //"com.typesafe.play" %% "play-json"                            % "2.4.6",
-  //"com.typesafe.akka" %% "akka-http-core"                 %     akkaStreamV,
-  //"com.typesafe.akka" %% "akka-http-experimental"         %     akkaStreamV,
-  //"com.softwaremill.reactivekafka" %% "reactive-kafka-core"     % "0.9.0",
 
-  "com.mfglabs"       %% "akka-stream-extensions-shapeless" % "0.10.0",
-  "io.reactivex"      %% "rxscala"           % "0.26.0",
-  "co.fs2"            %% "fs2-core"          % "0.9.0-SNAPSHOT",
   "oncue.quiver"      %% "core"              % "5.3.57"
 )
 
+/*
+libraryDependencies ++= Seq(
+  "com.typesafe.play" %% "play-json"                            % "2.4.6",
+  "com.typesafe.akka" %% "akka-http-core"                 %     akkaStreamV,
+  "com.typesafe.akka" %% "akka-http-experimental"         %     akkaStreamV,
+  "com.softwaremill.reactivekafka" %% "reactive-kafka-core"     % "0.9.0"
+)
+*/
 
 cancelable in Global := true
