@@ -52,6 +52,13 @@ object ScalazRecipes extends App {
     go(0)
   }
 
+
+  def rnd: Process[Task, Int] = {
+    def go(rnd: scala.concurrent.forkjoin.ThreadLocalRandom): Process[Task, Int] =
+      Process.await(Task.now(rnd))(rnd ⇒ Process.emit(rnd.nextInt(1,100)) ++ go(rnd))
+    go(scala.concurrent.forkjoin.ThreadLocalRandom.current())
+  }
+
   def grafana(statsD: Grafana, message: String) = sink.lift[Task, Int] { _ ⇒
     Task.delay(statsD send message)
   }
@@ -557,11 +564,31 @@ object ScalazRecipes extends App {
   def runBalanced =
     (Process.emitAll(Seq('{','{', '{', '}', '}', '}')) pipe balanced) to sink.lift[Task, Boolean](state => Task.delay(println(state)))
 
+
+  import com.ambiata.origami._, Origami._
+  import com.ambiata.origami.stream.FoldableProcessM._
+  import com.ambiata.origami.FoldM
+  import com.ambiata.origami._, Origami._
+  import com.ambiata.origami.effect.SafeT.SafeTTask
+  import scalaz.std.AllInstances._
+
+  def max: FoldM[SafeTTask, Int, Option[Int]] =
+    com.ambiata.origami.FoldId.maximum[Int].into[SafeTTask]
+
+  def min: FoldM[SafeTTask, Int, Option[Int]] =
+    com.ambiata.origami.FoldId.minimum[Int].into[SafeTTask]
+
+  def both: FoldM[SafeTTask, Int, (Option[Int], Option[Int])] = max <*> min
+
+  //recipes.ScalazRecipes.folds
+  def folds =
+    (both run rnd.take(10)).attemptRun.unsafePerformSync
+
   /**
    *
    *
    */
-  def mergeSorted[T: Ordering](left: List[T], right: List[T])(implicit ord: Ordering[T]): List[T] = {
+  def mergeSorted[T: scala.math.Ordering](left: List[T], right: List[T])(implicit ord: scala.math.Ordering[T]): List[T] = {
     val source0 = emitAll(left)
     val source1 = emitAll(right)
 
