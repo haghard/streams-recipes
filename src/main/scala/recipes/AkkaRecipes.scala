@@ -115,13 +115,13 @@ object AkkaRecipes extends App {
   //RunnableGraph.fromGraph(scenario8).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario12).run()(ActorMaterializer(Settings)(sys))
 
-  //RunnableGraph.fromGraph(scenario18).run()(ActorMaterializer(Settings20)(sys))
+  RunnableGraph.fromGraph(scenario18).run()(ActorMaterializer(Settings20)(sys))
 
   //for scenario15
   val mat: Materializer = ActorMaterializer(Settings.withInputBuffer(1, 1))(sys)
   //RunnableGraph.fromGraph(scenario16(mat)).run()(ActorMaterializer(Settings)(sys))
 
-  RunnableGraph.fromGraph(scenario13_1(mat)).run()(mat)
+  //RunnableGraph.fromGraph(scenario13_1(mat)).run()(mat)
 
   /*
   scenario17.run()(mat).onComplete { _ ⇒
@@ -956,18 +956,17 @@ object AkkaRecipes extends App {
 
   case class LogEntry(ts: Long, message: String)
 
+  /**
+    * We are replaying log with ts attached to line
+    *
+    */
   def scenario18(): Graph[ClosedShape, akka.NotUsed] = {
-    /*
-    val delimiter = Framing.delimiter(ByteString('\n'), Int.MaxValue, true)
-    val logEntries = (StreamConverters.fromInputStream(() ⇒ new FileInputStream("./taxi.log")) via delimiter).map { line ⇒
-      val fields = line.utf8String.split(",")
-      LogEntry(fields(0).toLong, fields(1))
-    }*/
 
     val rnd = ThreadLocalRandom.current()
     val logEntries = Source.fromIterator(() ⇒
       Iterator.iterate(LogEntry(1000l, Thread.currentThread().getName)) { log ⇒
         println(log.message)
+        //ts in logEntry grows monotonically
         log.copy(ts = log.ts + rnd.nextLong(1000l, 3000l))
       }
     )
@@ -975,7 +974,7 @@ object AkkaRecipes extends App {
     val ratedSource = new TimeStampedLogReader[LogEntry](_.ts)
     val sink = Sink.actorSubscriber[LogEntry](SyncActor.props2("akka-sink_18", statsD))
 
-    //async
+    //We use asyncBoundary here so that source can use blocking-dispatcher
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
       (logEntries via ratedSource)
@@ -1480,8 +1479,8 @@ class TimeStampedLogReader[T](time: T ⇒ Long) extends GraphStage[FlowShape[T, 
           if (firstActualTime != 0L) {
             if (actualDelay < eventDelay) {
               val iterationLatency = eventDelay - actualDelay
-              println(iterationLatency)
-              Thread.sleep(iterationLatency)
+              println(s"${Thread.currentThread().getName}: sleep $iterationLatency")
+              (Thread sleep iterationLatency)
             }
           } else {
             firstActualTime = actualTime
