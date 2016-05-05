@@ -957,8 +957,8 @@ object AkkaRecipes extends App {
   case class LogEntry(ts: Long, message: String)
 
   /**
-    * We are replaying log with ts attached to line
-    *
+    * We are replaying log with ts attached to every line
+    * This emits lines according to a time that is derived from the message itself.
     */
   def scenario18(): Graph[ClosedShape, akka.NotUsed] = {
 
