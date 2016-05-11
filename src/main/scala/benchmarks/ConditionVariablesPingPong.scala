@@ -27,9 +27,6 @@ object ConditionVariablesPingPong {
   }
 
   def benchmark() {
-    pingValue = -1l
-    pongValue = -1l
-
     val histogram = new Histogram(3)
     val pingThread = new Thread(new PingRunner(histogram))
     val pongThread = new Thread(new PongRunner())
@@ -41,6 +38,7 @@ object ConditionVariablesPingPong {
     println(s"pingValue = $pingValue, pongValue = $pongValue")
     println("Histogram of RTT latencies in microseconds")
     histogram.outputPercentileDistribution(System.out, 1000.0)
+    //Mean = 12 microseconds
   }
 
   class PingRunner(histogram: Histogram) extends Runnable {
@@ -60,7 +58,7 @@ object ConditionVariablesPingPong {
             pongCondition.await()
           }
         } catch {
-          case ex: InterruptedException ⇒ return ()
+          case ex: InterruptedException ⇒ ()
         } finally {
           pongLock.unlock()
         }
@@ -81,7 +79,7 @@ object ConditionVariablesPingPong {
             pingCondition.await()
           }
         } catch {
-          case e: InterruptedException ⇒ return ()
+          case e: InterruptedException ⇒ ()
         } finally {
           pingLock.unlock()
         }
