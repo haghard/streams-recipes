@@ -37,7 +37,7 @@ javacOptions += "-Xmx2G"
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.4.4"
+val akkaStreamV = "2.4.6"
 
 val Origami = "1.0-20150902134048-8d00462"
 
@@ -67,12 +67,13 @@ libraryDependencies ++= Seq(
   "oncue.quiver"      %% "core"              % "5.3.57"
 )
 
+
 /*
- //Origami,
 libraryDependencies ++= Seq(
   "com.typesafe.play" %% "play-json"                            % "2.4.6",
   "com.typesafe.akka" %% "akka-http-core"                 %     akkaStreamV,
   "com.typesafe.akka" %% "akka-http-experimental"         %     akkaStreamV,
+  "io.spray"          %% "spray-json"                     %     "1.2.6"
   "com.softwaremill.reactivekafka" %% "reactive-kafka-core"     % "0.9.0"
 )
 */

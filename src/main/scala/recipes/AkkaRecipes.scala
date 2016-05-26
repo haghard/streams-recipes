@@ -29,7 +29,6 @@ import scala.language.postfixOps
 import scala.util.{ Failure, Success }
 import scalaz.{ -\/, \/, \/- }
 
-//http://doc.akka.io/docs/akka/2.4.2/scala/stream/migration-guide-2.0-2.4-scala.html
 //http://stackoverflow.com/questions/32459582/how-to-set-up-statsd-along-with-grafana-graphite-as-backend-for-kamon
 
 //runMain recipes.AkkaRecipes
@@ -113,9 +112,11 @@ object AkkaRecipes extends App {
   //RunnableGraph.fromGraph(scenario6).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario7).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario8).run()(ActorMaterializer(Settings)(sys))
+  RunnableGraph.fromGraph(scenario9_1).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario12).run()(ActorMaterializer(Settings)(sys))
+  //RunnableGraph.fromGraph(scenario19).run()(ActorMaterializer(Settings)(sys))
 
-  RunnableGraph.fromGraph(scenario18).run()(ActorMaterializer(Settings20)(sys))
+  //RunnableGraph.fromGraph(scenario18).run()(ActorMaterializer(Settings20)(sys))
 
   //for scenario15
   val mat: Materializer = ActorMaterializer(Settings.withInputBuffer(1, 1))(sys)
@@ -148,11 +149,11 @@ object AkkaRecipes extends App {
    * Sliding windows discretize a stream into overlapping windows
    * Using conflate as rate detached operation
    */
-  def slidingWindow[T](name: String, duration: FiniteDuration, numOfTimeUnits: Long = 5): Sink[T, akka.NotUsed] = {
+  def slidingWindow[T](name: String, duration: FiniteDuration, numOfIntervals: Long = 5): Sink[T, akka.NotUsed] = {
     val nano = 1000000000
     (Flow[T].conflateWithSeed(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
-      .scan((0l, 0, System.nanoTime())) { case ((acc, iter, last), v) ⇒ if (iter == numOfTimeUnits - 1) (v, 0, System.nanoTime()) else (acc + v, iter + 1, last) }
+      .scan((0l, 0, System.nanoTime())) { case ((acc, iter, last), v) ⇒ if (iter == numOfIntervals - 1) (v, 0, System.nanoTime()) else (acc + v, iter + 1, last) }
       .to(Sink.foreach { case (acc, iter, ts) ⇒ println(buildProgress(iter, acc, (System.nanoTime() - ts) / nano)) })
       .withAttributes(Attributes.inputBuffer(1, 1))
   }
@@ -168,7 +169,7 @@ object AkkaRecipes extends App {
       .withAttributes(Attributes.inputBuffer(1, 1))
 
   private def buildProgress(i: Int, acc: Long, sec: Long) =
-    s"${List.fill(i)(" ★ ").mkString} number:$acc interval:$sec"
+    s"${List.fill(i)(" ★ ").mkString} number of elements:$acc time window:$sec sec"
 
   /**
    * Situation:
@@ -227,7 +228,7 @@ object AkkaRecipes extends App {
       val source = throttledSrc(statsD, 1 second, 20 milliseconds, Int.MaxValue, "akka-source1")
       val sink = Sink.actorSubscriber(SyncActor.props2("akka-sink1", statsD))
 
-      /*slidingWindow("akka-scenario1", 2 seconds)*/
+      //(source alsoTo slidingWindow("akka-scenario1", 2 seconds)) ~> sink
       (source alsoTo tumblingWindowWithFilter("akka-scenario1", 2 seconds) { _ >= 97l }) ~> sink
       ClosedShape
     }
@@ -619,21 +620,35 @@ object AkkaRecipes extends App {
   def scenario9_1: Graph[ClosedShape, akka.NotUsed] = {
     val sink = Sink.actorSubscriber(DegradingActor.props2("akka-source9_1", statsD, 0l))
 
-    val aggregatedSource = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-sink9_1")
-      .scan(State(0l, 0l)) {
-        _ combine _
-      }
-      .conflateWithSeed(_.sum)(Keep.left)
+    val aggregatedSource = throttledSrc(statsD, 1 second, 200 milliseconds, Int.MaxValue, "akka-sink9_1")
+      .scan(State(0l, 0l)) { (state, el) ⇒ state.combine(el) }
+      .conflateWithSeed(identity)(Keep.left)
 
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
-      (aggregatedSource via throttledFlow(500 milliseconds)) ~> sink
+      val src = throttledSrc(statsD, 0 second, 200 milliseconds, Int.MaxValue, "akka-sink9_1")
+
+      val broadcast = b.add(Broadcast[Int](2))
+      val zip = b.add(Zip[State, Int])
+
+      val flow = Flow[Int].buffer(64, OverflowStrategy.backpressure)
+        .scan(State(0, 0)) { (state, el) ⇒ state.combine(el) }
+        .conflateWithSeed(identity)(Keep.left)
+
+      val window = 1000 milliseconds
+
+      src ~> broadcast ~> flow ~> zip.in0
+      broadcast ~> Flow[Int].dropWithin(window) ~> zip.in1
+      zip.out ~> sink
+
+      //src ~> (flow via throttledFlow(1000 milliseconds)) ~> sink
+      //(aggregatedSource via throttledFlow(1000 milliseconds)) ~> sink
       ClosedShape
     }
   }
 
-  case class State(totalSamples: Long, sum: Long) {
-    def combine(current: Long) = this.copy(this.totalSamples + 1, this.sum + current)
+  case class State(count: Long, sum: Long) {
+    def combine(current: Long) = this.copy(this.count + 1, this.sum + current)
   }
 
   def every[T](interval: FiniteDuration): Flow[T, T, akka.NotUsed] =
@@ -690,7 +705,7 @@ object AkkaRecipes extends App {
     )
 
   /*
-    For cases where back-pressuring is not a viable strategy, one may want to drop events from the fast producer, or accumulate them
+    For cases where back-pressuring is not a viable strategy, one may wants to drop events from the fast producer, or accumulate them
     while waiting for the slow producer, or viceversa interpolate the output of the slow producer to cope with the fast one.
     This can be done with the conflate and expand operations.
     The conflate operator allows us to fold elements of a fast producer attached to a slow consumer.
@@ -704,7 +719,6 @@ object AkkaRecipes extends App {
 
     More complex cases can be handled by defining custom processing stages.
     This can be done by extending an abstract class called GraphStage.
-
   */
 
   //Detached flows with conflate + conflate
@@ -903,8 +917,7 @@ object AkkaRecipes extends App {
       import GraphDSL.Implicits._
       val broadcast = b.add(Broadcast[String](2))
       tailer(log, n) ~> broadcast ~> Sink.actorSubscriber[String](SyncActor.props4("akka-sink16_0", statsD, 500l, n))
-      broadcast ~> Flow[String].buffer(32, OverflowStrategy.backpressure) ~>
-        Sink.actorSubscriber[String](SyncActor.props4("akka-sink16_1", statsD, 1000l, n))
+      broadcast ~> Flow[String].buffer(32, OverflowStrategy.backpressure) ~> Sink.actorSubscriber[String](SyncActor.props4("akka-sink16_1", statsD, 1000l, n))
       ClosedShape
     }
   }
@@ -957,11 +970,10 @@ object AkkaRecipes extends App {
   case class LogEntry(ts: Long, message: String)
 
   /**
-    * We are replaying log with ts attached to every line
-    * This emits lines according to a time that is derived from the message itself.
-    */
+   * We are replaying log with ts attached to every line
+   * This emits lines according to a time that is derived from the message itself.
+   */
   def scenario18(): Graph[ClosedShape, akka.NotUsed] = {
-
     val rnd = ThreadLocalRandom.current()
     val logEntries = Source.fromIterator(() ⇒
       Iterator.iterate(LogEntry(1000l, Thread.currentThread().getName)) { log ⇒
@@ -983,6 +995,32 @@ object AkkaRecipes extends App {
       ClosedShape
     }
   }
+
+  def scenario19(): Graph[ClosedShape, akka.NotUsed] = {
+    GraphDSL.create() { implicit b ⇒
+      import GraphDSL.Implicits._
+      val sink = Sink.actorSubscriber(SyncActor.props2("akka-sink_19", statsD))
+      val src = throttledSrc(statsD, 1 second, 900 milliseconds, Int.MaxValue, "akka-source_19")
+      src ~> trailingDifference(4) ~> sink
+      ClosedShape
+    }
+  }
+
+  //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
+  def trailingDifference(offset: Int) =
+    GraphDSL.create() { implicit b ⇒
+      import GraphDSL.Implicits._
+      val broadcast = b.add(Broadcast[Int](2))
+      val zip = b.add(Zip[Int, Int].withAttributes(Attributes.inputBuffer(1, 1)))
+
+      val processing = b.add(Flow[(Int, Int)].map(nums ⇒ nums._1 - nums._2))
+
+      broadcast ~> Flow[Int].buffer(offset, akka.stream.OverflowStrategy.backpressure) ~> zip.in0
+      broadcast ~> Flow[Int].drop(offset) ~> zip.in1
+      zip.out ~> processing
+
+      FlowShape(broadcast.in, processing.outlet)
+    }
 
   /**
    * Create a source which is throttled to a number of message per second.
@@ -1338,6 +1376,14 @@ class DegradingActor private (val name: String, val address: InetSocketAddress, 
       println(msg)
       send(s"$name:1|c")
 
+    case OnNext(msg: AkkaRecipes.State) ⇒
+      println(msg)
+      send(s"$name:1|c")
+
+    case OnNext(msg: (AkkaRecipes.State, Int)) ⇒
+      println(msg)
+      send(s"$name:1|c")
+
     case OnComplete ⇒
       println(s"Complete DegradingActor $lastSeenMsg")
       (context stop self)
@@ -1362,7 +1408,7 @@ class DbCursorPublisher(name: String, val end: Long, val address: InetSocketAddr
 
         if (limit % showPeriod == 0) {
           log.info("Cursor progress: {}", seqN)
-          Thread.sleep(200) //cursor buffer
+          Thread.sleep(200)
         }
         onNext(seqN)
         send(s"$name:1|c")
@@ -1396,7 +1442,7 @@ class BatchProducer extends ActorPublisher[Vector[Item]] with ActorLogging {
     context.system.scheduler.scheduleOnce(100 millis) {
       var i = 0
       val batch = Vector.fill(rnd.nextInt(1, 10)) {
-        i += 1;
+        i += 1
         Item(i)
       }
       self ! Result(id + 1, batch.size, batch)

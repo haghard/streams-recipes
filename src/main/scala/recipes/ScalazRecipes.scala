@@ -52,7 +52,6 @@ object ScalazRecipes extends App {
     go(0)
   }
 
-
   def rnd: Process[Task, Int] = {
     def go(rnd: scala.concurrent.forkjoin.ThreadLocalRandom): Process[Task, Int] =
       Process.await(Task.now(rnd))(rnd ⇒ Process.emit(rnd.nextInt(1,100)) ++ go(rnd))
@@ -578,11 +577,30 @@ object ScalazRecipes extends App {
   def min: FoldM[SafeTTask, Int, Option[Int]] =
     com.ambiata.origami.FoldId.minimum[Int].into[SafeTTask]
 
+  def Count: FoldM[SafeTTask, Int, Int] =
+    com.ambiata.origami.FoldId.count[Int].into[SafeTTask]
+
+  def Plus: FoldM[SafeTTask, Int, Int] =
+    com.ambiata.origami.FoldId.plus[Int].into[SafeTTask]
+
+  def CountAndSum: FoldM[SafeTTask, Int, (Int, Int)] =
+    Count <*> Plus
+
+  def Mean: FoldM[SafeTTask, Int, Double] = CountAndSum.map { case (n, s) =>
+    if (n == 0) 0.0 else s.toDouble / n
+  }
+
+  //http://origami.readthedocs.io/en/latest/combinators/
+  def mean2  = com.ambiata.origami.FoldId.mean[Double]
+
   def both: FoldM[SafeTTask, Int, (Option[Int], Option[Int])] = max <*> min
 
   //recipes.ScalazRecipes.folds
   def folds =
     (both run rnd.take(10)).attemptRun.unsafePerformSync
+
+  //recipes.ScalazRecipes.meanR
+  def meanR = (Mean run rnd.take(10)).attemptRun.unsafePerformSync
 
   /**
    *
