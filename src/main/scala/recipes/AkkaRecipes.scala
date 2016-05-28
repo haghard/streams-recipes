@@ -791,6 +791,12 @@ object AkkaRecipes extends App {
     val (queue, publisher) = Source.queue[Int](1 << 7, OverflowStrategy.backpressure)
       .toMat(Sink.asPublisher[Int](false))(Keep.both).run()(mat)
 
+    /*
+    If you want to get an actor as a source
+    val (actor, publisher) = Source.actorRef[Int](1 << 7, OverflowStrategy.backpressure)
+      .toMat(Sink.asPublisher[Int](false))(Keep.both).run()(mat)
+    */
+
     def externalProducer(q: akka.stream.scaladsl.SourceQueueWithComplete[Int], pName: String, elem: Int): Unit = {
       if (elem < 10000) {
         (q offer elem).onComplete {

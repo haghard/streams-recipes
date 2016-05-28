@@ -38,15 +38,19 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
     }
   }
 
-  scenario03.runLog.run.run
+  scenario03.run.unsafeAttemptRun
 
-  def naturals(sourceDelay: Duration, timeWindow: Long,
+  def naturals(sourceDelay: FiniteDuration, timeWindow: Long,
                msg: String, statsD: Grafana,
                q: mutable.Queue[Task, Int]): Stream[Task, Nothing] = {
-    implicit val scheduler = Executors.newScheduledThreadPool(2, RecipesDaemons("source"))
-    time.awakeEvery(sourceDelay)(fs2.Strategy.fromExecutor(scheduler), scheduler)
+    val javaScheduler = Executors.newScheduledThreadPool(2, RecipesDaemons("source"))
+    implicit val scheduler = fs2.Scheduler.fromScheduledExecutorService(javaScheduler)
+    implicit val S = fs2.Strategy.fromExecutor(javaScheduler)
+    implicit val Async = Task.asyncInstance(S)
+
+    time.awakeEvery(sourceDelay)
       .scan(State(item = 0)) { (acc, d) ⇒ tumblingWindow(acc, timeWindow) }
-      .evalMap[Task, Unit] { d: State[Int] ⇒ q.enqueue1(d.item).flatMap(_ ⇒ grafanaSink(statsD, msg)) }
+      .evalMap { d: State[Int] ⇒ q.enqueue1(d.item).flatMap(_ ⇒ grafanaSink(statsD, msg)) }
       .drain
   }
 
@@ -81,8 +85,8 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
       out ← naturals(sourceDelay, window, srcMessage, srcG, q) merge q.dequeue.scan((0l, 0))((acc, c) ⇒ injectLatency(acc, c, delayPerMsg))
     } yield out*/
 
-    flow.evalMap[Task, Unit](_ ⇒ grafanaSink(sinkG, sinkMessage))
-      .onError[Task, Unit] { ex: Throwable ⇒ fs2.Stream.eval(Task.now(println(ex.getMessage))) }
+    flow.evalMap(_ ⇒ grafanaSink(sinkG, sinkMessage))
+      .onError { ex: Throwable ⇒ fs2.Stream.eval(Task.now(println(ex.getMessage))) }
   }
 
   /**
@@ -124,11 +128,11 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
       concurrent.join(parallelism)(
         Stream[Task, Stream[Task, Unit]](
           naturals(sourceDelay, window, srcMessage, srcG, q),
-          (q.size.discrete.filter(_ > waterMark).evalMap[Task, Int](_ ⇒ q.dequeue1)).drain,
-          q.dequeue.scan((0l, 0))((acc, c) ⇒ injectLatency(acc, c, delayPerMsg)).evalMap[Task, Unit] { _ ⇒ grafanaSink(sinkG, sinkMessage) }
+          (q.size.discrete.filter(_ > waterMark).evalMap(_ ⇒ q.dequeue1)).drain,
+          q.dequeue.scan((0l, 0))((acc, c) ⇒ injectLatency(acc, c, delayPerMsg)).evalMap { _ ⇒ grafanaSink(sinkG, sinkMessage) }
         )
       )(Async)
-    }.onError[Task, Unit] { ex: Throwable ⇒ fs2.Stream.eval(Task.now(println(ex.getMessage))) }
+    }.onError { ex: Throwable ⇒ fs2.Stream.eval(Task.now(println(ex.getMessage))) }
 
     /*
     (Stream eval async.boundedQueue[Task, Int](bufferSize)(Async)).flatMap { q ⇒

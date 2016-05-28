@@ -51,7 +51,9 @@ libraryDependencies ++= Seq(
 
   "io.reactivex"      %% "rxscala"           % "0.26.0",
   "io.monix"          %% "monix"             % "2.0-M2",
-  "co.fs2"            %% "fs2-core"          % "0.9.0-SNAPSHOT",
+  //"co.fs2"            %% "fs2-core"          % "0.9.0-SNAPSHOT",
+  "co.fs2"            %% "fs2-core"          % "0.9.0-M2",
+  "co.fs2"            %% "fs2-io"            % "0.9.0-M2",
 
   "org.spire-math"    %% "jawn-spray"     % "0.8.4",
   "org.hdrhistogram"  %  "HdrHistogram"   % "2.1.7",
@@ -66,16 +68,5 @@ libraryDependencies ++= Seq(
 
   "oncue.quiver"      %% "core"              % "5.3.57"
 )
-
-
-/*
-libraryDependencies ++= Seq(
-  "com.typesafe.play" %% "play-json"                            % "2.4.6",
-  "com.typesafe.akka" %% "akka-http-core"                 %     akkaStreamV,
-  "com.typesafe.akka" %% "akka-http-experimental"         %     akkaStreamV,
-  "io.spray"          %% "spray-json"                     %     "1.2.6"
-  "com.softwaremill.reactivekafka" %% "reactive-kafka-core"     % "0.9.0"
-)
-*/
 
 cancelable in Global := true
