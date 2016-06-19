@@ -53,7 +53,8 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
     implicit val Async = Task.asyncInstance(S)
     time.awakeEvery(sourceDelay)
       .scan(State(item = 0l)) { (acc, d) ⇒ tumblingWindow(acc, timeWindow) }
-      .evalMap { d ⇒ q.enqueue1(d.item).flatMap { _ ⇒ grafana(monitoring, msg) } }
+      .evalMap { d ⇒ grafana(monitoring, msg).map(_ ⇒ d.item) }
+      .to(q.enqueue)
   }
 
   /**
@@ -148,7 +149,7 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
       naturals(sourceDelay, window, srcMessage, srcG, q).mergeDrainL {
         // observe and to don't work, so use through
         //q.dequeue.observe(pipe.lift[Task, Int, Unit] { s ⇒ Task.delay(println(s"current size $s")) }).drain
-        (q.dequeue.scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg)).through(logGrafana(sinkG, sinkMessage)) merge overflowGuard(q))
+        (q.dequeue.scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg)).through(logGrafana(sinkG, sinkMessage)) mergeHaltBoth overflowGuard(q))
       }
     }.onError { ex: Throwable ⇒ Stream.eval(Task.delay(println(s"Error: ${ex.getMessage}"))) }
 
