@@ -98,13 +98,13 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
    * Situation:
    * A source and a sink perform on the same rate in the beginning, the sink gets slower later, increases delay with every message.
    * We are using a separate process that tracks size of queue, if it reaches the waterMark the top element will be dropped.
-   * Result: The source's rate for a long time remains the same (duration depends on waterMark value),
+   * Result: The source's rate for a long time remains the same (how long depends on waterMark value),
    * but eventually goes down when guard can't keep up anymore
    * whereas sink's rate goes down  immediately.
    *
-   *            +-----+
-   *     +------|guard|
-   *     |      +-----+
+   *                     +-----+
+   *              +------|guard|
+   *              |      +-----+
    * +------+   +-----+   +----+
    * |source|---|queue|---|sink|
    * +------+   +-----+   +----+
@@ -133,14 +133,16 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
     def dropAll(q: Queue[Task, Long]) =
       Stream.eval(q.size.get.flatMap(size ⇒ Task.traverse((0 to size)) { _ ⇒ q.dequeue1 })).drain
 
-    def dropChunk(q: Queue[Task, Long]) = {
+    def dropQuarter(q: Queue[Task, Long]) = {
       val chunk = (0 to waterMark / 4)
       Stream.repeatEval(Task.traverse(chunk) { _ ⇒ q.dequeue1 }.map(_.size))
     }
 
+    def drop(q: Queue[Task, Long]) = q.dequeue
+
     //just drop element
     def overflowGuard(q: Queue[Task, Long]) =
-      (q.size.discrete.filter(_ > waterMark) zip dropChunk(q)).through(logGrafana[(Int, Int)](sinkG2, sinkMessage2))
+      (q.size.discrete.filter(_ > waterMark) zip dropQuarter(q)).through(logGrafana[(Int, Int)](sinkG2, sinkMessage2))
 
     Stream.eval(async.boundedQueue[Task, Long](bufferSize)(Async)).flatMap { q ⇒
       naturals(sourceDelay, window, srcMessage, srcG, q).mergeDrainL {
