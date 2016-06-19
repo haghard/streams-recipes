@@ -72,10 +72,10 @@ object ScalazRecipes extends App {
     (broadcast.drain merge Process.emit(queues.map(_.dequeue)))(S)
   }
 
-  def broadcastN2[T](n: Int, src: Process[Task, T], waterMark: Int, bufferSize: Int = 4)(implicit S: Strategy): Process[Task, Seq[Process[Task, T]]] = {
+  def broadcastManyBounded[T](n: Int, src: Process[Task, T], waterMark: Int, bufferSize: Int = 4)(implicit S: Strategy): Process[Task, Seq[Process[Task, T]]] = {
     val queues = (0 until n).map(_ ⇒ async.boundedQueue[T](bufferSize)(S))
-    val broadcast = queues./:(src) { (s, q) ⇒
-      ((q.size.discrete.filter(_ > waterMark) zip q.dequeue).drain merge s.observe(q.enqueue))
+    val broadcast = queues./:(src) { (src, q) ⇒
+      ((q.size.discrete.filter(_ > waterMark) zip q.dequeue).drain merge src.observe(q.enqueue))
     }.onComplete(Process.eval(Task.gatherUnordered(queues.map(_.close))))
     (broadcast.drain merge Process.emit(queues.map(_.dequeue)))(S)
   }
@@ -384,7 +384,7 @@ object ScalazRecipes extends App {
     val src = (naturalsEvery(sourceDelay) tumblingWindow window) observe grafana(grafanaInstance, srcMessage)
 
     (for {
-      outlets ← broadcastN2(2, src, waterMark, bufferSize)(Ex)
+      outlets ← broadcastManyBounded(2, src, waterMark, bufferSize)(Ex)
 
       out0 = outlets(0) to grafana(grafanaInstance, sinkMessage0)
 
@@ -425,7 +425,7 @@ object ScalazRecipes extends App {
       naturalsEvery(ms._1) observe grafana(grafanaInstance, srcMessage(ms._2))
     }
 
-    (interleaveN(async.boundedQueue[Int](2 << 7)(Ex), sources)(Ex) slidingWindow (window, 5)) to grafana(grafanaInstance, "scalaz-sink7:1|c")
+    (interleaveN(async.boundedQueue[Int](1 << 8)(Ex), sources)(Ex) slidingWindow (window, 5)) to grafana(grafanaInstance, "scalaz-sink7:1|c")
   }
 
   /**

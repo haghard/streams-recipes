@@ -7,6 +7,7 @@ import java.nio.channels.DatagramChannel
 import java.util.concurrent.atomic.AtomicInteger
 
 import akka.actor._
+import akka.routing.ConsistentHashingRouter.ConsistentHashMapping
 import akka.routing.{ ActorRefRoutee, RoundRobinRoutingLogic, Router }
 import akka.stream._
 import akka.stream.actor.ActorPublisherMessage.{ Cancel, Request }
@@ -18,8 +19,9 @@ import akka.util.ByteString
 import com.esri.core.geometry.Point
 import com.typesafe.config.ConfigFactory
 import recipes.AkkaRecipes.LogEntry
-import recipes.BalancerRouter.DBObject
+import recipes.BalancerRouter._
 import recipes.BatchProducer.Item
+import recipes.ConsistentHashingRouter.{ DBObject2, CHWork }
 
 import scala.collection.{ immutable, mutable }
 import scala.concurrent.duration.{ Deadline, FiniteDuration, _ }
@@ -112,9 +114,11 @@ object AkkaRecipes extends App {
   //RunnableGraph.fromGraph(scenario6).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario7).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario8).run()(ActorMaterializer(Settings)(sys))
-  RunnableGraph.fromGraph(scenario9_1).run()(ActorMaterializer(Settings)(sys))
+  //RunnableGraph.fromGraph(scenario9_1).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario12).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario19).run()(ActorMaterializer(Settings)(sys))
+
+  RunnableGraph.fromGraph(scenario15_01).run()(ActorMaterializer(Settings)(sys))
 
   //RunnableGraph.fromGraph(scenario18).run()(ActorMaterializer(Settings20)(sys))
 
@@ -881,6 +885,17 @@ object AkkaRecipes extends App {
     }
   }
 
+  def scenario15_01: Graph[ClosedShape, akka.NotUsed] = {
+    GraphDSL.create() { implicit b ⇒
+      import GraphDSL.Implicits._
+      val out = sys.actorOf(Props(classOf[RecordsSink], "sink15_01", statsD).withDispatcher("akka.flow-dispatcher"), "akka-sink15")
+      val src = Source.actorPublisher[Long](Props(classOf[DbCursorPublisher], "akka-source15_01", 20000l, statsD).withDispatcher("akka.flow-dispatcher"))
+        .map(DBObject2(_, out))
+      src ~> Sink.actorSubscriber(ConsistentHashingRouter.props)
+      ClosedShape
+    }
+  }
+
   def tailer(path: String, n: Int)(implicit ex: ExecutionContext): Source[String, akka.NotUsed] = {
     val proc = new java.lang.ProcessBuilder()
       .command("tail", s"-n$n", "-f", path)
@@ -1068,7 +1083,7 @@ object AkkaRecipes extends App {
 
 trait Grafana {
   val Encoding = "utf-8"
-  val sendBuffer = (ByteBuffer allocate 1024)
+  val sendBuffer = (ByteBuffer allocate 512)
   val channel = DatagramChannel.open()
 
   def address: InetSocketAddress
@@ -1093,6 +1108,72 @@ object BalancerRouter {
   case class Done(id: Long)
 
   def props: Props = Props(new BalancerRouter).withDispatcher("akka.flow-dispatcher")
+}
+
+object ConsistentHashingRouter {
+  case class CHWork(id: Long, key: String)
+  case class DBObject2(id: Long, replyTo: ActorRef)
+
+  def props: Props = Props(new ConsistentHashingRouter).withDispatcher("akka.flow-dispatcher")
+}
+
+//https://community.oracle.com/blogs/tomwhite/2007/11/27/consistent-hashing
+class ConsistentHashingRouter extends ActorSubscriber with ActorLogging {
+  var Size = 5
+  var Rsize = 0
+  var routeesMap = Map.empty[Long, ActorRef]
+  val keys = Vector("a", "b", "c", "d", "e", "f", "g", "h", "i", "j")
+  var removed = false
+
+  val routees = (0 until Size).map { i ⇒
+    val name = "ch-worker-" + i
+    context.actorOf(Props(new ChWorker(name, i)).withDispatcher("akka.flow-dispatcher"), name)
+  }
+
+  val hashMapping: ConsistentHashMapping = {
+    case CHWork(_, key) ⇒ key
+  }
+
+  var router = Router(
+    akka.routing.ConsistentHashingRoutingLogic(context.system, 5, hashMapping),
+    routees.map { actor ⇒ (context watch actor); ActorRefRoutee(actor) }
+  )
+
+  override protected def requestStrategy = new MaxInFlightRequestStrategy(32) {
+    override def inFlightInternally = routeesMap.size
+  }
+
+  override def receive: Actor.Receive = {
+    case Terminated(routee) ⇒
+      router = (router removeRoutee routee)
+      if (router.routees.size == 0) {
+        (context stop self)
+      }
+
+    case OnNext(DBObject2(id, requestor)) ⇒
+      if (id % 16 == 0) {
+        if (!removed) {
+          router = router.removeRoutee(routees(Rsize))
+          println("remove router " + Rsize)
+          Rsize = Rsize + 1
+          removed = true
+        } else {
+          Size = Size + 1
+          val name = "ch-worker-" + Size
+          println("add router " + name)
+          router = router.addRoutee(context.actorOf(Props(new ChWorker(name, Size)).withDispatcher("akka.flow-dispatcher"), name))
+          removed = false
+        }
+      }
+      routeesMap += (id -> requestor)
+      router.route(CHWork(id, keys((id % keys.size).toInt)), self)
+    case Reply(id) ⇒
+      routeesMap(id) ! Done(id)
+      routeesMap -= id
+    case OnComplete ⇒
+      log.info("worker-router has received OnComplete")
+      routees.foreach { r ⇒ (context stop r) }
+  }
 }
 
 /**
@@ -1158,6 +1239,15 @@ class Worker(name: String) extends Actor with ActorLogging {
     case Work(id) ⇒
       Thread.sleep(ThreadLocalRandom.current().nextInt(100, 150))
       //log.info("{} has done job {}", name, id)
+      sender() ! Reply(id)
+  }
+}
+
+class ChWorker(name: String, workerId: Int) extends Actor with ActorLogging {
+  override def receive = {
+    case CHWork(id, key) ⇒
+      Thread.sleep(ThreadLocalRandom.current().nextInt(100, 150))
+      log.info("worker {} key {}", workerId, key)
       sender() ! Reply(id)
   }
 }
@@ -1396,7 +1486,7 @@ class DegradingActor private (val name: String, val address: InetSocketAddress, 
   }
 }
 
-class DbCursorPublisher(name: String, val end: Long, val address: InetSocketAddress) extends ActorPublisher[Long] with Grafana with ActorLogging {
+class DbCursorPublisher(name: String, val Limit: Long, val address: InetSocketAddress) extends ActorPublisher[Long] with Grafana with ActorLogging {
   var limit = 0l
   var seqN = 0l
   val showPeriod = 50
@@ -1404,17 +1494,18 @@ class DbCursorPublisher(name: String, val end: Long, val address: InetSocketAddr
   override def receive: Receive = {
     case Request(n) if (isActive && totalDemand > 0) ⇒
       log.info("request: {}", n)
-      if (seqN >= end)
+      if (seqN >= Limit)
         onCompleteThenStop()
 
       limit = n
       while (limit > 0) {
+        Thread.sleep(200)
         seqN += 1
         limit -= 1
 
         if (limit % showPeriod == 0) {
           log.info("Cursor progress: {}", seqN)
-          Thread.sleep(200)
+          Thread.sleep(500)
         }
         onNext(seqN)
         send(s"$name:1|c")

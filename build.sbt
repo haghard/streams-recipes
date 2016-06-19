@@ -19,14 +19,17 @@ scalaVersion := "2.11.8"
 resolvers ++= Seq(
   Resolver.defaultLocal,
   Resolver.mavenLocal,
+  Resolver.sonatypeRepo("public"),
+  Resolver.sonatypeRepo("snapshots"),
+  Resolver.sonatypeRepo("releases"),
+  Resolver.typesafeRepo("releases"),
+  Resolver.bintrayRepo("haghard", "nosql-join-stream"),
+  Resolver.jcenterRepo,
   "Local Maven Repository2" at "file:///Volumes/Data/dev_build_tools/apache-maven-3.1.1/repository",
   "Local Maven Repository3" at "file://" + Path.userHome.absolutePath + "/.m2/repository",
-  "Akka Snapshot Repository" at "http://repo.akka.io/snapshots/",
-  "Typesafe Repo" at "http://repo.typesafe.com/typesafe/releases/",
   "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases",
   "bintray/rossabaker" at "http://dl.bintray.com/rossabaker/maven",
   "Awesome Utilities" at "https://dl.bintray.com/davegurnell/maven",
-  "Sonatype Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
   "Apache Staging" at "https://repository.apache.org/content/repositories/staging/",
   "oncue"             at "https://bintray.com/oncue/releases/quiver/",
   //Resolver.url("ambiata-oss", new URL("https://ambiata-oss.s3.amazonaws.com"))(Resolver.ivyStylePatterns),
@@ -37,7 +40,7 @@ javacOptions += "-Xmx2G"
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.4.6"
+val akkaStreamV = "2.4.7"
 
 val Origami = "1.0-20150902134048-8d00462"
 
@@ -52,8 +55,8 @@ libraryDependencies ++= Seq(
   "io.reactivex"      %% "rxscala"           % "0.26.0",
   "io.monix"          %% "monix"             % "2.0-M2",
   //"co.fs2"            %% "fs2-core"          % "0.9.0-SNAPSHOT",
-  "co.fs2"            %% "fs2-core"          % "0.9.0-M2",
-  "co.fs2"            %% "fs2-io"            % "0.9.0-M2",
+  "co.fs2"            %% "fs2-core"          % "0.9.0-M3",
+  "co.fs2"            %% "fs2-io"            % "0.9.0-M3",
 
   "org.spire-math"    %% "jawn-spray"     % "0.8.4",
   "org.hdrhistogram"  %  "HdrHistogram"   % "2.1.7",
@@ -65,6 +68,8 @@ libraryDependencies ++= Seq(
     .exclude("com.google.caliper","caliper")
     .exclude("com.google.guava", "guava")
     .exclude("org.scalaz", "scalaz-stream"),
+
+  //"io.swave"          %%  "swave-core"    % "0.5-M1",
 
   "oncue.quiver"      %% "core"              % "5.3.57"
 )

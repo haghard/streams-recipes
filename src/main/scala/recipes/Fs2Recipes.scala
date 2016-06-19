@@ -3,9 +3,11 @@ package recipes
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.{ Executors, ThreadFactory }
 
-import fs2.async.mutable
-import fs2.util.Task
 import fs2._
+import fs2.async.mutable
+import fs2.async.mutable.Queue
+import fs2.util.Task
+
 import scala.concurrent.duration._
 
 /*
@@ -28,6 +30,7 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
 
   case class RecipesDaemons(name: String) extends ThreadFactory {
     private def namePrefix = s"$name-thread"
+
     private val threadNumber = new AtomicInteger(1)
     private val group: ThreadGroup = Thread.currentThread().getThreadGroup
 
@@ -40,23 +43,23 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
 
   scenario03.run.unsafeAttemptRun
 
-  def naturals(sourceDelay: FiniteDuration, timeWindow: Long,
-               msg: String, statsD: Grafana,
-               q: mutable.Queue[Task, Int]): Stream[Task, Nothing] = {
+  def logGrafana[A](g: Grafana, message: String): fs2.Pipe[Task, A, Unit] = _.evalMap { a ⇒ grafana(g, message) }
+
+  def naturals(sourceDelay: FiniteDuration, timeWindow: Long, msg: String, monitoring: Grafana,
+               q: mutable.Queue[Task, Long]): Stream[Task, Unit] = {
     val javaScheduler = Executors.newScheduledThreadPool(2, RecipesDaemons("source"))
     implicit val scheduler = fs2.Scheduler.fromScheduledExecutorService(javaScheduler)
     implicit val S = fs2.Strategy.fromExecutor(javaScheduler)
     implicit val Async = Task.asyncInstance(S)
-
     time.awakeEvery(sourceDelay)
-      .scan(State(item = 0)) { (acc, d) ⇒ tumblingWindow(acc, timeWindow) }
-      .evalMap { d: State[Int] ⇒ q.enqueue1(d.item).flatMap(_ ⇒ grafanaSink(statsD, msg)) }
-      .drain
+      .scan(State(item = 0l)) { (acc, d) ⇒ tumblingWindow(acc, timeWindow) }
+      .evalMap { d ⇒ q.enqueue1(d.item).flatMap { _ ⇒ grafana(monitoring, msg) } }
   }
 
   /**
    * Situation:
-   * A source and a sink perform on the same rate in the beginning, the sink gets slower later increasing latency with every message
+   * A source and a sink perform on the same rate at the beginning,
+   * The sink gets slower, increasing latency with every message.
    * We are using boundedQueue as buffer between the source and the sink.
    * This leads to blocking enqueue operation for the source in case no space in the queue.
    * Result:
@@ -65,7 +68,7 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
   def scenario02: Stream[Task, Unit] = {
     val delayPerMsg = 1l
     val window = 5000l
-    val bufferSize = 1 << 7
+    val bufferSize = 1 << 8
     val sourceDelay = 10.millis
 
     val srcMessage = "fs2_source_02:1|c"
@@ -75,9 +78,11 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
     val sinkG = grafanaInstance
     implicit val qAsync = Task.asyncInstance(fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(2, RecipesDaemons("queue"))))
 
-    val flow = Stream.eval(async.boundedQueue[Task, Int](bufferSize)).flatMap { q ⇒
-      naturals(sourceDelay, window, srcMessage, srcG, q) merge q.dequeue.scan((0l, 0))((acc, c) ⇒ injectLatency(acc, c, delayPerMsg))
-    }
+    Stream.eval(async.boundedQueue[Task, Long](bufferSize)).flatMap { q ⇒
+      naturals(sourceDelay, window, srcMessage, srcG, q).mergeDrainL {
+        q.dequeue.scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg)).through(logGrafana[(Long, Long)](sinkG, sinkMessage))
+      }
+    }.onError { ex: Throwable ⇒ fs2.Stream.eval(Task.now(println(ex.getMessage))) }
 
     /*
     val flow = for {
@@ -85,66 +90,78 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
       out ← naturals(sourceDelay, window, srcMessage, srcG, q) merge q.dequeue.scan((0l, 0))((acc, c) ⇒ injectLatency(acc, c, delayPerMsg))
     } yield out*/
 
-    flow.evalMap(_ ⇒ grafanaSink(sinkG, sinkMessage))
-      .onError { ex: Throwable ⇒ fs2.Stream.eval(Task.now(println(ex.getMessage))) }
+    //flow.evalMap(_ ⇒ grafanaSink(sinkG, sinkMessage)).onError { ex: Throwable ⇒ fs2.Stream.eval(Task.now(println(ex.getMessage))) }
   }
 
   /**
    *
    * Situation:
-   *  A source and a sink perform on the same rate in the beginning, the sink gets slower later, increases delay with every message.
-   *  We are using a separate process that tracks size of queue, if it reaches the waterMark the top element will be dropped.
-   * Result:
-   *  The source's rate stays on original rate but sink's rate goes down.
+   * A source and a sink perform on the same rate in the beginning, the sink gets slower later, increases delay with every message.
+   * We are using a separate process that tracks size of queue, if it reaches the waterMark the top element will be dropped.
+   * Result: The source's rate for a long time remains the same (duration depends on waterMark value),
+   * but eventually goes down when guard can't keep up anymore
+   * whereas sink's rate goes down  immediately.
    *
-   *                      +-----+
-   *               +------|guard|
-   *               |      +-----+
+   *            +-----+
+   *     +------|guard|
+   *     |      +-----+
    * +------+   +-----+   +----+
    * |source|---|queue|---|sink|
    * +------+   +-----+   +----+
    *
-   * Doesn't work as expected !!!!!
-   * source degrades but do it slow
+   *
    *
    */
   def scenario03: Stream[Task, Unit] = {
     val delayPerMsg = 1l
-    val bufferSize = 1 << 7
-    val waterMark = bufferSize - 10
+    val bufferSize = 1 << 8
+    val waterMark = bufferSize - 56 //quarter of buffer size
     val sourceDelay = 10.millis
     val window = 5000l
-    val parallelism = 6
+    val parallelism = 4
 
     val srcMessage = "fs2_source_3:1|c"
     val sinkMessage = "fs2_sink_3:1|c"
+    val sinkMessage2 = "fs2_sink2_3:1|c"
     val srcG = grafanaInstance
     val sinkG = grafanaInstance
+    val sinkG2 = grafanaInstance
 
     val S = fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(parallelism, RecipesDaemons("queue")))
-    val Async = Task.asyncInstance(S)
+    implicit val Async = Task.asyncInstance(S)
 
-    (Stream eval async.boundedQueue[Task, Int](bufferSize)(Async)).flatMap { q ⇒
-      concurrent.join(parallelism)(
-        Stream[Task, Stream[Task, Unit]](
-          naturals(sourceDelay, window, srcMessage, srcG, q),
-          (q.size.discrete.filter(_ > waterMark).evalMap(_ ⇒ q.dequeue1)).drain,
-          q.dequeue.scan((0l, 0))((acc, c) ⇒ injectLatency(acc, c, delayPerMsg)).evalMap { _ ⇒ grafanaSink(sinkG, sinkMessage) }
-        )
-      )(Async)
-    }.onError { ex: Throwable ⇒ fs2.Stream.eval(Task.now(println(ex.getMessage))) }
+    def dropAll(q: Queue[Task, Long]) =
+      Stream.eval(q.size.get.flatMap(size ⇒ Task.traverse((0 to size)) { _ ⇒ q.dequeue1 })).drain
 
+    def dropChunk(q: Queue[Task, Long]) = {
+      val chunk = (0 to waterMark / 4)
+      Stream.repeatEval(Task.traverse(chunk) { _ ⇒ q.dequeue1 }.map(_.size))
+    }
+
+    //just drop element
+    def overflowGuard(q: Queue[Task, Long]) =
+      (q.size.discrete.filter(_ > waterMark) zip dropChunk(q)).through(logGrafana[(Int, Int)](sinkG2, sinkMessage2))
+
+    Stream.eval(async.boundedQueue[Task, Long](bufferSize)(Async)).flatMap { q ⇒
+      naturals(sourceDelay, window, srcMessage, srcG, q).mergeDrainL {
+        // observe and to don't work, so use through
+        //q.dequeue.observe(pipe.lift[Task, Int, Unit] { s ⇒ Task.delay(println(s"current size $s")) }).drain
+        (q.dequeue.scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg)).through(logGrafana(sinkG, sinkMessage)) merge overflowGuard(q))
+      }
+    }.onError { ex: Throwable ⇒ Stream.eval(Task.delay(println(s"Error: ${ex.getMessage}"))) }
+
+    // the same
     /*
-    (Stream eval async.boundedQueue[Task, Int](bufferSize)(Async)).flatMap { q ⇒
-      wye.merge(
-        naturals(sourceDelay, window, srcMessage, srcG, q),
-        wye.merge(
-          (q.size.discrete.filter(_ > waterMark).evalMap[Task, Int](_ ⇒ q.dequeue1)).drain, /*zip q.dequeue).drain*/
-          q.dequeue.scan((0l, 0))((acc, c) ⇒ injectLatency(acc, c, delayPerMsg)).evalMap[Task, Unit] { _ ⇒ grafanaSink(sinkG, sinkMessage) }
-        )(Async)
-      )(Async)
-    }.onError[Task, Unit] { ex: Throwable ⇒ fs2.Stream.eval(Task.now(println(ex.getMessage))) }
+    Stream.eval(async.boundedQueue[Task, Long](bufferSize)(Async)).flatMap { q ⇒
+      naturals(sourceDelay, window, srcMessage, srcG, q).mergeDrainL {
+        concurrent.join(parallelism)(
+          Stream[Task, Stream[Task, Unit]](
+            overflowGuard(q),
+            q.dequeue.scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg)).through(logGrafana(sinkG, sinkMessage))
+          )
+        )
+      }
+    }.onError { ex: Throwable ⇒ Stream.eval(Task.delay(println(s"Error: ${ex.getMessage}"))) }
     */
-
   }
 }

@@ -10,6 +10,5 @@ trait GrafanaSupport {
     override val address = new InetSocketAddress(InetAddress.getByName("192.168.0.182"), 8125)
   }
 
-  def grafanaSink(statsD: Grafana, msg: String): Task[Unit] =
-    Task.delay { statsD send msg }
+  def grafana(statsD: Grafana, msg: String): Task[Unit] = Task.delay { statsD send msg }
 }
