@@ -156,7 +156,7 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
     /*
     Stream.eval(async.boundedQueue[Task, Long](bufferSize)(Async)).flatMap { q ⇒
       naturals(sourceDelay, window, srcMessage, srcG, q).mergeDrainL {
-        concurrent.join(parallelism)(
+        concurrent.join(2)(
           Stream[Task, Stream[Task, Unit]](
             overflowGuard(q),
             q.dequeue.scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg)).through(logGrafana(sinkG, sinkMessage))
