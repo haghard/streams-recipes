@@ -2,7 +2,7 @@ package recipes
 
 import java.net.{ InetAddress, InetSocketAddress }
 
-import fs2.util.Task
+import fs2.Task
 
 trait GrafanaSupport {
 

@@ -4,9 +4,9 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.{ Executors, ThreadFactory }
 
 import fs2._
+import fs2.Task
 import fs2.async.mutable
 import fs2.async.mutable.Queue
-import fs2.util.Task
 
 import scala.concurrent.duration._
 
@@ -147,8 +147,6 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
 
     Stream.eval(async.boundedQueue[Task, Long](bufferSize)(Async)).flatMap { q ⇒
       naturals(sourceDelay, window, srcMessage, srcG, q).mergeDrainL {
-        // observe and to don't work, so use through
-        //q.dequeue.observe(pipe.lift[Task, Int, Unit] { s ⇒ Task.delay(println(s"current size $s")) }).drain
         (q.dequeue.scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg)).through(logGrafana(sinkG, sinkMessage)) mergeHaltBoth overflowGuard(q))
       }
     }.onError { ex: Throwable ⇒ Stream.eval(Task.delay(println(s"Error: ${ex.getMessage}"))) }
