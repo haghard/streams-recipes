@@ -647,3 +647,7 @@ object ScalazRecipes extends App {
     (laggedSource.unwrapJsonArray.map(_.prettyPrint) to io.stdOutLines)
   }
 }
+
+//More to read
+//https://developer.atlassian.com/blog/2016/03/programming-with-algebra/
+//https://partialflow.wordpress.com/2016/04/28/scalaz-streams-parallel-processing-and-better-testing/

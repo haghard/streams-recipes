@@ -55,8 +55,8 @@ libraryDependencies ++= Seq(
   "io.reactivex"      %% "rxscala"           % "0.26.0",
   "io.monix"          %% "monix"             % "2.0-M2",
 
-  "co.fs2"            %% "fs2-core"          % "0.9.0-M4",
-  "co.fs2"            %% "fs2-io"            % "0.9.0-M4",
+  "co.fs2"            %% "fs2-core"          % "0.9.0-M5",
+  "co.fs2"            %% "fs2-io"            % "0.9.0-M5",
 
   "org.spire-math"    %% "jawn-spray"     % "0.8.4",
   "org.hdrhistogram"  %  "HdrHistogram"   % "2.1.7",
