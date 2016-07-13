@@ -38,7 +38,7 @@ object InterThreadAtomicLatency {
           //busy spin
         }
         histogram.recordValue(System.nanoTime() - start)
-        loop(i - 1, System.nanoTime())
+        loop(i - 1, System.nanoTime)
       }
     }
 
