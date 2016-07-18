@@ -1760,17 +1760,17 @@ class TimedGate[A](silencePeriod: FiniteDuration) extends GraphStage[FlowShape[A
 
 object Traverse {
   /**
-    * Applies a future-returning function to each element in a collection, and
-    * return a Future of a collection of the results (as in `Future.traverse`),
-    * but with bounded maximal parallelism.
-    * Uses Akka Streams' `mapAsync` to achieve maximum throughput, rather than processing in fixed batches.
-    *
-    * @param in collection of operands.
-    * @param maxParallel the maximum number of threads to use.
-    * @param f an asynchronous operation.
-    * @return Future of the collection of results.
-    */
-  def traverse[A, B](in: TraversableOnce[A], maxParallel: Int)(f: A => Future[B])(implicit mat: ActorMaterializer): Future[Seq[B]] =
+   * Applies a future-returning function to each element in a collection, and
+   * return a Future of a collection of the results (as in `Future.traverse`),
+   * but with bounded maximal parallelism.
+   * Uses Akka Streams' `mapAsync` to achieve maximum throughput, rather than processing in fixed batches.
+   *
+   * @param in collection of operands.
+   * @param maxParallel the maximum number of threads to use.
+   * @param f an asynchronous operation.
+   * @return Future of the collection of results.
+   */
+  def traverse[A, B](in: TraversableOnce[A], maxParallel: Int)(f: A ⇒ Future[B])(implicit mat: ActorMaterializer): Future[Seq[B]] =
     Source[A](in.toStream)
       .mapAsync(maxParallel)(f)
       .toMat(Sink.seq)(Keep.right)
