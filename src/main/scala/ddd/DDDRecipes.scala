@@ -22,14 +22,22 @@ object DDDRecipes extends App {
   def openBoth: Kleisli[scalaz.concurrent.Task, AccountRepo, ddd.Valid[(Balance, Balance)]] =
     for {
       a0 ← open(Account1, "Alan Turing", None, None, Checking)
-      a1 ← open(Account2, "Nikola Tesla", BigDecimal(456.9).some, None, Savings)
-    } yield (a0 |@| a1) { (a, b) ⇒ (a.balance, b.balance) }
+      a1 ← open(Account2,
+        "Nikola Tesla",
+        BigDecimal(456.9).some,
+        None,
+        Savings)
+    } yield (a0 |@| a1) { (a, b) ⇒
+      (a.balance, b.balance)
+    }
 
   def creditBoth: Kleisli[scalaz.concurrent.Task, AccountRepo, ddd.Valid[(String, String)]] =
     for {
       a0 ← credit(Account1, 5500)
       a1 ← credit(Account2, 6000)
-    } yield (a0 |@| a1) { (a, b) ⇒ (a.no, b.no) }
+    } yield (a0 |@| a1) { (a, b) ⇒
+      (a.no, b.no)
+    }
 
   trait AccountRepositoryInMemory extends AccountRepo {
     lazy val repo = scala.collection.concurrent.TrieMap.empty[String, Account]
@@ -65,7 +73,9 @@ object DDDRecipes extends App {
     //balance1 ← balance(Account1)
     //balance2 <- balance(Account2)
 
-    _ = accounts.foreach { vs: (String, String) ⇒ println(s"Accounts: [${vs._1} - ${vs._2}]") }
+    _ = accounts.foreach { vs: (String, String) ⇒
+      println(s"Accounts: [${vs._1} - ${vs._2}]")
+    }
 
     _ ← transfer(accounts, BigDecimal(1000))
 
@@ -87,5 +97,5 @@ object DDDRecipes extends App {
       val res: Valid[Seq[(String, Amount)]] = balancesProcess.run(Repo).runLog.run(0)
       res.isSuccess === true
       res.toOption.get.size == 2
-   */
+ */
 }

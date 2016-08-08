@@ -40,9 +40,11 @@ javacOptions += "-Xmx2G"
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.4.8"
+val akkaStreamV = "2.4.9-RC2"
 
 val Origami = "1.0-20150902134048-8d00462"
+
+initialCommands in (Test, console) := """ammonite.Main().run()"""
 
 libraryDependencies ++= Seq(
   "org.http4s"        %% "jawn-streamz"   % "0.8.1", //https://github.com/rossabaker/jawn-streamz
@@ -71,9 +73,13 @@ libraryDependencies ++= Seq(
     .exclude("com.google.guava", "guava")
     .exclude("org.scalaz", "scalaz-stream"),
 
-  //"io.swave"          %%  "swave-core"    % "0.5-M1",
+  "io.swave"          %%  "swave-core"      % "0.5-M3",
 
-  "oncue.quiver"      %% "core"              % "5.3.57"
+  "oncue.quiver"      %% "core"             % "5.3.57",
+
+  "com.lihaoyi"       % "ammonite" % "0.7.0" % "test" cross CrossVersion.full
 )
+
+//streams-recipes/test:console
 
 cancelable in Global := true

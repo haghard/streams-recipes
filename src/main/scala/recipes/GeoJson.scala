@@ -4,7 +4,8 @@ import com.esri.core.geometry.{ SpatialReference, Geometry, GeometryEngine }
 import spray.json._
 
 class RichGeometry(val geometry: Geometry,
-                   val spatialReference: SpatialReference = SpatialReference.create(4326)) extends Serializable {
+                   val spatialReference: SpatialReference = SpatialReference.create(4326))
+    extends Serializable {
 
   def area2D(): Double = geometry.calculateArea2D()
 
@@ -42,10 +43,13 @@ class RichGeometry(val geometry: Geometry,
  * for a given Geometry instance.
  */
 object RichGeometry extends Serializable {
-  implicit def createRichGeometry(g: Geometry): RichGeometry = new RichGeometry(g)
+  implicit def createRichGeometry(g: Geometry): RichGeometry =
+    new RichGeometry(g)
 }
 
-case class Feature(id: Option[JsValue], properties: Map[String, JsValue], geometry: RichGeometry) {
+case class Feature(id: Option[JsValue],
+                   properties: Map[String, JsValue],
+                   geometry: RichGeometry) {
   def apply(property: String) = properties(property)
   def get(property: String) = properties.get(property)
 }
@@ -65,10 +69,13 @@ object GeoJsonProtocol extends DefaultJsonProtocol {
 
   implicit object RichGeometryJsonFormat extends RootJsonFormat[RichGeometry] {
     def write(g: RichGeometry) = {
-      GeometryEngine.geometryToGeoJson(g.spatialReference, g.geometry).parseJson
+      GeometryEngine
+        .geometryToGeoJson(g.spatialReference, g.geometry)
+        .parseJson
     }
     def read(value: JsValue) = {
-      val mg = GeometryEngine.geometryFromGeoJson(value.compactPrint, 0, Geometry.Type.Unknown)
+      val mg = GeometryEngine
+        .geometryFromGeoJson(value.compactPrint, 0, Geometry.Type.Unknown)
       new RichGeometry(mg.getGeometry, mg.getSpatialReference)
     }
   }
@@ -92,7 +99,8 @@ object GeoJsonProtocol extends DefaultJsonProtocol {
     }
   }
 
-  implicit object FeatureCollectionJsonFormat extends RootJsonFormat[Features] {
+  implicit object FeatureCollectionJsonFormat
+      extends RootJsonFormat[Features] {
     def write(fc: Features) = {
       JsObject(
         "type" -> JsString("FeatureCollection"),
@@ -105,15 +113,16 @@ object GeoJsonProtocol extends DefaultJsonProtocol {
     }
   }
 
-  implicit object GeometryCollectionJsonFormat extends RootJsonFormat[GeometryCollection] {
+  implicit object GeometryCollectionJsonFormat
+      extends RootJsonFormat[GeometryCollection] {
     def write(gc: GeometryCollection) = {
-      JsObject(
-        "type" -> JsString("GeometryCollection"),
+      JsObject("type" -> JsString("GeometryCollection"),
         "geometries" -> JsArray(gc.geometries.map(_.toJson): _*))
     }
 
     def read(value: JsValue) = {
-      GeometryCollection(value.asJsObject.fields("geometries").convertTo[Array[RichGeometry]])
+      GeometryCollection(
+        value.asJsObject.fields("geometries").convertTo[Array[RichGeometry]])
     }
   }
 }

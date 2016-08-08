@@ -29,12 +29,13 @@ trait AccountRepo {
    * @return
    */
   def balance(no: String): ValidationNel[String, Balance] =
-    query(no).fold(
-      { error ⇒ s"No account exists with no $no".failureNel[Balance] }, { a: Option[Account] ⇒
-        a.fold("No account exists with no $no".failureNel[Balance]) { r ⇒
-          r.balance.success
-        }
-      })
+    query(no).fold({ error ⇒
+      s"No account exists with no $no".failureNel[Balance]
+    }, { a: Option[Account] ⇒
+      a.fold("No account exists with no $no".failureNel[Balance]) { r ⇒
+        r.balance.success
+      }
+    })
 
   /**
    *

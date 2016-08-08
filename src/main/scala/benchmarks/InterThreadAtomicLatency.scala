@@ -31,7 +31,8 @@ object InterThreadAtomicLatency {
     histogram.outputPercentileDistribution(System.out, 1000.0)
   }
 
-  class BusySpinCasPingRunner(flag: AtomicBoolean, histogram: Histogram) extends Runnable {
+  class BusySpinCasPingRunner(flag: AtomicBoolean, histogram: Histogram)
+      extends Runnable {
     @tailrec final def loop(i: Int, start: Long): Unit = {
       if (i > 0) {
         while (!flag.compareAndSet(false, true)) {

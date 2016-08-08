@@ -2,14 +2,19 @@ package recipes
 
 trait TimeWindows {
 
-  case class State[T](item: T, ts: Long = System.currentTimeMillis(), count: Long = 0)
+  case class State[T](item: T,
+                      ts: Long = System.currentTimeMillis(),
+                      count: Long = 0)
 
-  private def buildProgress(acc: Long, sec: Long) = s" ★ count:$acc interval:$sec sec"
+  private def buildProgress(acc: Long, sec: Long) =
+    s" ★ count:$acc interval:$sec sec"
 
   def tumblingWindow(acc: State[Long], timeWindow: Long): State[Long] = {
     if (System.currentTimeMillis() - acc.ts > timeWindow) {
       println(buildProgress(acc.count, timeWindow / 1000))
-      acc.copy(item = acc.item + 1l, ts = System.currentTimeMillis(), count = 0l)
+      acc.copy(item = acc.item + 1l,
+        ts = System.currentTimeMillis(),
+        count = 0l)
     } else acc.copy(item = acc.item + 1l, count = acc.count + 1l)
   }
 

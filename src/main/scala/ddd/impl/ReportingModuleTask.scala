@@ -18,7 +18,9 @@ trait ReportingModuleTask extends ReportingModule[Task] {
   override def balances: ReportOperation[Seq[T]] =
     kleisli[Task, AccountRepo, ddd.Valid[Seq[T]]] { repo: AccountRepo ⇒
       Task {
-        repo.all.fold({ error ⇒ error.toString().failureNel }, { as: Seq[Account] ⇒
+        repo.all.fold({ error ⇒
+          error.toString().failureNel
+        }, { as: Seq[Account] ⇒
           as.map(a ⇒ (a.no, a.balance.amount)).success
         })
       }(executor)
@@ -26,5 +28,6 @@ trait ReportingModuleTask extends ReportingModule[Task] {
 }
 
 object ReportingService extends ReportingModuleTask {
-  val executor = java.util.concurrent.Executors.newFixedThreadPool(2, new RecipesDaemons("reporting"))
+  val executor = java.util.concurrent.Executors
+    .newFixedThreadPool(2, new RecipesDaemons("reporting"))
 }

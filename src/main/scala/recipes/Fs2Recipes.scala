@@ -23,7 +23,7 @@ import scala.concurrent.duration._
       }
     go(0)
   }
-*/
+ */
 
 //runMain recipes.Fs2Recipes
 object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
@@ -35,7 +35,10 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
     private val group: ThreadGroup = Thread.currentThread().getThreadGroup
 
     override def newThread(r: Runnable) = {
-      val t = new Thread(group, r, s"$namePrefix-${threadNumber.getAndIncrement()}", 0L)
+      val t = new Thread(group,
+        r,
+        s"$namePrefix-${threadNumber.getAndIncrement()}",
+        0L)
       t.setDaemon(true)
       t
     }
@@ -43,15 +46,24 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
 
   scenario03.run.unsafeAttemptRun
 
-  def logGrafana[A](g: Grafana, message: String): fs2.Pipe[Task, A, Unit] = _.evalMap { a ⇒ grafana(g, message) }
+  def logGrafana[A](g: Grafana, message: String): fs2.Pipe[Task, A, Unit] =
+    _.evalMap { a ⇒
+      grafana(g, message)
+    }
 
-  def naturals(sourceDelay: FiniteDuration, timeWindow: Long, msg: String, monitoring: Grafana,
+  def naturals(sourceDelay: FiniteDuration,
+               timeWindow: Long,
+               msg: String,
+               monitoring: Grafana,
                q: mutable.Queue[Task, Long]): Stream[Task, Unit] = {
-    val javaScheduler = Executors.newScheduledThreadPool(2, RecipesDaemons("source"))
-    implicit val scheduler = fs2.Scheduler.fromScheduledExecutorService(javaScheduler)
+    val javaScheduler =
+      Executors.newScheduledThreadPool(2, RecipesDaemons("source"))
+    implicit val scheduler =
+      fs2.Scheduler.fromScheduledExecutorService(javaScheduler)
     implicit val S = fs2.Strategy.fromExecutor(javaScheduler)
     implicit val Async = Task.asyncInstance(S)
-    time.awakeEvery(sourceDelay)
+    time
+      .awakeEvery(sourceDelay)
       .scan(State(item = 0l)) { (acc, d) ⇒ tumblingWindow(acc, timeWindow) }
       .evalMap { d ⇒ grafana(monitoring, msg).map(_ ⇒ d.item) }
       .to(q.enqueue)
@@ -77,13 +89,21 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
 
     val srcG = grafanaInstance
     val sinkG = grafanaInstance
-    implicit val qAsync = Task.asyncInstance(fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(2, RecipesDaemons("queue"))))
+    implicit val qAsync = Task.asyncInstance(
+      fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(2, RecipesDaemons("queue"))))
 
-    Stream.eval(async.boundedQueue[Task, Long](bufferSize)).flatMap { q ⇒
-      naturals(sourceDelay, window, srcMessage, srcG, q).mergeDrainL {
-        q.dequeue.scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg)).through(logGrafana[(Long, Long)](sinkG, sinkMessage))
+    Stream
+      .eval(async.boundedQueue[Task, Long](bufferSize))
+      .flatMap { q ⇒
+        naturals(sourceDelay, window, srcMessage, srcG, q).mergeDrainL {
+          q.dequeue
+            .scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg))
+            .through(logGrafana[(Long, Long)](sinkG, sinkMessage))
+        }
       }
-    }.onError { ex: Throwable ⇒ fs2.Stream.eval(Task.now(println(ex.getMessage))) }
+      .onError { ex: Throwable ⇒
+        fs2.Stream.eval(Task.now(println(ex.getMessage)))
+      }
 
     /*
     val flow = for {
@@ -128,28 +148,48 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
     val sinkG = grafanaInstance
     val sinkG2 = grafanaInstance
 
-    val S = fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(parallelism, RecipesDaemons("queue")))
+    val S = fs2.Strategy.fromExecutor(
+      Executors.newFixedThreadPool(parallelism, RecipesDaemons("queue")))
     implicit val Async = Task.asyncInstance(S)
 
     def dropAll(q: Queue[Task, Long]) =
-      Stream.eval(q.size.get.flatMap(size ⇒ Task.traverse((0 to size)) { _ ⇒ q.dequeue1 })).drain
+      Stream
+        .eval(q.size.get.flatMap(size ⇒
+          Task.traverse((0 to size)) { _ ⇒
+            q.dequeue1
+          }))
+        .drain
 
     def dropQuarter(q: Queue[Task, Long]) = {
       val chunk = (0 to waterMark / 4)
-      Stream.repeatEval(Task.traverse(chunk) { _ ⇒ q.dequeue1 }.map(_.size))
+      Stream.repeatEval(
+        Task
+          .traverse(chunk) { _ ⇒
+            q.dequeue1
+          }
+          .map(_.size))
     }
 
     def drop(q: Queue[Task, Long]) = q.dequeue
 
     //just drop element
     def overflowGuard(q: Queue[Task, Long]) =
-      (q.size.discrete.filter(_ > waterMark) zip dropQuarter(q)).through(logGrafana[(Int, Int)](sinkG2, sinkMessage2))
+      (q.size.discrete.filter(_ > waterMark) zip dropQuarter(q))
+        .through(logGrafana[(Int, Int)](sinkG2, sinkMessage2))
 
-    Stream.eval(async.boundedQueue[Task, Long](bufferSize)(Async)).flatMap { q ⇒
-      naturals(sourceDelay, window, srcMessage, srcG, q).mergeDrainL {
-        (q.dequeue.scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg)).through(logGrafana(sinkG, sinkMessage)) mergeHaltBoth overflowGuard(q))
+    Stream
+      .eval(async.boundedQueue[Task, Long](bufferSize)(Async))
+      .flatMap { q ⇒
+        naturals(sourceDelay, window, srcMessage, srcG, q).mergeDrainL {
+          (q.dequeue
+            .scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg))
+            .through(logGrafana(sinkG, sinkMessage)) mergeHaltBoth overflowGuard(
+              q))
+        }
       }
-    }.onError { ex: Throwable ⇒ Stream.eval(Task.delay(println(s"Error: ${ex.getMessage}"))) }
+      .onError { ex: Throwable ⇒
+        Stream.eval(Task.delay(println(s"Error: ${ex.getMessage}")))
+      }
 
     // the same
     /*
@@ -163,6 +203,6 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
         )
       }
     }.onError { ex: Throwable ⇒ Stream.eval(Task.delay(println(s"Error: ${ex.getMessage}"))) }
-    */
+   */
   }
 }
