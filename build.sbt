@@ -57,8 +57,8 @@ libraryDependencies ++= Seq(
   "io.reactivex"      %% "rxscala"           % "0.26.0",
   "io.monix"          %% "monix"             % "2.0-M2",
 
-  "co.fs2"            %% "fs2-core"          % "0.9.0-M6",
-  "co.fs2"            %% "fs2-io"            % "0.9.0-M6",
+  "co.fs2"            %% "fs2-core"          % "0.9.0-RC1",
+  "co.fs2"            %% "fs2-io"            % "0.9.0-RC1",
 
   "com.spinoco"       %% "fs2-zk"            % "0.1.0-SNAPSHOT",
 
