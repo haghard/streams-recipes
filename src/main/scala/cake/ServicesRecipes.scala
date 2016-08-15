@@ -22,5 +22,10 @@ object ServicesRecipes extends App {
     c.countDown()
   }
 
+  /*cake.ProgramWithTask.gather0.unsafePerformAsync { r ⇒
+    println(r)
+    c.countDown
+  }*/
+
   c.await(3, TimeUnit.SECONDS)
 }
