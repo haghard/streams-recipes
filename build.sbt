@@ -40,7 +40,7 @@ javacOptions += "-Xmx2G"
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.4.9-RC2"
+val akkaStreamV = "2.4.9"
 
 val Origami = "1.0-20150902134048-8d00462"
 
@@ -57,13 +57,13 @@ libraryDependencies ++= Seq(
   "io.reactivex"      %% "rxscala"           % "0.26.0",
   "io.monix"          %% "monix"             % "2.0-M2",
 
-  "co.fs2"            %% "fs2-core"          % "0.9.0-RC1",
-  "co.fs2"            %% "fs2-io"            % "0.9.0-RC1",
+  "co.fs2"            %% "fs2-core"          % "0.9.0-RC2",
+  "co.fs2"            %% "fs2-io"            % "0.9.0-RC2",
 
   "com.spinoco"       %% "fs2-zk"            % "0.1.0-SNAPSHOT",
 
-  "org.spire-math"    %% "jawn-spray"     % "0.8.4",
-  "org.hdrhistogram"  %  "HdrHistogram"   % "2.1.7",
+  "org.spire-math"    %% "jawn-spray"        % "0.8.4",
+  "org.hdrhistogram"  %  "HdrHistogram"      % "2.1.7",
   "com.esri.geometry" %  "esri-geometry-api" % "1.2.1",
   "io.spray"          %% "spray-json"        % "1.3.2",
 

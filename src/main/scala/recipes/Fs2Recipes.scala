@@ -28,17 +28,14 @@ import scala.concurrent.duration._
 //runMain recipes.Fs2Recipes
 object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
 
-  case class RecipesDaemons(name: String) extends ThreadFactory {
+  case class Fs2Daemons(name: String) extends ThreadFactory {
     private def namePrefix = s"$name-thread"
 
     private val threadNumber = new AtomicInteger(1)
     private val group: ThreadGroup = Thread.currentThread().getThreadGroup
 
     override def newThread(r: Runnable) = {
-      val t = new Thread(group,
-        r,
-        s"$namePrefix-${threadNumber.getAndIncrement()}",
-        0L)
+      val t = new Thread(group, r, s"$namePrefix-${threadNumber.getAndIncrement()}", 0L)
       t.setDaemon(true)
       t
     }
@@ -47,19 +44,12 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
   scenario03.run.unsafeAttemptRun
 
   def logGrafana[A](g: Grafana, message: String): fs2.Pipe[Task, A, Unit] =
-    _.evalMap { a ⇒
-      grafana(g, message)
-    }
+    _.evalMap { a ⇒ grafana(g, message) }
 
-  def naturals(sourceDelay: FiniteDuration,
-               timeWindow: Long,
-               msg: String,
-               monitoring: Grafana,
+  def naturals(sourceDelay: FiniteDuration, timeWindow: Long, msg: String, monitoring: Grafana,
                q: mutable.Queue[Task, Long]): Stream[Task, Unit] = {
-    val javaScheduler =
-      Executors.newScheduledThreadPool(2, RecipesDaemons("source"))
-    implicit val scheduler =
-      fs2.Scheduler.fromScheduledExecutorService(javaScheduler)
+    val javaScheduler = Executors.newScheduledThreadPool(2, Fs2Daemons("source"))
+    implicit val scheduler = fs2.Scheduler.fromScheduledExecutorService(javaScheduler)
     implicit val S = fs2.Strategy.fromExecutor(javaScheduler)
     implicit val Async = Task.asyncInstance(S)
     time
@@ -90,7 +80,7 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
     val srcG = grafanaInstance
     val sinkG = grafanaInstance
     implicit val qAsync = Task.asyncInstance(
-      fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(2, RecipesDaemons("queue"))))
+      fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(2, Fs2Daemons("queue"))))
 
     Stream
       .eval(async.boundedQueue[Task, Long](bufferSize))
@@ -117,11 +107,10 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
   /**
    *
    * Situation:
-   * A source and a sink perform on the same rate in the beginning, the sink gets slower later, increases delay with every message.
+   * A source and a sink perform on the same rate in the beginning, later the sink gets slower increasing delay with every message.
    * We are using a separate process that tracks size of queue, if it reaches the waterMark the top element will be dropped.
    * Result: The source's rate for a long time remains the same (how long depends on waterMark value),
-   * but eventually goes down when guard can't keep up anymore
-   * whereas sink's rate goes down  immediately.
+   * but eventually goes down when guard can't keep up anymore, whereas sink's rate goes down immediately.
    *
    *                     +-----+
    *              +------|guard|
@@ -148,34 +137,24 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
     val sinkG = grafanaInstance
     val sinkG2 = grafanaInstance
 
-    val S = fs2.Strategy.fromExecutor(
-      Executors.newFixedThreadPool(parallelism, RecipesDaemons("queue")))
+    val S = fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(parallelism, Fs2Daemons("queue")))
     implicit val Async = Task.asyncInstance(S)
 
     def dropAll(q: Queue[Task, Long]) =
       Stream
-        .eval(q.size.get.flatMap(size ⇒
-          Task.traverse((0 to size)) { _ ⇒
-            q.dequeue1
-          }))
+        .eval(q.size.get.flatMap(size ⇒ Task.traverse((0 to size)) { _ ⇒ q.dequeue1}))
         .drain
 
     def dropQuarter(q: Queue[Task, Long]) = {
       val chunk = (0 to waterMark / 4)
-      Stream.repeatEval(
-        Task
-          .traverse(chunk) { _ ⇒
-            q.dequeue1
-          }
-          .map(_.size))
+      Stream.repeatEval(Task.traverse(chunk) { _ ⇒ q.dequeue1}.map(_.size))
     }
 
     def drop(q: Queue[Task, Long]) = q.dequeue
 
     //just drop element
     def overflowGuard(q: Queue[Task, Long]) =
-      (q.size.discrete.filter(_ > waterMark) zip dropQuarter(q))
-        .through(logGrafana[(Int, Int)](sinkG2, sinkMessage2))
+      (q.size.discrete.filter(_ > waterMark) zip dropQuarter(q)).through(logGrafana[(Int, Int)](sinkG2, sinkMessage2))
 
     Stream
       .eval(async.boundedQueue[Task, Long](bufferSize)(Async))

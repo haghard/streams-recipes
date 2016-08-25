@@ -502,6 +502,10 @@ package object cake {
 
     override lazy val ND = scalaz.Nondeterminism[scalaz.concurrent.Task]
 
+
+    case class Parser[T](parse: ValidationNel[String, T] => Option[T])
+
+
     /**
       * Concurrent execution
       * Use ApplicativeBuilder and Shapeless
@@ -513,40 +517,14 @@ package object cake {
           s"[twitter:$a] - [db1:$b] - [db2:$c]"
       }
 
-    //ToSizedHList(Seq(1,1,2,3,4), 6)
-
     /**
       *
       *
       */
     def gatherPHList = {
       val tasks = (twitterApi batch "reduce page") :: (dbApi batch "select page") :: (twitterApi batch "reduce page") :: shapeless.HNil
-
-      import shapeless._
-      import shapeless.poly._
-      import shapeless.ops.hlist._
-      import shapeless.UnaryTCConstraint._
-
-      /*
-      object addSize extends shapeless.Poly2 {
-        implicit def default[T](implicit st: size.Case.Aux[T, Int]) =
-          at[Int, T]{ (acc, t) => acc + size(t) }
-      }
-
-      val l = 23 :: "foo" :: (13, "wibble") :: shapeless.HNil
-
-      l.foldLeft()
-      */
-
-      //val hResult = ValidTweet :: ValidRecord :: ValidTweet :: HNil
-
       parallelHList(tasks).map {
         hList: shapeless.::[ValidTweet, shapeless.::[ValidRecord, shapeless.::[ValidTweet, shapeless.HNil]]] => {
-          //this.ValidTweet
-          //val s: ValidTweet = _
-
-          //val hResult = ValidTweet :: ValidRecord :: ValidTweet :: HNil
-
           (hList.head |@| hList.tail.head |@| hList.tail.tail.head) {
             case (a, b, c) => s"A:$a - B:$b - C:$c"
           }
