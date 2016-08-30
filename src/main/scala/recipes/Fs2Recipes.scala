@@ -142,12 +142,12 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
 
     def dropAll(q: Queue[Task, Long]) =
       Stream
-        .eval(q.size.get.flatMap(size ⇒ Task.traverse((0 to size)) { _ ⇒ q.dequeue1}))
+        .eval(q.size.get.flatMap(size ⇒ Task.traverse((0 to size)) { _ ⇒ q.dequeue1 }))
         .drain
 
     def dropQuarter(q: Queue[Task, Long]) = {
       val chunk = (0 to waterMark / 4)
-      Stream.repeatEval(Task.traverse(chunk) { _ ⇒ q.dequeue1}.map(_.size))
+      Stream.repeatEval(Task.traverse(chunk) { _ ⇒ q.dequeue1 }.map(_.size))
     }
 
     def drop(q: Queue[Task, Long]) = q.dequeue

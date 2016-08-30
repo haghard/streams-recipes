@@ -62,7 +62,7 @@ libraryDependencies ++= Seq(
 
   "com.spinoco"       %% "fs2-zk"            % "0.1.0-SNAPSHOT",
 
-  "org.spire-math"    %% "jawn-spray"        % "0.8.4",
+  "org.spire-math"    %% "jawn-spray"        % "0.9.0",
   "org.hdrhistogram"  %  "HdrHistogram"      % "2.1.7",
   "com.esri.geometry" %  "esri-geometry-api" % "1.2.1",
   "io.spray"          %% "spray-json"        % "1.3.2",

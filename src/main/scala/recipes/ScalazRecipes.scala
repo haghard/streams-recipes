@@ -532,10 +532,8 @@ object ScalazRecipes extends App {
         val rk = keyR(r)
         o.compare(lk, rk) match {
           case 0 ⇒ Process.emit((l, r)) ++ joinTee
-          case -1 ⇒
-            dropWhileL((o.lt(_: T, rk)).compose(keyL))(tee.feed1R(r)(joinTee))
-          case 1 ⇒
-            dropWhileR((o.lt(_: T, lk)).compose(keyR))(tee.feed1L(l)(joinTee))
+          case -1 ⇒ dropWhileL((o.lt(_: T, rk)).compose(keyL))(tee.feed1R(r)(joinTee))
+          case 1 ⇒ dropWhileR((o.lt(_: T, lk)).compose(keyR))(tee.feed1L(l)(joinTee))
         }
       }
     }
@@ -703,10 +701,9 @@ object ScalazRecipes extends App {
       n
     })
 
-    val jsonSource = (chunkSizes through io.chunkR(
-              new FileInputStream("array.json")))
-    val laggedSource: Process[Task, ByteVector] = (jsonSource zipWith time
-          .awakeEvery(Random.nextInt(1000).millis))((chunk, _) ⇒ chunk)
+    val jsonSource = (chunkSizes through io.chunkR(new FileInputStream("array.json")))
+    val laggedSource: Process[Task, ByteVector] =
+      (jsonSource zipWith time.awakeEvery(Random.nextInt(1000).millis))((chunk, _) ⇒ chunk)
     (laggedSource.unwrapJsonArray.map(_.prettyPrint) to io.stdOutLines)
   }
 }
