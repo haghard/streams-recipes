@@ -40,7 +40,7 @@ javacOptions += "-Xmx2G"
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.4.9"
+val akkaStreamV = "2.4.10"
 
 val Origami = "1.0-20150902134048-8d00462"
 
