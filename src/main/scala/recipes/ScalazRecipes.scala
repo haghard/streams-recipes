@@ -31,16 +31,13 @@ object ScalazRecipes extends App {
     private val threadNumber = new AtomicInteger(1)
     private val group: ThreadGroup = Thread.currentThread().getThreadGroup
     override def newThread(r: Runnable) = {
-      val t = new Thread(group,
-                         r,
-                         s"$namePrefix-${threadNumber.getAndIncrement()}",
-                         0L)
+      val t = new Thread(group, r, s"$namePrefix-${threadNumber.getAndIncrement()}", 0L)
       t.setDaemon(true)
       t
     }
   }
 
-  def grafanaInstance = new Grafana { override val address = statsD }
+  def grafanaInstance = new GraphiteMetrics { override val address = statsD }
 
   //scenario07.run[Task].unsafePerformSync
   scenario08.run[Task].unsafePerformSync
@@ -66,12 +63,12 @@ object ScalazRecipes extends App {
     go(scala.concurrent.forkjoin.ThreadLocalRandom.current())
   }
 
-  def grafana(statsD: Grafana, message: String) = sink.lift[Task, Int] { _ ⇒
+  def grafana(statsD: GraphiteMetrics, message: String) = sink.lift[Task, Int] { _ ⇒
     Task.delay(statsD send message)
   }
 
   def statsDOut0(s: scalaz.stream.async.mutable.Signal[Int],
-                 statsD: Grafana,
+                 statsD: GraphiteMetrics,
                  message: String) = sink.lift[Task, Int] { x: Int ⇒
     s.set(x).map(_ ⇒ statsD send message)
   }

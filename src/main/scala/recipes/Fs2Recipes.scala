@@ -26,7 +26,7 @@ import scala.concurrent.duration._
  */
 
 //runMain recipes.Fs2Recipes
-object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
+object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
 
   case class Fs2Daemons(name: String) extends ThreadFactory {
     private def namePrefix = s"$name-thread"
@@ -43,10 +43,10 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
 
   scenario03.run.unsafeAttemptRun
 
-  def logGrafana[A](g: Grafana, message: String): fs2.Pipe[Task, A, Unit] =
-    _.evalMap { a ⇒ grafana(g, message) }
+  def logGraphite[A](g: GraphiteMetrics, message: String): fs2.Pipe[Task, A, Unit] =
+    _.evalMap { a ⇒ graphite(g, message) }
 
-  def naturals(sourceDelay: FiniteDuration, timeWindow: Long, msg: String, monitoring: Grafana,
+  def naturals(sourceDelay: FiniteDuration, timeWindow: Long, msg: String, monitoring: GraphiteMetrics,
                q: mutable.Queue[Task, Long]): Stream[Task, Unit] = {
     val javaScheduler = Executors.newScheduledThreadPool(2, Fs2Daemons("source"))
     implicit val scheduler = fs2.Scheduler.fromScheduledExecutorService(javaScheduler)
@@ -55,7 +55,7 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
     time
       .awakeEvery(sourceDelay)
       .scan(State(item = 0l)) { (acc, d) ⇒ tumblingWindow(acc, timeWindow) }
-      .evalMap { d ⇒ grafana(monitoring, msg).map(_ ⇒ d.item) }
+      .evalMap { d ⇒ graphite(monitoring, msg).map(_ ⇒ d.item) }
       .to(q.enqueue)
   }
 
@@ -77,8 +77,8 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
     val srcMessage = "fs2_source_02:1|c"
     val sinkMessage = "fs2_sink_02:1|c"
 
-    val srcG = grafanaInstance
-    val sinkG = grafanaInstance
+    val srcG = graphiteInstance
+    val sinkG = graphiteInstance
     implicit val qAsync = Task.asyncInstance(
       fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(2, Fs2Daemons("queue"))))
 
@@ -88,7 +88,7 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
         naturals(sourceDelay, window, srcMessage, srcG, q).mergeDrainL {
           q.dequeue
             .scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg))
-            .through(logGrafana[(Long, Long)](sinkG, sinkMessage))
+            .through(logGraphite[(Long, Long)](sinkG, sinkMessage))
         }
       }
       .onError { ex: Throwable ⇒
@@ -133,9 +133,9 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
     val srcMessage = "fs2_source_3:1|c"
     val sinkMessage = "fs2_sink_3:1|c"
     val sinkMessage2 = "fs2_sink2_3:1|c"
-    val srcG = grafanaInstance
-    val sinkG = grafanaInstance
-    val sinkG2 = grafanaInstance
+    val srcG = graphiteInstance
+    val sinkG = graphiteInstance
+    val sinkG2 = graphiteInstance
 
     val S = fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(parallelism, Fs2Daemons("queue")))
     implicit val Async = Task.asyncInstance(S)
@@ -154,7 +154,7 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
 
     //just drop element
     def overflowGuard(q: Queue[Task, Long]) =
-      (q.size.discrete.filter(_ > waterMark) zip dropQuarter(q)).through(logGrafana[(Int, Int)](sinkG2, sinkMessage2))
+      (q.size.discrete.filter(_ > waterMark) zip dropQuarter(q)).through(logGraphite[(Int, Int)](sinkG2, sinkMessage2))
 
     Stream
       .eval(async.boundedQueue[Task, Long](bufferSize)(Async))
@@ -162,7 +162,7 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
         naturals(sourceDelay, window, srcMessage, srcG, q).mergeDrainL {
           (q.dequeue
             .scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg))
-            .through(logGrafana(sinkG, sinkMessage)) mergeHaltBoth overflowGuard(
+            .through(logGraphite(sinkG, sinkMessage)) mergeHaltBoth overflowGuard(
               q))
         }
       }
@@ -184,4 +184,28 @@ object Fs2Recipes extends GrafanaSupport with TimeWindows with App {
     }.onError { ex: Throwable ⇒ Stream.eval(Task.delay(println(s"Error: ${ex.getMessage}"))) }
    */
   }
+
+  def mapAsyncUnordered2[F[_], R](parallelism: Int)(stream: Stream[F, R])(implicit F: fs2.util.Async[F]): Stream[F, R] = {
+
+    val consistentHash = akka.routing.ConsistentHash[Int]((0 to parallelism), 1)
+    //consistentHash.nodeFor(value.hashCode.toString)
+
+    if (parallelism <= 1) stream
+    else {
+      val zeroStream = stream.filter { value ⇒ consistentHash.nodeFor(value.hashCode.toString) % parallelism == 0 }
+      (1 to (parallelism - 1)).foldLeft(zeroStream) {
+        case (s, num) ⇒
+          val filtered = s.filter { value ⇒ consistentHash.nodeFor(value.hashCode.toString) % parallelism == num }
+          s.merge(filtered)
+      }
+    }
+  }
+
+  /**
+   * It always ensures there are 'parallelism' effects being evaluated assuming there's demand for
+   * them and they are available from the source stream,
+   * whereas the mapAsyncUnordered2 implementation shaded the input in to 'parallelism' substreams, so some may not be busy.
+   */
+  def mapAsyncUnordered[F[_]: fs2.util.Async, A, B](parallelism: Int)(f: A ⇒ F[B]): Pipe[F, A, B] =
+    in ⇒ concurrent.join(parallelism)(in.map(a ⇒ Stream.eval(f(a))))
 }

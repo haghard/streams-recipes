@@ -964,7 +964,7 @@ object AkkaRecipes extends App {
     implicit val Ctx = mat.executionContext
     implicit val ExtCtx = sys.dispatchers.lookup("akka.blocking-dispatcher")
 
-    val pubStatsD = new Grafana {
+    val pubStatsD = new GraphiteMetrics {
       override val address = statsD
     }
     val (queue, publisher) = Source
@@ -1321,7 +1321,7 @@ object AkkaRecipes extends App {
     )
 }
 
-trait Grafana {
+trait GraphiteMetrics {
   val Encoding = "utf-8"
   val sendBuffer = (ByteBuffer allocate 512)
   val channel = DatagramChannel.open()
@@ -1379,8 +1379,7 @@ class ConsistentHashingRouter extends ActorSubscriber with ActorLogging {
   }
 
   var router = Router(
-    akka.routing
-      .ConsistentHashingRoutingLogic(context.system, 5, hashMapping),
+    akka.routing.ConsistentHashingRoutingLogic(context.system, 5, hashMapping),
     routees.map { actor ⇒
       (context watch actor); ActorRefRoutee(actor)
     }
@@ -1507,7 +1506,7 @@ class ChWorker(name: String, workerId: Int) extends Actor with ActorLogging {
 class RecordsSink(name: String, val address: InetSocketAddress)
     extends Actor
     with ActorLogging
-    with Grafana {
+    with GraphiteMetrics {
   override def receive = {
     case BalancerRouter.Done(id) ⇒
       send(s"$name:1|c")
@@ -1523,7 +1522,7 @@ class RecordsSink(name: String, val address: InetSocketAddress)
  */
 class TopicReader(name: String, val address: InetSocketAddress, delay: Long)
     extends ActorPublisher[Int]
-    with Grafana {
+    with GraphiteMetrics {
   val Limit = 10000
   var progress = 0
   val observeGap = 1000
@@ -1565,7 +1564,7 @@ class PubSubSink private (name: String,
                           delay: Long)
     extends ActorSubscriber
     with ActorPublisher[Long]
-    with Grafana {
+    with GraphiteMetrics {
   private val queue = mutable.Queue[Long]()
 
   override protected val requestStrategy = new MaxInFlightRequestStrategy(10) {
@@ -1631,7 +1630,7 @@ class SyncActor private (name: String,
                          delay: Long,
                          limit: Long)
     extends ActorSubscriber
-    with Grafana {
+    with GraphiteMetrics {
   var count = 0
   override protected val requestStrategy = OneByOneRequestStrategy
 
@@ -1687,7 +1686,7 @@ class BatchActor private (name: String,
                           delay: Long,
                           bufferSize: Int)
     extends ActorSubscriber
-    with Grafana {
+    with GraphiteMetrics {
   private val queue = new mutable.Queue[Int]()
 
   override protected val requestStrategy = new MaxInFlightRequestStrategy(
@@ -1734,7 +1733,7 @@ class DegradingActor private (val name: String,
                               delayPerMsg: Long,
                               initialDelay: Long)
     extends ActorSubscriber
-    with Grafana {
+    with GraphiteMetrics {
 
   var delay = 0l
   var lastSeenMsg = 0
@@ -1786,7 +1785,7 @@ class DbCursorPublisher(name: String,
                         val Limit: Long,
                         val address: InetSocketAddress)
     extends ActorPublisher[Long]
-    with Grafana
+    with GraphiteMetrics
     with ActorLogging {
   var limit = 0l
   var seqN = 0l

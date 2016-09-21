@@ -52,13 +52,11 @@ libraryDependencies ++= Seq(
 
   //"com.mfglabs"       %% "akka-stream-extensions-shapeless" % "0.10.0",
 
-  "com.chuusai"       %% "shapeless"         % "2.3.0",
-
-  "io.reactivex"      %% "rxscala"           % "0.26.0",
+  "io.reactivex"      %% "rxscala"           % "0.26.2",
   "io.monix"          %% "monix"             % "2.0-M2",
 
-  "co.fs2"            %% "fs2-core"          % "0.9.0-RC2",
-  "co.fs2"            %% "fs2-io"            % "0.9.0-RC2",
+  "co.fs2"            %% "fs2-core"          % "0.9.1",
+  "co.fs2"            %% "fs2-io"            % "0.9.1",
 
   "com.spinoco"       %% "fs2-zk"            % "0.1.0-SNAPSHOT",
 

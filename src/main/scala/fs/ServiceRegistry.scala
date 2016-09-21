@@ -1,20 +1,20 @@
 package fs
 
-import fs2.Stream._
 import fs2._
+import fs2.Stream._
 import spinoco.fs2.zk.{ client, _ }
 
 import scala.concurrent.duration._
 //import scala.util.{ Left, Right }
 
 /**
- * Gaol You have a number of processes in your application and you want to one of them arises as a leader and perform some master's tasks on behave of the cluster
+ * You have a number of processes in your application and you want to one of them arises as a leader and perform some master's tasks on behave of the cluster.
  *
  * Use cases:
- * 1) Hadoop uses zk for master election for the Name-Node of HDFS.
- * 2) Kafka cluster
- * Each of broker's partition has its own leader, you don't have to have one single leader for the whole cluster
- * Each leader is a leader of own partition
+ * a) Hadoop uses zk for master election for the Name-Node of HDFS.
+ * b) Kafka cluster
+ *  Each of broker's partition has its own leader, you don't have to have one single leader for the whole cluster
+ *  Each leader is a leader of own partition
  *
  * Zookeeper gives you a consistent view of nodes
  * Znodes live in a hierarchy
@@ -34,22 +34,17 @@ object ServiceRegistry extends App {
   val nodes = Vector(serviceDir, nodeA, nodeB, nodeC)
 
   implicit val S: Strategy = Strategy.fromFixedDaemonPool(4, "zk")
-  implicit val Sch: Scheduler =
-    Scheduler.fromFixedDaemonPool(2, "zk-scheduler")
+  implicit val Sch: Scheduler = Scheduler.fromFixedDaemonPool(2, "zk-scheduler")
 
   def delay = time.sleep[Task](2.second)
 
-  def showState[A]: fs2.Pipe[Task, A, Unit] = _.evalMap { nodes ⇒
-    Task.delay(println("< " + nodes))
-  }
+  def showState[A]: fs2.Pipe[Task, A, Unit] = _.evalMap { nodes ⇒ Task.delay(println("< " + nodes)) }
 
   def zkClient(address: String): Stream[Task, ZkClient[Task]] =
     client[Task](ensemble = address, timeout = ct) flatMap {
       _.fold(state ⇒
-        Stream.fail(
-          new Throwable(s"Failed to connect to server: $state")), {
-        zkC ⇒
-          emit(zkC)
+        Stream.fail(new Throwable(s"Failed to connect to server: $state")), {
+        zkC ⇒ emit(zkC)
       })
     }
 
