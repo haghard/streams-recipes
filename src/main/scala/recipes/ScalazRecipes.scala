@@ -37,15 +37,14 @@ object ScalazRecipes extends App {
     }
   }
 
-  def grafanaInstance = new GraphiteMetrics { override val address = statsD }
+  def graphiteInstance = new GraphiteMetrics { override val address = statsD }
 
   //scenario07.run[Task].unsafePerformSync
   scenario08.run[Task].unsafePerformSync
 
   def naturalsEvery(latency: Long): Process[Task, Int] = {
     def go(i: Int): Process[Task, Int] =
-      Process.await(Task.delay { Thread.sleep(latency); i })(i ⇒
-            Process.emit(i) ++ go(i + 1))
+      Process.await(Task.delay { Thread.sleep(latency); i })(i ⇒ Process.emit(i) ++ go(i + 1))
     go(0)
   }
 
@@ -56,56 +55,42 @@ object ScalazRecipes extends App {
   }
 
   def rnd: Process[Task, Int] = {
-    def go(
-        rnd: scala.concurrent.forkjoin.ThreadLocalRandom): Process[Task, Int] =
-      Process.await(Task.now(rnd))(rnd ⇒
-            Process.emit(rnd.nextInt(1, 100)) ++ go(rnd))
-    go(scala.concurrent.forkjoin.ThreadLocalRandom.current())
+    def go(rnd: scala.concurrent.forkjoin.ThreadLocalRandom): Process[Task, Int] =
+      Process.await(Task.now(rnd))(rnd ⇒ Process.emit(rnd.nextInt(1, 100)) ++ go(rnd))
+    go(scala.concurrent.forkjoin.ThreadLocalRandom.current)
   }
 
-  def grafana(statsD: GraphiteMetrics, message: String) = sink.lift[Task, Int] { _ ⇒
+  def graphite(statsD: GraphiteMetrics, message: String) = sink.lift[Task, Int] { _ ⇒
     Task.delay(statsD send message)
   }
 
-  def statsDOut0(s: scalaz.stream.async.mutable.Signal[Int],
-                 statsD: GraphiteMetrics,
-                 message: String) = sink.lift[Task, Int] { x: Int ⇒
+  def graphiteS(s: scalaz.stream.async.mutable.Signal[Int], statsD: GraphiteMetrics,
+    message: String) = sink.lift[Task, Int] { x: Int ⇒
     s.set(x).map(_ ⇒ statsD send message)
   }
 
-  def broadcastN[T](n: Int, source: Process[Task, T], bufferSize: Int = 4)(
-      implicit S: Strategy): Process[Task, Seq[Process[Task, T]]] = {
+  def broadcastN[T](n: Int, source: Process[Task, T], bufferSize: Int = 4)(implicit S: Strategy): Process[Task, Seq[Process[Task, T]]] = {
     val queues = (0 until n).map(_ ⇒ async.boundedQueue[T](bufferSize)(S))
-    val broadcast = queues
-      ./:(source)((src, q) ⇒ (src observe q.enqueue))
+    val broadcast = queues./:(source)((src, q) ⇒ (src observe q.enqueue))
       .onComplete(Process.eval(Task.gatherUnordered(queues.map(_.close))))
     (broadcast.drain merge Process.emit(queues.map(_.dequeue)))(S)
   }
 
-  def broadcastManyBounded[T](n: Int,
-                              src: Process[Task, T],
-                              waterMark: Int,
-                              bufferSize: Int = 4)(
-      implicit S: Strategy): Process[Task, Seq[Process[Task, T]]] = {
+  def broadcastManyBounded[T](n: Int, src: Process[Task, T], waterMark: Int, bufferSize: Int = 4)
+                              (implicit S: Strategy): Process[Task, Seq[Process[Task, T]]] = {
     val queues = (0 until n).map(_ ⇒ async.boundedQueue[T](bufferSize)(S))
-    val broadcast = queues
-      ./:(src) { (src, q) ⇒
-        ((q.size.discrete.filter(_ > waterMark) zip q.dequeue).drain merge src
-              .observe(q.enqueue))
-      }
-      .onComplete(Process.eval(Task.gatherUnordered(queues.map(_.close))))
+    val broadcast = queues./:(src) { (src, q) ⇒
+        ((q.size.discrete.filter(_ > waterMark) zip q.dequeue).drain merge src.observe(q.enqueue))
+      }.onComplete(Process.eval(Task.gatherUnordered(queues.map(_.close))))
     (broadcast.drain merge Process.emit(queues.map(_.dequeue)))(S)
   }
 
-  def interleaveN[T](q: scalaz.stream.async.mutable.Queue[T],
-                     processes: List[Process[Task, T]])(
-      implicit S: Strategy): Process[Task, T] = {
-    val merge = processes.tail
-      ./:(processes.head to q.enqueue) {
+  def interleaveN[T](q: scalaz.stream.async.mutable.Queue[T], processes: List[Process[Task, T]])
+                                (implicit S: Strategy): Process[Task, T] = {
+    val merge = processes.tail./:(processes.head to q.enqueue) {
         (acc: Process[Task, Unit], p: Process[Task, T]) ⇒
           (acc merge (p to q.enqueue))(S)
-      }
-      .onComplete(Process.eval(q.close))
+      }.onComplete(Process.eval(q.close))
     (merge.drain merge q.dequeue)(S)
   }
 
@@ -133,37 +118,28 @@ object ScalazRecipes extends App {
     *   SlidingWindow: discretize a stream into overlapping windows
     *
     */
-  implicit class TimeSeriesProcessesOps[T](val p: Process[Task, T])
-      extends AnyVal {
+  implicit class TimeSeriesProcessesOps[T](val p: Process[Task, T]) extends AnyVal {
     import scalaz.stream.ReceiveY.{HaltOne, ReceiveL, ReceiveR}
 
     /**
       * Count window
       */
-    def countWindow(aggregateInterval: Duration)(
-        implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
-      (discreteStep(aggregateInterval.toMillis) wye p)(
-          tumblingWye[T](aggregateInterval, false))(S)
+    def countWindow(aggregateInterval: Duration)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
+      (discreteStep(aggregateInterval.toMillis) wye p)(tumblingWye[T](aggregateInterval, false))(S)
 
     /**
       * Tumbling windows discretize a stream into non-overlapping windows
       */
-    def tumblingWindow(aggregateInterval: Duration)(
-        implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
-      (discreteStep(aggregateInterval.toMillis) wye p)(
-          tumblingWye[T](aggregateInterval))(S)
+    def tumblingWindow(aggregateInterval: Duration)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
+      (discreteStep(aggregateInterval.toMillis) wye p)(tumblingWye[T](aggregateInterval))(S)
 
     /**
       * Sliding windows discretize a stream into overlapping windows
       */
-    def slidingWindow(aggregateInterval: Duration, numOfUnits: Int)(
-        implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
-      (discreteStep(aggregateInterval.toMillis / numOfUnits) wye p)(
-          tumblingWye[T](aggregateInterval))(S)
+    def slidingWindow(aggregateInterval: Duration, numOfUnits: Int)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
+      (discreteStep(aggregateInterval.toMillis / numOfUnits) wye p)(tumblingWye[T](aggregateInterval))(S)
 
-    private def tumblingWye[I](
-        duration: Duration,
-        reset: Boolean = true): scalaz.stream.Wye[Long, I, I] = {
+    private def tumblingWye[I](duration: Duration, reset: Boolean = true): scalaz.stream.Wye[Long, I, I] = {
       val timeWindow = duration.toNanos
       val P = scalaz.stream.Process
       val nano = 1000000000
@@ -201,9 +177,8 @@ object ScalazRecipes extends App {
     val srcMessage = "scalaz-source1:1|c"
     val sinkMessage = "scalaz-sink1:1|c"
 
-    val src = (naturalsEvery(sourceDelay) observe grafana(grafanaInstance,
-                                                          srcMessage))
-    (src tumblingWindow latency)(Ex) to grafana(grafanaInstance, sinkMessage)
+    val src = (naturalsEvery(sourceDelay) observe graphite(graphiteInstance, srcMessage))
+    (src tumblingWindow latency)(Ex) to graphite(graphiteInstance, sinkMessage)
     //(src.throughSlidingWindow(latency, 5))(Ex) to statsDin(statsDInstance, sinkMessage)
     //(src throughAllWindow latency)(Ex) to statsDin(statsDInstance, sinkMessage)
   }
@@ -222,22 +197,19 @@ object ScalazRecipes extends App {
     val sinkMessage = "scalaz-sink2:1|c"
     val queue = async.boundedQueue[Int](bufferSize)(Ex)
 
-    (naturalsEvery(sourceDelay) observe queue.enqueue to grafana(
-            grafanaInstance,
-            srcMessage))
+    (naturalsEvery(sourceDelay) observe queue.enqueue to graphite(graphiteInstance, srcMessage))
       .onComplete(Process.eval_(queue.close))
       .run
       .unsafePerformAsync(_ ⇒ ())
 
     (queue.dequeue.stateScan(0l)({ v: Int ⇒
-          for {
-            latency ← scalaz.State.get[Long]
-            updated = latency + delayPerMsg
-            _ = Thread.sleep(0 + (updated / 1000), updated % 1000 toInt)
-            _ ← scalaz.State.put(updated)
-          } yield v
-        }) slidingWindow (triggerInterval, 5))(Ex) to grafana(grafanaInstance,
-                                                              sinkMessage)
+      for {
+        latency ← scalaz.State.get[Long]
+        updated = latency + delayPerMsg
+        _ = Thread.sleep(0 + (updated / 1000), updated % 1000 toInt)
+        _ ← scalaz.State.put(updated)
+      } yield v
+    }) slidingWindow (triggerInterval, 5))(Ex) to graphite(graphiteInstance, sinkMessage)
   }
 
   /**
@@ -257,21 +229,19 @@ object ScalazRecipes extends App {
     val srcMessage = "scalaz-source3:1|c"
     val sinkMessage = "scalaz-sink3:1|c"
 
-    (naturalsEvery(sourceDelay) observe cBuffer.enqueue to grafana(
-            grafanaInstance,
-            srcMessage))
+    (naturalsEvery(sourceDelay) observe cBuffer.enqueue to graphite(graphiteInstance, srcMessage))
       .onComplete(Process.eval_(cBuffer.close))
       .run
       .unsafePerformAsync(_ ⇒ ())
 
     (cBuffer.dequeue.stateScan(0l) { n: Int ⇒
-          for {
-            latency ← scalaz.State.get[Long]
-            updated = latency + delayPerMsg
-            _ = Thread.sleep(0 + (updated / 1000), updated % 1000 toInt)
-            _ ← scalaz.State.put(updated)
-          } yield n
-        } tumblingWindow window)(Ex) to grafana(grafanaInstance, sinkMessage)
+      for {
+        latency ← scalaz.State.get[Long]
+        updated = latency + delayPerMsg
+        _ = Thread.sleep(0 + (updated / 1000), updated % 1000 toInt)
+        _ ← scalaz.State.put(updated)
+      } yield n
+    } tumblingWindow window)(Ex) to graphite(graphiteInstance, sinkMessage)
   }
 
   /**
@@ -299,21 +269,19 @@ object ScalazRecipes extends App {
     def dropLastCleaner =
       (queue.size.discrete.filter(_ > waterMark) zip queue.dequeue).drain
 
-    ((naturalsEvery(sourceDelay) tumblingWindow window) observe queue.enqueue to grafana(
-            grafanaInstance,
-            srcMessage))
+    ((naturalsEvery(sourceDelay) tumblingWindow window) observe queue.enqueue to graphite(graphiteInstance, srcMessage))
       .onComplete(Process.eval_(queue.close))
       .run
       .unsafePerformAsync(_ ⇒ ())
 
     val qSink = (queue.dequeue.stateScan(0l) { number: Int ⇒
-          for {
-            latency ← scalaz.State.get[Long]
-            increased = latency + delayPerMsg
-            _ = Thread.sleep(0 + (increased / 1000), increased % 1000 toInt)
-            _ ← scalaz.State.put(increased)
-          } yield number
-        } tumblingWindow window)(Ex) to grafana(grafanaInstance, sinkMessage)
+      for {
+        latency ← scalaz.State.get[Long]
+        increased = latency + delayPerMsg
+        _ = Thread.sleep(0 + (increased / 1000), increased % 1000 toInt)
+        _ ← scalaz.State.put(increased)
+      } yield number
+    } tumblingWindow window)(Ex) to graphite(graphiteInstance, sinkMessage)
 
     mergeN(Process(qSink, dropLastCleaner))(Ex)
   }
@@ -342,21 +310,21 @@ object ScalazRecipes extends App {
     val dropBufferProcess = (queue.size.discrete
           .filter(_ > waterMark) zip (queue dequeueBatch waterMark)).drain
 
-    ((naturalsEvery(sourceDelay) tumblingWindow window) observe queue.enqueue to grafana(
-            grafanaInstance,
+    ((naturalsEvery(sourceDelay) tumblingWindow window) observe queue.enqueue to graphite(
+            graphiteInstance,
             srcMessage))
       .onComplete(Process.eval_(queue.close))
       .run[Task]
       .unsafePerformAsync(_ ⇒ ())
 
     val sink = (queue.dequeue.stateScan(0l) { ind: Int ⇒
-          for {
-            currentLatency ← scalaz.State.get[Long]
-            increased = currentLatency + delayPerMsg
-            _ = Thread.sleep(0 + (increased / 1000), increased % 1000 toInt)
-            _ ← scalaz.State.put(increased)
-          } yield ind
-        } tumblingWindow window)(Ex) to grafana(grafanaInstance, sinkMessage)
+      for {
+        currentLatency ← scalaz.State.get[Long]
+        increased = currentLatency + delayPerMsg
+        _ = Thread.sleep(0 + (increased / 1000), increased % 1000 toInt)
+        _ ← scalaz.State.put(increased)
+      } yield ind
+    } tumblingWindow window)(Ex) to graphite(graphiteInstance, sinkMessage)
 
     mergeN(Process(sink, dropBufferProcess))(Ex)
   }
@@ -381,14 +349,14 @@ object ScalazRecipes extends App {
     val sinkMessage0 = "scalaz-sink_4_1:1|c"
     val sinkMessage1 = "scalaz-sink_4_2:1|c"
 
-    val src = (naturalsEvery(producerRate) tumblingWindow window) observe grafana(
-          grafanaInstance,
+    val src = (naturalsEvery(producerRate) tumblingWindow window) observe graphite(
+          graphiteInstance,
           srcMessage)
 
     (for {
       outlets ← broadcastN(2, src)(Ex)
 
-      out0 = outlets(0) to grafana(grafanaInstance, sinkMessage0)
+      out0 = outlets(0) to graphite(graphiteInstance, sinkMessage0)
 
       out1 = outlets(1).stateScan(0l) { number: Int ⇒
         for {
@@ -397,7 +365,7 @@ object ScalazRecipes extends App {
           _ = Thread.sleep(0 + (increased / 1000), increased % 1000 toInt)
           _ ← scalaz.State.put(increased)
         } yield number
-      } to grafana(grafanaInstance, sinkMessage1)
+      } to graphite(graphiteInstance, sinkMessage1)
 
       _ ← (out0 merge out1)(Ex)
     } yield ())
@@ -430,14 +398,14 @@ object ScalazRecipes extends App {
     val sinkMessage0 = "scalaz-sink5_0:1|c"
     val sinkMessage1 = "scalaz-sink5_1:1|c"
 
-    val src = (naturalsEvery(sourceDelay) tumblingWindow window) observe grafana(
-          grafanaInstance,
+    val src = (naturalsEvery(sourceDelay) tumblingWindow window) observe graphite(
+          graphiteInstance,
           srcMessage)
 
     (for {
       outlets ← broadcastManyBounded(2, src, waterMark, bufferSize)(Ex)
 
-      out0 = outlets(0) to grafana(grafanaInstance, sinkMessage0)
+      out0 = outlets(0) to graphite(graphiteInstance, sinkMessage0)
 
       out1 = outlets(1).stateScan(0l) { number: Int ⇒
         for {
@@ -446,7 +414,7 @@ object ScalazRecipes extends App {
           _ = Thread.sleep(0 + (increased / 1000), increased % 1000 toInt)
           _ ← scalaz.State.put(increased)
         } yield number
-      } to grafana(grafanaInstance, sinkMessage1)
+      } to graphite(graphiteInstance, sinkMessage1)
 
       _ ← (out0 merge out1)(Ex)
     } yield ())
@@ -473,11 +441,11 @@ object ScalazRecipes extends App {
     def srcMessage(n: Int) = s"scalaz-source7_$n:1|c"
 
     val sources = latencies.zipWithIndex.map { ms ⇒
-      naturalsEvery(ms._1) observe grafana(grafanaInstance, srcMessage(ms._2))
+      naturalsEvery(ms._1) observe graphite(graphiteInstance, srcMessage(ms._2))
     }
 
-    (interleaveN(async.boundedQueue[Int](1 << 8)(Ex), sources)(Ex) slidingWindow (window, 5)) to grafana(
-        grafanaInstance,
+    (interleaveN(async.boundedQueue[Int](1 << 8)(Ex), sources)(Ex) slidingWindow (window, 5)) to graphite(
+        graphiteInstance,
         "scalaz-sink7:1|c")
   }
 

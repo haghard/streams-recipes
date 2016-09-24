@@ -7,26 +7,29 @@ import fs2._
 import fs2.Task
 import fs2.async.mutable
 import fs2.async.mutable.Queue
+import fs2.io.file.FileHandle
 
 import scala.concurrent.duration._
 
-/*
-  def naturalsEvery(latency: Long): Stream[Task, Int] = {
-    def go(i: Int): Stream[Task, Int] =
-      Stream.emit(i).flatMap { i ⇒
-        fs2.Stream.eval {
-          Task.start(Task.delay {
-            Thread.sleep(latency)
-            i
-          }).run
-        } ++ go(i + 1)
-      }
-    go(0)
-  }
- */
-
 //runMain recipes.Fs2Recipes
 object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
+
+  def naturalsEvery(latency: Long): Stream[Task, Long] = {
+    def go(i: Long): Stream[Task, Long] =
+      Stream.emit(i).flatMap { i ⇒
+        fs2.Stream.eval {
+          Task.delay {
+            Thread.sleep(latency)
+            i
+          }
+        } ++ go(i + 1)
+      }
+    go(0l)
+  }
+
+  /*Stream.repeatEval {
+    Task.delay(if (true) Some(1) else None)
+  }.unNoneTerminate*/
 
   case class Fs2Daemons(name: String) extends ThreadFactory {
     private def namePrefix = s"$name-thread"
@@ -41,10 +44,25 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
     }
   }
 
-  scenario03.run.unsafeAttemptRun
+  scenario04.run.unsafeAttemptRun
+
+  def logStdOut[A](message: String): fs2.Pipe[Task, A, Unit] =
+    _.evalMap { e ⇒
+      Task.delay {
+        println(s"${Thread.currentThread.getName}: start $message: $e")
+        Thread.sleep(300)
+        println(s"${Thread.currentThread.getName}: stop $message: $e")
+      }
+    }
 
   def logGraphite[A](g: GraphiteMetrics, message: String): fs2.Pipe[Task, A, Unit] =
-    _.evalMap { a ⇒ graphite(g, message) }
+    _.evalMap { _ ⇒ graphite(g, message) }
+
+  def logGraphiteDelayed[A](delay: FiniteDuration)(implicit strategy: Strategy, scheduler: Scheduler): fs2.Pipe[Task, A, A] =
+    _.evalMap { out ⇒
+      val delayed = Task.delay(scala.util.Random.nextInt(delay.toMillis.toInt))
+      delayed.flatMap(d ⇒ Task.now(out).schedule(d.millis))
+    }
 
   def naturals(sourceDelay: FiniteDuration, timeWindow: Long, msg: String, monitoring: GraphiteMetrics,
                q: mutable.Queue[Task, Long]): Stream[Task, Unit] = {
@@ -59,12 +77,24 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
       .to(q.enqueue)
   }
 
+  def naturals2(sourceDelay: FiniteDuration, timeWindow: Long, msg: String,
+                monitoring: GraphiteMetrics): Stream[Task, Long] = {
+    val javaScheduler = Executors.newScheduledThreadPool(2, Fs2Daemons("source"))
+    implicit val scheduler = fs2.Scheduler.fromScheduledExecutorService(javaScheduler)
+    implicit val S = fs2.Strategy.fromExecutor(javaScheduler)
+    implicit val Async = Task.asyncInstance(S)
+    time
+      .awakeEvery(sourceDelay)
+      .scan(State(item = 0l)) { (acc, d) ⇒ tumblingWindow(acc, timeWindow) }
+      .evalMap { d ⇒ graphite(monitoring, msg).map(_ ⇒ d.item) }
+  }
+
   /**
    * Situation:
    * A source and a sink perform on the same rate at the beginning,
    * The sink gets slower, increasing latency with every message.
    * We are using boundedQueue as buffer between the source and the sink.
-   * This leads to blocking enqueue operation for the source in case no space in the queue.
+   * This leads to blocking "enqueue" operation for the source in case no space in the queue.
    * Result:
    * The source's rate is going to decrease proportionally with the sink's rate.
    */
@@ -79,11 +109,9 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
 
     val srcG = graphiteInstance
     val sinkG = graphiteInstance
-    implicit val qAsync = Task.asyncInstance(
-      fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(2, Fs2Daemons("queue"))))
+    implicit val qAsync = Task.asyncInstance(fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(2, Fs2Daemons("queue"))))
 
-    Stream
-      .eval(async.boundedQueue[Task, Long](bufferSize))
+    Stream.eval(async.boundedQueue[Task, Long](bufferSize))
       .flatMap { q ⇒
         naturals(sourceDelay, window, srcMessage, srcG, q).mergeDrainL {
           q.dequeue
@@ -91,9 +119,7 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
             .through(logGraphite[(Long, Long)](sinkG, sinkMessage))
         }
       }
-      .onError { ex: Throwable ⇒
-        fs2.Stream.eval(Task.now(println(ex.getMessage)))
-      }
+      .onError { ex: Throwable ⇒ fs2.Stream.eval(Task.now(println(ex.getMessage))) }
 
     /*
     val flow = for {
@@ -105,10 +131,9 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
   }
 
   /**
-   *
    * Situation:
    * A source and a sink perform on the same rate in the beginning, later the sink gets slower increasing delay with every message.
-   * We are using a separate process that tracks size of queue, if it reaches the waterMark the top element will be dropped.
+   * We are using a separate process that tracks size of a queue, if it reaches the waterMark the top(head) element will be dropped.
    * Result: The source's rate for a long time remains the same (how long depends on waterMark value),
    * but eventually goes down when guard can't keep up anymore, whereas sink's rate goes down immediately.
    *
@@ -162,8 +187,7 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
         naturals(sourceDelay, window, srcMessage, srcG, q).mergeDrainL {
           (q.dequeue
             .scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg))
-            .through(logGraphite(sinkG, sinkMessage)) mergeHaltBoth overflowGuard(
-              q))
+            .through(logGraphite(sinkG, sinkMessage)) mergeHaltBoth overflowGuard(q))
         }
       }
       .onError { ex: Throwable ⇒
@@ -185,8 +209,15 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
    */
   }
 
-  def mapAsyncUnordered2[F[_], R](parallelism: Int)(stream: Stream[F, R])(implicit F: fs2.util.Async[F]): Stream[F, R] = {
+  /**
+   * It always ensures there are 'parallelism' effects being evaluated assuming there's demand for them
+   * and they are available from the source stream,
+   * whereas the mapAsyncUnordered2 implementation shaded the input in to substreams, so some may not be busy.
+   */
+  def mapAsyncUnordered[F[_]: fs2.util.Async, A, B](parallelism: Int)(f: A ⇒ F[B]): Pipe[F, A, B] =
+    in ⇒ concurrent.join(parallelism)(in.map(a ⇒ Stream.eval(f(a))))
 
+  /*def mapAsyncUnordered2[F[_], R](parallelism: Int)(stream: Stream[F, R])(implicit F: fs2.util.Async[F]): Stream[F, R] = {
     val consistentHash = akka.routing.ConsistentHash[Int]((0 to parallelism), 1)
     //consistentHash.nodeFor(value.hashCode.toString)
 
@@ -199,13 +230,69 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
           s.merge(filtered)
       }
     }
+  }*/
+
+  implicit class StreamOps[F[_], A](val source: Stream[F, A]) extends AnyVal {
+    def balance[B](qSize: Int)(pip: Pipe[F, A, B])(implicit asc: fs2.util.Async[F]): Stream[F, B] = {
+      Stream.eval(async.boundedQueue[F, Option[A]](qSize)(asc)).flatMap { q ⇒
+        source.map(Some(_)).to(q.enqueue) //.evalMap(q.enqueue1)
+          .drain.onFinalize[F] { asc.flatMap(q.enqueue1(None)) { r ⇒ println("Source is done"); asc.pure(()) } }
+          .merge(q.dequeue.unNoneTerminate.through(pip))
+      }
+    }
   }
 
   /**
-   * It always ensures there are 'parallelism' effects being evaluated assuming there's demand for
-   * them and they are available from the source stream,
-   * whereas the mapAsyncUnordered2 implementation shaded the input in to 'parallelism' substreams, so some may not be busy.
+   * 2 sinks run in parallel to balance the load
+   * Source throughput = Sink_1 throughput + Sink_2 throughput
+   *
+   *                             +-----+
+   *                      +------|sink0|
+   * +------+   +-----+   |      +-----+
+   * |source|---|queue|---|
+   * +------+   +-----+   |      +-----+
+   *                      +------|sink1|
+   *                             +-----+
    */
-  def mapAsyncUnordered[F[_]: fs2.util.Async, A, B](parallelism: Int)(f: A ⇒ F[B]): Pipe[F, A, B] =
-    in ⇒ concurrent.join(parallelism)(in.map(a ⇒ Stream.eval(f(a))))
+  def scenario04: Stream[Task, Unit] = {
+    val bufferSize = 1 << 5
+    val parallelism = 2
+    val S = fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(parallelism, Fs2Daemons("sinks")))
+    implicit val Async = Task.asyncInstance(S)
+
+    def messageBody(th: String) = s"fs2_sink_${th}:1|c"
+
+    val gr = graphiteInstance
+    val sourceDelay = 100.millis
+    val window = 5000l
+    val srcMessage = "fs2_source_4:1|c"
+
+    naturals2(sourceDelay, window, srcMessage, graphiteInstance)
+      .balance(bufferSize)(mapAsyncUnordered(parallelism) { in: Long ⇒
+        graphite(gr, messageBody(Thread.currentThread.getName))
+      }(Async))(Async)
+      .onError { ex: Throwable ⇒ Stream.eval(Task.delay(println(s"Error: ${ex.getMessage}"))) }
+  }
+
+  /*def go(out: FileHandle[Task]): Handle[Task,MyEvent] => Pull[Task,Nothing,Unit] =
+    _.receive1 {
+      case (MyEvent.Data(d), h) => Pull.eval(out.write(data)) >> go(out)(h)
+      case (MyEvent.NewFile(name), h) => Pull.eval(out.close) >> io.file.pulls.fromPathAsync[Task](name, ...).flatMap { newOut => go(newOut)(h) }
+    }*/
+
+  /*
+  val S = fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(3, Fs2Daemons("sinks")))
+  val a = logStdOut[Long](s"sink-a")
+  val b = logStdOut[Long](s"sink-b")
+  val sinks = Seq(a, b)
+  val A = Task.asyncInstance(S)
+  naturalsEvery(100).take(50).balance(sinks, 1 << 5)(mapAsyncUnordered(sinks.size) { in: Long ⇒
+      Task.delay {
+        println(s"${Thread.currentThread.getName}: start $in")
+        Thread.sleep(1000)
+        println(s"${Thread.currentThread.getName}: stop $in")
+      }
+    }(A))(A)
+    .run.unsafeRun()
+   */
 }
