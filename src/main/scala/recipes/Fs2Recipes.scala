@@ -217,7 +217,7 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
   def mapAsyncUnordered[F[_]: fs2.util.Async, A, B](parallelism: Int)(f: A ⇒ F[B]): Pipe[F, A, B] =
     in ⇒ concurrent.join(parallelism)(in.map(a ⇒ Stream.eval(f(a))))
 
-  /*def mapAsyncUnordered2[F[_], R](parallelism: Int)(stream: Stream[F, R])(implicit F: fs2.util.Async[F]): Stream[F, R] = {
+  def mapAsyncUnordered2[F[_], R](parallelism: Int)(stream: Stream[F, R])(implicit F: fs2.util.Async[F]): Stream[F, R] = {
     val consistentHash = akka.routing.ConsistentHash[Int]((0 to parallelism), 1)
     //consistentHash.nodeFor(value.hashCode.toString)
 
@@ -230,9 +230,10 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
           s.merge(filtered)
       }
     }
-  }*/
+  }
 
   implicit class StreamOps[F[_], A](val source: Stream[F, A]) extends AnyVal {
+
     def balance[B](qSize: Int)(pip: Pipe[F, A, B])(implicit asc: fs2.util.Async[F]): Stream[F, B] = {
       Stream.eval(async.boundedQueue[F, Option[A]](qSize)(asc)).flatMap { q ⇒
         source.map(Some(_)).to(q.enqueue) //.evalMap(q.enqueue1)
@@ -255,12 +256,12 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
    *                             +-----+
    */
   def scenario04: Stream[Task, Unit] = {
-    val bufferSize = 1 << 5
+    val bufferSize = 1 << 9
     val parallelism = 2
     val S = fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(parallelism, Fs2Daemons("sinks")))
     implicit val Async = Task.asyncInstance(S)
 
-    def messageBody(th: String) = s"fs2_sink_${th}:1|c"
+    def sinkMessage(th: String) = s"fs2_sink_${th}:1|c"
 
     val gr = graphiteInstance
     val sourceDelay = 100.millis
@@ -269,7 +270,7 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
 
     naturals2(sourceDelay, window, srcMessage, graphiteInstance)
       .balance(bufferSize)(mapAsyncUnordered(parallelism) { in: Long ⇒
-        graphite(gr, messageBody(Thread.currentThread.getName))
+        graphite(gr, sinkMessage(Thread.currentThread.getName))
       }(Async))(Async)
       .onError { ex: Throwable ⇒ Stream.eval(Task.delay(println(s"Error: ${ex.getMessage}"))) }
   }

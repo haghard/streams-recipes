@@ -10,7 +10,8 @@ trait GraphiteSupport {
     override val address = new InetSocketAddress(InetAddress.getByName("192.168.0.182"), 8125)
   }
 
-  def graphite(gr: GraphiteMetrics, msg: String): Task[Unit] = Task.delay {
+  def graphite(gr: GraphiteMetrics, msg: String, delay: Long = 0l): Task[Unit] = Task.delay {
+    Thread.sleep(delay)
     gr send msg
   }
 }
