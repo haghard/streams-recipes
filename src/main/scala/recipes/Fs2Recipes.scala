@@ -233,7 +233,6 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
   }
 
   implicit class StreamOps[F[_], A](val source: Stream[F, A]) extends AnyVal {
-
     def balance[B](qSize: Int)(pip: Pipe[F, A, B])(implicit asc: fs2.util.Async[F]): Stream[F, B] = {
       Stream.eval(async.boundedQueue[F, Option[A]](qSize)(asc)).flatMap { q ⇒
         source.map(Some(_)).to(q.enqueue) //.evalMap(q.enqueue1)
@@ -256,23 +255,21 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
    *                             +-----+
    */
   def scenario04: Stream[Task, Unit] = {
-    val bufferSize = 1 << 9
+    val window = 5000l
     val parallelism = 2
-    val S = fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(parallelism, Fs2Daemons("sinks")))
-    implicit val Async = Task.asyncInstance(S)
-
-    def sinkMessage(th: String) = s"fs2_sink_${th}:1|c"
+    val bufferSize = 1 << 8
 
     val gr = graphiteInstance
     val sourceDelay = 100.millis
-    val window = 5000l
     val srcMessage = "fs2_source_4:1|c"
+    implicit val Async = Task.asyncInstance(
+      fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(parallelism, Fs2Daemons("sinks"))))
+
+    def sinkMessage(th: String) = s"fs2_sink_${th}:1|c"
 
     naturals2(sourceDelay, window, srcMessage, graphiteInstance)
-      .balance(bufferSize)(mapAsyncUnordered(parallelism) { in: Long ⇒
-        graphite(gr, sinkMessage(Thread.currentThread.getName))
-      }(Async))(Async)
-      .onError { ex: Throwable ⇒ Stream.eval(Task.delay(println(s"Error: ${ex.getMessage}"))) }
+      .balance(bufferSize)(mapAsyncUnordered(parallelism) { _ ⇒ graphite(gr, sinkMessage(Thread.currentThread.getName))})
+      .onError { ex: Throwable ⇒ Stream.eval(Task.delay(println(s"fs2_scenario04 error: ${ex.getMessage}"))) }
   }
 
   /*def go(out: FileHandle[Task]): Handle[Task,MyEvent] => Pull[Task,Nothing,Unit] =
