@@ -233,11 +233,11 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
   }
 
   implicit class StreamOps[F[_], A](val source: Stream[F, A]) extends AnyVal {
-    def balance[B](qSize: Int)(pip: Pipe[F, A, B])(implicit asc: fs2.util.Async[F]): Stream[F, B] = {
+    def balance[B](qSize: Int)(sink: Pipe[F, A, B])(implicit asc: fs2.util.Async[F]): Stream[F, B] = {
       Stream.eval(async.boundedQueue[F, Option[A]](qSize)(asc)).flatMap { q ⇒
         source.map(Some(_)).to(q.enqueue) //.evalMap(q.enqueue1)
           .drain.onFinalize[F] { asc.flatMap(q.enqueue1(None)) { r ⇒ println("Source is done"); asc.pure(()) } }
-          .merge(q.dequeue.unNoneTerminate.through(pip))
+          .merge(q.dequeue.unNoneTerminate.through(sink))
       }
     }
   }
@@ -268,7 +268,7 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
     def sinkMessage(th: String) = s"fs2_sink_${th}:1|c"
 
     naturals2(sourceDelay, window, srcMessage, graphiteInstance)
-      .balance(bufferSize)(mapAsyncUnordered(parallelism) { _ ⇒ graphite(gr, sinkMessage(Thread.currentThread.getName))})
+      .balance(bufferSize)(mapAsyncUnordered(parallelism) { _ ⇒ graphite(gr, sinkMessage(Thread.currentThread.getName)) })
       .onError { ex: Throwable ⇒ Stream.eval(Task.delay(println(s"fs2_scenario04 error: ${ex.getMessage}"))) }
   }
 

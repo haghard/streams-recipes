@@ -53,7 +53,7 @@ libraryDependencies ++= Seq(
   //"com.mfglabs"       %% "akka-stream-extensions-shapeless" % "0.10.0",
 
   "io.reactivex"      %% "rxscala"           % "0.26.2",
-  "io.monix"          %% "monix"             % "2.0-M2",
+  "io.monix"          %% "monix"             % "2.0.2",
 
   "co.fs2"            %% "fs2-core"          % "0.9.1",
   "co.fs2"            %% "fs2-io"            % "0.9.1",
@@ -79,5 +79,8 @@ libraryDependencies ++= Seq(
 )
 
 //streams-recipes/test:console
+
+addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.8.0")
+addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)
 
 cancelable in Global := true

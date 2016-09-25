@@ -56,11 +56,9 @@ package object ddd {
 
     object Account {
 
-      private def validateAccountNo(
-        no: String): ValidationNel[String, String] =
+      private def validateAccountNo(no: String): ValidationNel[String, String] =
         if (no.isEmpty || no.size < 5)
-          s"Account No has to be at least 5 characters long: found $no"
-            .failureNel[String]
+          s"Account No has to be at least 5 characters long: found $no".failureNel[String]
         else no.successNel[String]
 
       private def validateOpenCloseDate(od: Date, cd: Option[Date]): ValidationNel[String, (Option[Date], Option[Date])] =

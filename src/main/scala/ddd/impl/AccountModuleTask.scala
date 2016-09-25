@@ -22,11 +22,8 @@ trait AccountModuleTask extends AccountModule[Task, Account, Amount, Balance] {
   private case object D extends DC
   private case object C extends DC
 
-  override def open(no: String,
-                    name: String,
-                    rate: Option[BigDecimal],
-                    openingDate: Option[Date],
-                    accountType: AccountType): AccountOperation[Account] =
+  override def open(no: String, name: String, rate: Option[BigDecimal],
+                    openingDate: Option[Date], accountType: AccountType): AccountOperation[Account] =
     kleisli[Task, AccountRepo, ddd.Valid[Account]] { repo: AccountRepo ⇒
       Task {
         repo
@@ -44,11 +41,8 @@ trait AccountModuleTask extends AccountModule[Task, Account, Amount, Balance] {
                   Account
                     .savingsAccount(no, name, r, openingDate, None, Balance())
                     .flatMap(repo.store)
-                } getOrElse s"Rate needs to be given for savings account"
-                  .failureNel[Account]
-            }) { r ⇒
-              s"Already existing account with no $no".failureNel[Account]
-            }
+                } getOrElse s"Rate needs to be given for savings account".failureNel[Account]
+            }) { r ⇒ s"Already existing account with no $no".failureNel[Account] }
           })
       }(executor)
     }
@@ -68,9 +62,7 @@ trait AccountModuleTask extends AccountModule[Task, Account, Amount, Balance] {
   /**
    *
    */
-  private def modify(no: String,
-                     amount: Amount,
-                     dc: DC): AccountOperation[Account] =
+  private def modify(no: String, amount: Amount, dc: DC): AccountOperation[Account] =
     kleisli[Task, AccountRepo, ddd.Valid[Account]] { (repo: AccountRepo) ⇒
       Task {
         repo
@@ -93,13 +85,10 @@ trait AccountModuleTask extends AccountModule[Task, Account, Amount, Balance] {
       Task(repo.balance(no))
     }
 
-  override def transfer(
-    accounts: ddd.Valid[(String, String)],
-    amount: Amount): AccountOperation[(Account, Account)] = {
+  override def transfer(accounts: ddd.Valid[(String, String)], amount: Amount): AccountOperation[(Account, Account)] = {
     accounts.fold({ ex ⇒
       Kleisli.kleisli[Task, AccountRepo, ddd.Valid[(Account, Account)]] {
-        r: AccountRepo ⇒
-          Task.delay(Failure(ex))
+        r: AccountRepo ⇒ Task.delay(Failure(ex))
       }
     }, { fromTo: (String, String) ⇒
       for {
@@ -107,7 +96,7 @@ trait AccountModuleTask extends AccountModule[Task, Account, Amount, Balance] {
         b ← credit(fromTo._2, amount)
       } yield (a |@| b) {
         case (a, b) ⇒
-          println("action [transfer]: " + Thread.currentThread().getName);
+          println("action [transfer]: " + Thread.currentThread().getName)
           (a, b)
       }
     })
@@ -117,8 +106,7 @@ trait AccountModuleTask extends AccountModule[Task, Account, Amount, Balance] {
    *
    *
    */
-  override def close(no: String,
-                     closeDate: Option[Date]): AccountOperation[Account] =
+  override def close(no: String, closeDate: Option[Date]): AccountOperation[Account] =
     kleisli[Task, AccountRepo, ddd.Valid[Account]] { repo: AccountRepo ⇒
       Task {
         repo
@@ -136,6 +124,5 @@ trait AccountModuleTask extends AccountModule[Task, Account, Amount, Balance] {
 }
 
 object AccountService extends AccountModuleTask {
-  val executor = java.util.concurrent.Executors
-    .newFixedThreadPool(2, new RecipesDaemons("accounts"))
+  val executor = java.util.concurrent.Executors.newFixedThreadPool(2, new RecipesDaemons("accounts"))
 }
