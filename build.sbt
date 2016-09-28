@@ -59,6 +59,7 @@ libraryDependencies ++= Seq(
   "co.fs2"            %% "fs2-io"            % "0.9.1",
 
   "com.spinoco"       %% "fs2-zk"            % "0.1.0-SNAPSHOT",
+  //"com.spinoco"   %%  "fs2-cassandra"
 
   "org.spire-math"    %% "jawn-spray"        % "0.9.0",
   "org.hdrhistogram"  %  "HdrHistogram"      % "2.1.7",
@@ -74,6 +75,10 @@ libraryDependencies ++= Seq(
   "io.swave"          %%  "swave-core"      % "0.5-M3",
 
   "oncue.quiver"      %% "core"             % "5.3.57",
+
+  "com.typesafe.akka" %% "akka-stream-contrib" % "0.4",
+
+  //"co.adhoclabs"    && "akka-http-contrib" % "0.0.6"
 
   "com.lihaoyi"       % "ammonite" % "0.7.0" % "test" cross CrossVersion.full
 )
