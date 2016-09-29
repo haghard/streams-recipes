@@ -244,10 +244,10 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
         source.map(Some(_)).to(q.enqueue)
           //.evalMap { el ⇒ asc.flatMap(q.enqueue1(el)) { r ⇒ println(q.hashCode); asc.pure(()) } }
           .drain.onFinalize[F] {
-            def notifyN(n: Int): F[Unit] =
-              if (n == 1) q.enqueue1(None) else a.flatMap(q.enqueue1(None))(_ ⇒ notifyN(n - 1))
+            def close(n: Int): F[Unit] =
+              if (n == 1) q.enqueue1(None) else a.flatMap(q.enqueue1(None))(_ ⇒ close(n - 1))
 
-            notifyN(parallelism)
+            close(parallelism)
             //a.flatMap(q.enqueue1(None)) { r ⇒ println("Source is done"); a.pure(()) }
           }
           //.mergeHaltBoth(q.size.discrete.through(qSizeSink).drain)
