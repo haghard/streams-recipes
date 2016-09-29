@@ -51,8 +51,15 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
       }
     }
 
-  def logStdOut[T]: fs2.Pipe[Task, T, Unit] =
-    _.evalMap { n ⇒ Task.delay(println(s"${Thread.currentThread.getName}: q-size: $n")) }
+  def logStdOut[T](message: String): fs2.Pipe[Task, T, Unit] =
+    _.evalMap { n ⇒
+      Task.delay {
+        //val delayed = scala.util.Random.nextInt(300)
+        println(s"${Thread.currentThread.getName}: start $message: $n")
+        Thread.sleep(300 /*delayed.toLong*/ )
+        println(s"${Thread.currentThread.getName}: stop $message: $n")
+      }
+    }
 
   def logGraphite[A](g: GraphiteMetrics, message: String): fs2.Pipe[Task, A, Unit] =
     _.evalMap { _ ⇒ graphite(g, message) }
@@ -200,7 +207,7 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
         concurrent.join(2)(
           Stream[Task, Stream[Task, Unit]](
             overflowGuard(q),
-            q.dequeue.scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg)).through(logGrafana(sinkG, sinkMessage))
+            q.dequeue.scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg)).through(logGraphite(sinkG, sinkMessage))
           )
         )
       }
@@ -232,12 +239,18 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
   }
 
   implicit class StreamOps[F[_], A](val source: Stream[F, A]) extends AnyVal {
-    def balance[B](qSize: Int)(sink: Pipe[F, A, B], qSizeSink: Pipe[F, Int, Unit])(implicit a: fs2.util.Async[F]): Stream[F, B] = {
+    def balance[B](qSize: Int, parallelism: Int)(sink: Pipe[F, A, B], qSizeSink: Pipe[F, Int, Unit])(implicit a: fs2.util.Async[F]): Stream[F, B] = {
       Stream.eval(async.boundedQueue[F, Option[A]](qSize)).flatMap { q ⇒
         source.map(Some(_)).to(q.enqueue)
           //.evalMap { el ⇒ asc.flatMap(q.enqueue1(el)) { r ⇒ println(q.hashCode); asc.pure(()) } }
-          .drain.onFinalize[F] { a.flatMap(q.enqueue1(None)) { r ⇒ println("Source is done"); a.pure(()) } }
-          .mergeHaltBoth(q.size.discrete.through(qSizeSink).drain)
+          .drain.onFinalize[F] {
+            def notifyN(n: Int): F[Unit] =
+              if (n == 1) q.enqueue1(None) else a.flatMap(q.enqueue1(None))(_ ⇒ notifyN(n - 1))
+
+            notifyN(parallelism)
+            //a.flatMap(q.enqueue1(None)) { r ⇒ println("Source is done"); a.pure(()) }
+          }
+          //.mergeHaltBoth(q.size.discrete.through(qSizeSink).drain)
           .merge(q.dequeue.unNoneTerminate.through(sink))
 
       }
@@ -262,7 +275,7 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
     val bufferSize = 1 << 8
 
     val gr = graphiteInstance
-    val sourceDelay = 100.millis
+    val sourceDelay = 200.millis
     val srcMessage = "fs2_source_4:1|c"
     implicit val Async = Task.asyncInstance(
       fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(parallelism + 1, Fs2Daemons("sinks"))))
@@ -276,14 +289,13 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
       println(s"${Thread.currentThread.getName}: stop $e")
     }
 
-    //
-    naturals2(sourceDelay, window, srcMessage, graphiteInstance)  //.take(100)
-      .balance(bufferSize)(
+    naturals2(sourceDelay, window, srcMessage, graphiteInstance).take(100)
+      .balance(bufferSize, parallelism)(
         mapAsyncUnordered(parallelism) { e ⇒
           //graphite(gr, sinkMessage(Thread.currentThread.getName), 300)
           testSink(e)
         },
-        logStdOut
+        logStdOut("queue size")
       ).onError { ex: Throwable ⇒
         Stream.eval(Task.delay(println(s"fs2_scenario04 error: ${ex.getMessage}")))
       }
