@@ -232,12 +232,12 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
   }
 
   implicit class StreamOps[F[_], A](val source: Stream[F, A]) extends AnyVal {
-    def balance[B](qSize: Int)(sink: Pipe[F, A, B], qSink: Pipe[F, Int, Unit])(implicit asc: fs2.util.Async[F]): Stream[F, B] = {
+    def balance[B](qSize: Int)(sink: Pipe[F, A, B], qSizeSink: Pipe[F, Int, Unit])(implicit a: fs2.util.Async[F]): Stream[F, B] = {
       Stream.eval(async.boundedQueue[F, Option[A]](qSize)).flatMap { q ⇒
         source.map(Some(_)).to(q.enqueue)
           //.evalMap { el ⇒ asc.flatMap(q.enqueue1(el)) { r ⇒ println(q.hashCode); asc.pure(()) } }
-          .drain.onFinalize[F] { asc.flatMap(q.enqueue1(None)) { r ⇒ println("Source is done"); asc.pure(()) } }
-          .mergeHaltBoth(q.size.discrete.through(qSink).drain)
+          .drain.onFinalize[F] { a.flatMap(q.enqueue1(None)) { r ⇒ println("Source is done"); a.pure(()) } }
+          .mergeHaltBoth(q.size.discrete.through(qSizeSink).drain)
           .merge(q.dequeue.unNoneTerminate.through(sink))
 
       }
@@ -269,7 +269,7 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
 
     def sinkMessage(th: String) = s"fs2_sink_${th}:1|c"
 
-    def testSink(e: Int) = Task.delay {
+    def testSink(e: Long) = Task.delay {
       val rnd = ThreadLocalRandom.current()
       println(s"${Thread.currentThread.getName}: start $e")
       Thread.sleep(rnd.nextInt(100, 300))
@@ -280,8 +280,8 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
     naturals2(sourceDelay, window, srcMessage, graphiteInstance)  //.take(100)
       .balance(bufferSize)(
         mapAsyncUnordered(parallelism) { e ⇒
-          graphite(gr, sinkMessage(Thread.currentThread.getName), 300)
-          //testSink(e)
+          //graphite(gr, sinkMessage(Thread.currentThread.getName), 300)
+          testSink(e)
         },
         logStdOut
       ).onError { ex: Throwable ⇒
@@ -294,20 +294,4 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
       case (MyEvent.Data(d), h) => Pull.eval(out.write(data)) >> go(out)(h)
       case (MyEvent.NewFile(name), h) => Pull.eval(out.close) >> io.file.pulls.fromPathAsync[Task](name, ...).flatMap { newOut => go(newOut)(h) }
     }*/
-
-  /*
-  val S = fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(3, Fs2Daemons("sinks")))
-  val a = logStdOut[Long](s"sink-a")
-  val b = logStdOut[Long](s"sink-b")
-  val sinks = Seq(a, b)
-  val A = Task.asyncInstance(S)
-  naturalsEvery(100).take(50).balance(sinks, 1 << 5)(mapAsyncUnordered(sinks.size) { in: Long ⇒
-      Task.delay {
-        println(s"${Thread.currentThread.getName}: start $in")
-        Thread.sleep(1000)
-        println(s"${Thread.currentThread.getName}: stop $in")
-      }
-    }(A))(A)
-    .run.unsafeRun()
-   */
 }
