@@ -88,15 +88,14 @@ object ScalazRecipes extends App {
   def interleaveN[T](q: scalaz.stream.async.mutable.Queue[T], processes: List[Process[Task, T]])
                                 (implicit S: Strategy): Process[Task, T] = {
     val merge = processes.tail./:(processes.head to q.enqueue) {
-        (acc: Process[Task, Unit], p: Process[Task, T]) ⇒
-          (acc merge (p to q.enqueue))(S)
+        (acc: Process[Task, Unit], p: Process[Task, T]) ⇒ (acc merge (p to q.enqueue))(S)
       }.onComplete(Process.eval(q.close))
     (merge.drain merge q.dequeue)(S)
   }
 
-  implicit class SinkOps[A](left: Sink[Task, A]) {
+  implicit class SinkOps[A](self: Sink[Task, A]) extends AnyVal {
     def nondeterminstically(right: Sink[Task, A]) = {
-      (left zipWith right) { (l, r) ⇒ (a: A) ⇒
+      (self zipWith right) { (l, r) ⇒ (a: A) ⇒
         Nondeterminism[Task].mapBoth(l(a), r(a))((_, _) ⇒ ())
       }
     }

@@ -81,6 +81,10 @@ libraryDependencies ++= Seq(
 
   //"co.adhoclabs"    && "akka-http-contrib" % "0.0.6"
 
+
+  //Future to Task and Task to Future conversions
+  "io.verizon.delorean" %% "core"       % "1.1.37",
+
   "com.lihaoyi"       % "ammonite" % "0.7.7" % "test" cross CrossVersion.full
 )
 
