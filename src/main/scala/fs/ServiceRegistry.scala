@@ -20,6 +20,7 @@ import scala.concurrent.duration._
   * Znodes can be created|deleted|update|check on existence
   * You can implement locks, barriers, master election
   *
+  * This requires running zookeeper
   */
 object ServiceRegistry extends App {
   val address = "192.168.0.182:2181"
