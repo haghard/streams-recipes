@@ -40,7 +40,7 @@ javacOptions += "-Xmx2G"
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.4.10"
+val akkaStreamV = "2.4.11"
 
 val Origami = "1.0-20150902134048-8d00462"
 
@@ -60,6 +60,7 @@ libraryDependencies ++= Seq(
 
   "com.spinoco"       %% "fs2-zk"            % "0.1.0-SNAPSHOT",
   //"com.spinoco"   %%  "fs2-cassandra"
+  //Users/haghard/.ivy2/local/default/fs2-cache_2.11/1.0/jars/fs2-cache_2.11.jar
 
   "org.spire-math"    %% "jawn-spray"        % "0.9.0",
   "org.hdrhistogram"  %  "HdrHistogram"      % "2.1.7",
@@ -80,7 +81,7 @@ libraryDependencies ++= Seq(
 
   //"co.adhoclabs"    && "akka-http-contrib" % "0.0.6"
 
-  "com.lihaoyi"       % "ammonite" % "0.7.0" % "test" cross CrossVersion.full
+  "com.lihaoyi"       % "ammonite" % "0.7.7" % "test" cross CrossVersion.full
 )
 
 //streams-recipes/test:console

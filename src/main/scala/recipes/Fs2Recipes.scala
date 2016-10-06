@@ -45,20 +45,16 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
   def logStdOutDelayed[A](message: String): fs2.Pipe[Task, A, Unit] =
     _.evalMap { e ⇒
       Task.delay {
+        val delayed = scala.util.Random.nextInt(300)
         println(s"${Thread.currentThread.getName}: start $message: $e")
-        Thread.sleep(300)
+        Thread.sleep(delayed.toLong)
         println(s"${Thread.currentThread.getName}: stop $message: $e")
       }
     }
 
-  def logStdOut[T](message: String): fs2.Pipe[Task, T, Unit] =
+  def logStdOut[T]: fs2.Pipe[Task, T, Unit] =
     _.evalMap { n ⇒
-      Task.delay {
-        //val delayed = scala.util.Random.nextInt(300)
-        println(s"${Thread.currentThread.getName}: start $message: $n")
-        Thread.sleep(300 /*delayed.toLong*/ )
-        println(s"${Thread.currentThread.getName}: stop $message: $n")
-      }
+      Task.delay(println(s"${Thread.currentThread.getName}: $n"))
     }
 
   def logGraphite[A](g: GraphiteMetrics, message: String): fs2.Pipe[Task, A, Unit] =
@@ -292,15 +288,16 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
     naturals2(sourceDelay, window, srcMessage, graphiteInstance).take(100)
       .balance(bufferSize, parallelism)(
         mapAsyncUnordered(parallelism) { e ⇒
-          //graphite(gr, sinkMessage(Thread.currentThread.getName), 300)
-          testSink(e)
+          graphite(gr, sinkMessage(Thread.currentThread.getName), 300)
+          //testSink(e)
         },
-        logStdOut("queue size")
+        logStdOut
       ).onError { ex: Throwable ⇒
-        Stream.eval(Task.delay(println(s"fs2_scenario04 error: ${ex.getMessage}")))
-      }
+          Stream.eval(Task.delay(println(s"fs2_scenario04 error: ${ex.getMessage}")))
+        }
   }
 
+  //Task.fromFuture()
   /*def go(out: FileHandle[Task]): Handle[Task,MyEvent] => Pull[Task,Nothing,Unit] =
     _.receive1 {
       case (MyEvent.Data(d), h) => Pull.eval(out.write(data)) >> go(out)(h)

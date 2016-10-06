@@ -577,10 +577,9 @@ object ScalazRecipes extends App {
   //recipes.ScalazRecipes.runMonotonic
   def runMonotonic =
     (Process.unfold(Iterator(1, 1, 2, 1, 3, 2, 5, 3, 10)) { it ⇒
-          val next = it.next
-          if (it.hasNext) Option(State(next) -> it) else None
-        } pipe monotonic) to sink.lift[Task, GrowingState](state =>
-          Task.delay(println(state)))
+      val next = it.next
+      if (it.hasNext) Option(State(next) -> it) else None
+    } pipe monotonic) to sink.lift[Task, GrowingState](state => Task.delay(println(state)))
 
   //recipes.ScalazRecipes.runBalanced
   def runBalanced =
