@@ -36,8 +36,6 @@ resolvers ++= Seq(
   Resolver.bintrayRepo("mfglabs", "maven")
 )
 
-javacOptions += "-Xmx2G"
-
 promptTheme := ScalapenosTheme
 
 val akkaStreamV = "2.4.11"
@@ -63,7 +61,7 @@ libraryDependencies ++= Seq(
   //Users/haghard/.ivy2/local/default/fs2-cache_2.11/1.0/jars/fs2-cache_2.11.jar
 
   "org.spire-math"    %% "jawn-spray"        % "0.9.0",
-  "org.hdrhistogram"  %  "HdrHistogram"      % "2.1.7",
+  "org.hdrhistogram"  %  "HdrHistogram"      % "2.1.9",
   "com.esri.geometry" %  "esri-geometry-api" % "1.2.1",
   "io.spray"          %% "spray-json"        % "1.3.2",
 
@@ -73,7 +71,7 @@ libraryDependencies ++= Seq(
     .exclude("com.google.guava", "guava")
     .exclude("org.scalaz", "scalaz-stream"),
 
-  "io.swave"          %%  "swave-core"      % "0.5-M3",
+  "io.swave"          %%  "swave-core"      % "0.5-M4",
 
   "oncue.quiver"      %% "core"             % "5.3.57",
 
@@ -83,9 +81,9 @@ libraryDependencies ++= Seq(
 
 
   //Future to Task and Task to Future conversions
-  "io.verizon.delorean" %% "core"       % "1.1.37",
+  //"io.verizon.delorean" %% "core"       % "1.1.37",
 
-  "com.lihaoyi"       % "ammonite" % "0.7.7" % "test" cross CrossVersion.full
+  "com.lihaoyi"       % "ammonite" % "0.7.8" % "test" cross CrossVersion.full
 )
 
 //streams-recipes/test:console

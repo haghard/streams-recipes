@@ -21,8 +21,7 @@ object ScalazRecipes extends App {
   val showLimit = 1000
   val observePeriod = 5000
   val limit = Int.MaxValue
-  val statsD =
-    new InetSocketAddress(InetAddress.getByName("192.168.0.182"), 8125)
+  val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.182"), 8125)
   val Ex = Strategy.Executor(
       new ForkJoinPool(Runtime.getRuntime.availableProcessors()))
 
@@ -93,7 +92,7 @@ object ScalazRecipes extends App {
     (merge.drain merge q.dequeue)(S)
   }
 
-  implicit class SinkOps[A](self: Sink[Task, A]) extends AnyVal {
+  implicit class SinkOps[A](val self: Sink[Task, A]) extends AnyVal {
     def nondeterminstically(right: Sink[Task, A]) = {
       (self zipWith right) { (l, r) ⇒ (a: A) ⇒
         Nondeterminism[Task].mapBoth(l(a), r(a))((_, _) ⇒ ())

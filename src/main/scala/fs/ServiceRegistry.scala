@@ -2,26 +2,26 @@ package fs
 
 import fs2.Stream._
 import fs2._
-import spinoco.fs2.zk.{client, _}
+import spinoco.fs2.zk.{ client, _ }
 
 import scala.concurrent.duration._
 
 /**
-  * You have a number of processes in your application and you want to one of them arises as a leader and perform some master's tasks on behalf of the whole cluster.
-  *
-  * Use cases:
-  * a) Hadoop uses zk for master election for the Name-Node of HDFS.
-  * b) Kafka cluster
-  * Each of broker's partition has its own leader, you don't have to have one single leader for the whole cluster
-  * Each leader is a leader of own partition
-  *
-  * Zookeeper gives you a consistent view of nodes
-  * Znodes live in a hierarchy
-  * Znodes can be created|deleted|update|check on existence
-  * You can implement locks, barriers, master election
-  *
-  * This requires running zookeeper
-  */
+ * You have a number of processes in your application and you want to one of them arises as a leader and perform some master's tasks on behalf of the whole cluster.
+ *
+ * Use cases:
+ * a) Hadoop uses zk for master election for the Name-Node of HDFS.
+ * b) Kafka cluster
+ * Each of broker's partition has its own leader, you don't have to have one single leader for the whole cluster
+ * Each leader is a leader of own partition
+ *
+ * Zookeeper gives you a consistent view of nodes
+ * Znodes live in a hierarchy
+ * Znodes can be created|deleted|update|check on existence
+ * You can implement locks, barriers, master election
+ *
+ * This requires running zookeeper
+ */
 object ServiceRegistry extends App {
   val address = "192.168.0.182:2181"
 
