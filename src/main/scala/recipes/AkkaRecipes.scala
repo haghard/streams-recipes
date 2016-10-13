@@ -1649,12 +1649,8 @@ class DegradingActor private (val name: String,
   }
 }
 
-class DbCursorPublisher(name: String,
-                        val Limit: Long,
-                        val address: InetSocketAddress)
-    extends ActorPublisher[Long]
-    with GraphiteMetrics
-    with ActorLogging {
+class DbCursorPublisher(name: String, val Limit: Long, val address: InetSocketAddress) extends ActorPublisher[Long]
+    with GraphiteMetrics with ActorLogging {
   var limit = 0l
   var seqN = 0l
   val showPeriod = 50
@@ -1767,13 +1763,12 @@ class IndividualRateLimiter(number: Int, period: FiniteDuration) {
 
 //Custom linear processing stages using GraphStage
 //http://rnduja.github.io/2016/03/25/a_first_look_to_akka_stream/
-//This will become useful if you want to replay events from log (let's say) that have a ts attached.
-class TimeStampedLogReader[T](time: T ⇒ Long)
-    extends GraphStage[FlowShape[T, T]] {
+//This will become useful if you want to replay events from log (let's say) that have ts attached to each line.
+class TimeStampedLogReader[T](time: T ⇒ Long) extends GraphStage[FlowShape[T, T]] {
   var firstEventTime = 0L
   var firstActualTime = 0L
 
-  val f = Flow[Double].groupedWithin(1000, 1 second)
+  //val f = Flow[Double].groupedWithin(1000, 1 second)
 
   val in = Inlet[T]("RateAdaptor.in")
   val out = Outlet[T]("RateAdaptor.out")
@@ -1794,8 +1789,7 @@ class TimeStampedLogReader[T](time: T ⇒ Long)
           if (firstActualTime != 0L) {
             if (actualDelay < eventDelay) {
               val iterationLatency = eventDelay - actualDelay
-              println(
-                s"${Thread.currentThread().getName}: sleep $iterationLatency")
+              println(s"${Thread.currentThread().getName}: sleep $iterationLatency")
               (Thread sleep iterationLatency)
             }
           } else {
@@ -1964,9 +1958,7 @@ final class AccumulateWhileUnchanged[E, P](propertyExtractor: E ⇒ P)
           currentState = Some(nextState)
         }
 
-        override def onPull(): Unit = {
-          pull(in)
-        }
+        override def onPull(): Unit = pull(in)
 
         override def onUpstreamFinish(): Unit = {
           val result = buffer.result()
@@ -1982,6 +1974,55 @@ final class AccumulateWhileUnchanged[E, P](propertyExtractor: E ⇒ P)
       }
     }
 }
+
+
+class GraphiteSink[T](name: String, address: InetSocketAddress) extends GraphStage[SinkShape[T]] {
+  private val in: Inlet[T] = Inlet("in")
+
+  override val shape: SinkShape[T] = SinkShape(in)
+
+  override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
+    new GraphStageLogic(shape) {
+      val Encoding = "utf-8"
+      val sendBuffer = (ByteBuffer allocate 512)
+      val channel = DatagramChannel.open()
+
+      private def sendUdpMessage(message: String): Unit = {
+        sendBuffer.put(message.getBytes(Encoding))
+        sendBuffer.flip()
+        channel.send(sendBuffer, address)
+        sendBuffer.limit(sendBuffer.capacity())
+        sendBuffer.rewind()
+      }
+
+      override def preStart(): Unit = pull(in)
+
+      setHandler(in, new InHandler {
+        override def onPush(): Unit = {
+          grab(in)
+          sendUdpMessage(s"$name:1|c")
+          pull(in)
+        }
+      })
+    }
+}
+/*
+trait GraphiteMetrics {
+  val Encoding = "utf-8"
+  val sendBuffer = (ByteBuffer allocate 512)
+  val channel = DatagramChannel.open()
+
+  def address: InetSocketAddress
+
+  def send(message: String) = {
+    sendBuffer.put(message.getBytes(Encoding))
+    sendBuffer.flip()
+    channel.send(sendBuffer, address)
+    sendBuffer.limit(sendBuffer.capacity())
+    sendBuffer.rewind()
+  }
+}*/
+
 
 object Traverse {
 
