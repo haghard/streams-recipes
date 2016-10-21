@@ -263,7 +263,7 @@ object AkkaRecipes extends App {
       val sink = Sink.actorSubscriber(SyncActor.props2("akka-sink1", statsD))
 
       //(source alsoTo slidingWindow("akka-scenario1", 2 seconds)) ~> sink
-      (source alsoTo tumblingWindowWithFilter("akka-scenario1", 2 seconds) {  _ >= 97l }) ~> sink
+      (source alsoTo tumblingWindowWithFilter("akka-scenario1", 2 seconds) { _ >= 97l }) ~> sink
       ClosedShape
     }
   }
@@ -740,13 +740,13 @@ object AkkaRecipes extends App {
    */
   def throttledFlow[T](interval: FiniteDuration): Flow[T, T, akka.NotUsed] = {
     Flow.fromGraph(
-        GraphDSL.create() { implicit b ⇒
-          import GraphDSL.Implicits._
-          val zip = b.add(Zip[T, Unit]().withAttributes(Attributes.inputBuffer(1, 1)))
-          Source.tick(interval, interval, ()) ~> zip.in1
-          FlowShape(zip.in0, zip.out)
-        }
-      )
+      GraphDSL.create() { implicit b ⇒
+        import GraphDSL.Implicits._
+        val zip = b.add(Zip[T, Unit]().withAttributes(Attributes.inputBuffer(1, 1)))
+        Source.tick(interval, interval, ()) ~> zip.in1
+        FlowShape(zip.in0, zip.out)
+      }
+    )
       .map(_._1)
   }
 
@@ -960,7 +960,7 @@ object AkkaRecipes extends App {
       val out = sys.actorOf(Props(classOf[RecordsSink], "sink15", statsD)
         .withDispatcher("akka.flow-dispatcher"), "akka-sink15")
       val src = Source.actorPublisher[Long](Props(classOf[DbCursorPublisher], "akka-source15", 20000l, statsD)
-            .withDispatcher("akka.flow-dispatcher"))
+        .withDispatcher("akka.flow-dispatcher"))
         .map(DBObject(_, out))
       src ~> Sink.actorSubscriber(BalancerRouter.props)
       ClosedShape
@@ -973,7 +973,7 @@ object AkkaRecipes extends App {
       val out = sys.actorOf(Props(classOf[RecordsSink], "sink15_01", statsD)
         .withDispatcher("akka.flow-dispatcher"), "akka-sink15")
       val src = Source.actorPublisher[Long](Props(classOf[DbCursorPublisher],
-            "akka-source15_01", 20000l, statsD).withDispatcher("akka.flow-dispatcher"))
+        "akka-source15_01", 20000l, statsD).withDispatcher("akka.flow-dispatcher"))
         .map(DBObject2(_, out))
       src ~> Sink.actorSubscriber(ConsistentHashingRouter.props)
       ClosedShape
@@ -1024,8 +1024,8 @@ object AkkaRecipes extends App {
       import GraphDSL.Implicits._
       val broadcast = b.add(Broadcast[String](2))
       tailer(log, n) ~> broadcast ~> Sink.actorSubscriber[String](SyncActor.props4("akka-sink16_0", statsD, 500l, n))
-                        broadcast ~> Flow[String].buffer(32, OverflowStrategy.backpressure) ~> Sink.actorSubscriber[String](
-          SyncActor.props4("akka-sink16_1", statsD, 1000l, n))
+      broadcast ~> Flow[String].buffer(32, OverflowStrategy.backpressure) ~> Sink.actorSubscriber[String](
+        SyncActor.props4("akka-sink16_1", statsD, 1000l, n))
       ClosedShape
     }
   }
@@ -1042,13 +1042,13 @@ object AkkaRecipes extends App {
     val delimiter = Framing.delimiter(ByteString('\n'), Int.MaxValue, true)
 
     def table(line: String) = new StringBuilder()
-        .append("\n")
-        .append("*****************")
-        .append("\n")
-        .append(line)
-        .append("\n")
-        .append("*****************")
-        .toString()
+      .append("\n")
+      .append("*****************")
+      .append("\n")
+      .append(line)
+      .append("\n")
+      .append("*****************")
+      .toString()
 
     def borough(features: IndexedSeq[Feature], point: Point) =
       features
@@ -1371,10 +1371,7 @@ class ChWorker(name: String, workerId: Int) extends Actor with ActorLogging {
   }
 }
 
-class RecordsSink(name: String, val address: InetSocketAddress)
-    extends Actor
-    with ActorLogging
-    with GraphiteMetrics {
+class RecordsSink(name: String, val address: InetSocketAddress) extends Actor with ActorLogging with GraphiteMetrics {
   override def receive = {
     case BalancerRouter.Done(id) ⇒
       send(s"$name:1|c")
@@ -1388,9 +1385,7 @@ class RecordsSink(name: String, val address: InetSocketAddress)
  * @param address
  * @param delay
  */
-class TopicReader(name: String, val address: InetSocketAddress, delay: Long)
-    extends ActorPublisher[Int]
-    with GraphiteMetrics {
+class TopicReader(name: String, val address: InetSocketAddress, delay: Long) extends ActorPublisher[Int] with GraphiteMetrics {
   val Limit = 10000
   var progress = 0
   val observeGap = 1000
@@ -1420,18 +1415,13 @@ class TopicReader(name: String, val address: InetSocketAddress, delay: Long)
 
 object PubSubSink {
   def props(name: String, address: InetSocketAddress, delay: Long) =
-    Props(new PubSubSink(name, address, delay))
-      .withDispatcher("akka.flow-dispatcher")
+    Props(new PubSubSink(name, address, delay)).withDispatcher("akka.flow-dispatcher")
 
   def props2(name: String, address: InetSocketAddress) =
     Props(new PubSubSink(name, address)).withDispatcher("akka.flow-dispatcher")
 }
 
-class PubSubSink private (name: String,
-                          val address: InetSocketAddress,
-                          delay: Long)
-    extends ActorSubscriber
-    with ActorPublisher[Long]
+class PubSubSink private (name: String, val address: InetSocketAddress, delay: Long) extends ActorSubscriber with ActorPublisher[Long]
     with GraphiteMetrics {
   private val queue = mutable.Queue[Long]()
 
@@ -1975,7 +1965,6 @@ final class AccumulateWhileUnchanged[E, P](propertyExtractor: E ⇒ P)
     }
 }
 
-
 class GraphiteSink[T](name: String, address: InetSocketAddress) extends GraphStage[SinkShape[T]] {
   private val in: Inlet[T] = Inlet("in")
 
@@ -2023,7 +2012,6 @@ trait GraphiteMetrics {
   }
 }*/
 
-
 object Traverse {
 
   /**
@@ -2037,8 +2025,7 @@ object Traverse {
    * @param f an asynchronous operation.
    * @return Future of the collection of results.
    */
-  def traverse[A, B](in: TraversableOnce[A], maxParallel: Int)(f: A ⇒ Future[B])
-                    (implicit mat: ActorMaterializer): Future[Seq[B]] =
+  def traverse[A, B](in: TraversableOnce[A], maxParallel: Int)(f: A ⇒ Future[B])(implicit mat: ActorMaterializer): Future[Seq[B]] =
     Source[A](in.toStream)
       .mapAsync(maxParallel)(f)
       .toMat(Sink.seq)(Keep.right)

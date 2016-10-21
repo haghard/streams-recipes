@@ -57,7 +57,7 @@ libraryDependencies ++= Seq(
   "co.fs2"            %% "fs2-io"            % "0.9.1",
 
   "com.spinoco"       %% "fs2-zk"            % "0.1.0-SNAPSHOT",
-  //"com.spinoco"   %%  "fs2-cassandra"
+  "com.spinoco"       %% "fs2-cassandra"     % "0.1.6",
   //Users/haghard/.ivy2/local/default/fs2-cache_2.11/1.0/jars/fs2-cache_2.11.jar
 
   "org.spire-math"    %% "jawn-spray"        % "0.9.0",
