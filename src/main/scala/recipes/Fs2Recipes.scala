@@ -1,11 +1,11 @@
 package recipes
 
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.{Executors, ThreadFactory, ThreadLocalRandom}
+import java.util.concurrent.{ Executors, ThreadFactory, ThreadLocalRandom }
 
-import fs2.{Task, _}
 import fs2.async.mutable
 import fs2.async.mutable.Queue
+import fs2.{ Task, _ }
 
 import scala.concurrent.duration._
 
@@ -38,7 +38,7 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
     }
   }
 
-  scenario04.run.unsafeAttemptRun
+  scenario03.run.unsafeAttemptRun
 
   def logStdOutDelayed[A](message: String): fs2.Pipe[Task, A, Unit] =
     _.evalMap { e ⇒
@@ -90,14 +90,14 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
   }
 
   /**
-    * Situation:
-    * A source and a sink perform on the same rate at the beginning,
-    * The sink gets slower, increasing latency with every message.
-    * We are using boundedQueue as buffer between the source and the sink.
-    * This leads to blocking "enqueue" operation for the source in case no space in the queue.
-    * Result:
-    * The source's rate is going to decrease proportionally with the sink's rate.
-    */
+   * Situation:
+   * A source and a sink perform on the same rate at the beginning,
+   * The sink gets slower, increasing latency with every message.
+   * We are using boundedQueue as buffer between the source and the sink.
+   * This leads to blocking "enqueue" operation for the source in case no space in the queue.
+   * Result:
+   * The source's rate is going to decrease proportionally with the sink's rate.
+   */
   def scenario02: Stream[Task, Unit] = {
     val delayPerMsg = 1l
     val window = 5000l
@@ -131,22 +131,22 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
   }
 
   /**
-    * Situation:
-    * A source and a sink perform on the same rate in the beginning, later the sink gets slower increasing delay with every message.
-    * We are using a separate process that tracks size of a queue, if it reaches the waterMark the top(head) element will be dropped.
-    * Result: The source's rate for a long time remains the same (how long depends on waterMark value),
-    * but eventually goes down when guard can't keep up anymore, whereas sink's rate goes down immediately.
-    *
-    *                      +-----+
-    *               +------|guard|
-    *               |      +-----+
-    * +------+   +-----+   +----+
-    * |source|---|queue|---|sink|
-    * +------+   +-----+   +----+
-    *
-    *
-    *
-    */
+   * Situation:
+   * A source and a sink perform on the same rate in the beginning, later the sink gets slower increasing delay with every message.
+   * We are using a separate process that tracks size of a queue, if it reaches the waterMark the top(head) element will be dropped.
+   * Result: The source's rate for a long time remains the same (how long depends on waterMark value),
+   * but eventually goes down when guard can't keep up anymore, whereas sink's rate goes down immediately.
+   *
+   *        +-----+
+   * +------|guard|
+   * |      +-----+
+   * +------+   +-----+   +----+
+   * |source|---|queue|---|sink|
+   * +------+   +-----+   +----+
+   *
+   *
+   *
+   */
   def scenario03: Stream[Task, Unit] = {
     val delayPerMsg = 1l
     val bufferSize = 1 << 8
@@ -210,11 +210,11 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
   }
 
   /**
-    * It always ensures there are 'parallelism' effects being evaluated assuming there's demand for them
-    * and they are available from the source stream,
-    * whereas the mapAsyncUnordered2 implementation shaded the input in to substreams, so some may not be busy.
-    */
-  def mapAsyncUnordered[F[_] : fs2.util.Async, A, B](parallelism: Int)(f: A ⇒ F[B]): Pipe[F, A, B] =
+   * It always ensures there are 'parallelism' effects being evaluated assuming there's demand for them
+   * and they are available from the source stream,
+   * whereas the mapAsyncUnordered2 implementation shaded the input in to substreams, so some may not be busy.
+   */
+  def mapAsyncUnordered[F[_]: fs2.util.Async, A, B](parallelism: Int)(f: A ⇒ F[B]): Pipe[F, A, B] =
     (inner: Stream[F, A]) ⇒
       concurrent.join(parallelism)(inner.map(a ⇒ Stream.eval(f(a))))
 
@@ -238,12 +238,12 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
         source.map(Some(_)).to(q.enqueue)
           //.evalMap { el ⇒ asc.flatMap(q.enqueue1(el)) { r ⇒ println(q.hashCode); asc.pure(()) } }
           .drain.onFinalize[F] {
-          def close(n: Int): F[Unit] =
-            if (n == 1) q.enqueue1(None) else a.flatMap(q.enqueue1(None))(_ ⇒ close(n - 1))
+            def close(n: Int): F[Unit] =
+              if (n == 1) q.enqueue1(None) else a.flatMap(q.enqueue1(None))(_ ⇒ close(n - 1))
 
-          close(parallelism)
-          //a.flatMap(q.enqueue1(None)) { r ⇒ println("Source is done"); a.pure(()) }
-        }
+            close(parallelism)
+            //a.flatMap(q.enqueue1(None)) { r ⇒ println("Source is done"); a.pure(()) }
+          }
           //.mergeHaltBoth(q.size.discrete.through(qSizeSink).drain)
           .merge(q.dequeue.unNoneTerminate.through(sink))
 
@@ -252,17 +252,17 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
   }
 
   /**
-    * 2 sinks run in parallel to balance the load
-    * Source throughput = Sink_1 throughput + Sink_2 throughput
-    *
-    *                             +-----+
-    *                      +------|sink0|
-    * +------+   +-----+   |      +-----+
-    * |source|---|queue|---|
-    * +------+   +-----+   |      +-----+
-    *                      +------|sink1|
-    *                             +-----+
-    */
+   * 2 sinks run in parallel to balance the load
+   * Source throughput == throughput_Sink1 + throughput_Sink2
+   *
+   *                             +-----+
+   *                      +------|sink0|
+   * +------+   +-----+   |      +-----+
+   * |source|---|queue|---|
+   * +------+   +-----+   |      +-----+
+   *                      +------|sink1|
+   *                             +-----+
+   */
   def scenario04: Stream[Task, Unit] = {
     val window = 5000l
     val parallelism = 2
@@ -283,16 +283,15 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
       println(s"${Thread.currentThread.getName}: stop $e")
     }
 
-    naturals2(sourceDelay, window, srcMessage, graphiteInstance).take(100)
+    naturals2(sourceDelay, window, srcMessage, graphiteInstance) //.take(100)
       .balance(bufferSize, parallelism)(
         mapAsyncUnordered(parallelism) { e ⇒
           graphite(gr, sinkMessage(Thread.currentThread.getName), 300)
           //testSink(e)
-        },
-        logStdOut
+        }, logStdOut
       ).onError { ex: Throwable ⇒
-      Stream.eval(Task.delay(println(s"fs2_scenario04 error: ${ex.getMessage}")))
-    }
+          Stream.eval(Task.delay(println(s"fs2_scenario04 error: ${ex.getMessage}")))
+        }
   }
 
   //Task.fromFuture()

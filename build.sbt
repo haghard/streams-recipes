@@ -38,7 +38,7 @@ resolvers ++= Seq(
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.4.11"
+val akkaStreamV = "2.4.12"
 
 val Origami = "1.0-20150902134048-8d00462"
 
@@ -53,8 +53,8 @@ libraryDependencies ++= Seq(
   "io.reactivex"      %% "rxscala"           % "0.26.2",
   "io.monix"          %% "monix"             % "2.0.2",
 
-  "co.fs2"            %% "fs2-core"          % "0.9.1",
-  "co.fs2"            %% "fs2-io"            % "0.9.1",
+  "co.fs2"            %% "fs2-core"          % "0.9.2",
+  "co.fs2"            %% "fs2-io"            % "0.9.2",
 
   "com.spinoco"       %% "fs2-zk"            % "0.1.0-SNAPSHOT",
   "com.spinoco"       %% "fs2-cassandra"     % "0.1.6",
@@ -71,11 +71,11 @@ libraryDependencies ++= Seq(
     .exclude("com.google.guava", "guava")
     .exclude("org.scalaz", "scalaz-stream"),
 
-  "io.swave"          %%  "swave-core"      % "0.5-M4",
+  "io.swave"          %%  "swave-core"      % "0.5.0",
 
   "oncue.quiver"      %% "core"             % "5.3.57",
 
-  "com.typesafe.akka" %% "akka-stream-contrib" % "0.4",
+  "com.typesafe.akka" %% "akka-stream-contrib" % "0.6",
 
   //"co.adhoclabs"    && "akka-http-contrib" % "0.0.6"
 
