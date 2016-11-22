@@ -25,6 +25,77 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
     go(0l)
   }
 
+  def times[F[_], T](n: Long): Pipe[F, T, T] = {
+    def go(n: Long): (Handle[F, T] ⇒ Pull[F, T, T]) =
+      handle ⇒ {
+        handle.receive1 { (element: T, h: Handle[F, T]) ⇒
+          if (n == 0) Pull.done
+          else Pull.output1(element) >> go(n - 1)(handle)
+        }
+      }
+    _.pull(go(n))
+  }
+
+  def dynamicChunks[F[_]]: Pipe[F, Long, NonEmptyChunk[Long]] = {
+    def go(size: Int, ind: Int, array: Array[Long]): Handle[F, Long] ⇒ Pull[F, NonEmptyChunk[Long], Any] = {
+      handle ⇒
+        {
+          handle.receive1 { (e, h) ⇒
+            if (ind == size) Pull.output1(NonEmptyChunk.fromChunk(Chunk.longs(array)).get) >> {
+              val newSize = ThreadLocalRandom.current.nextInt(5, 10)
+              go(newSize, 0, Array.fill[Long](newSize)(0l))(h)
+            }
+            else {
+              array(ind) = e
+              go(size, ind + 1, array)(h)
+            }
+          }
+        }
+    }
+
+    val size = ThreadLocalRandom.current().nextInt(5, 10)
+    _.pull(go(size, 0, Array.fill[Long](size)(0l)))
+  }
+
+  def naturals[F[_]]: Pipe[F, Long, Long] = {
+    def go(n: Long, f: Boolean): (Handle[F, Long] ⇒ Pull[F, Long, Long]) = {
+      handle ⇒
+        handle.receive1 { (e, h) ⇒
+          if (f) Pull.output1(e) >> go(e + 1, false)(handle)
+          else Pull.output1(n) >> go(n + 1, false)(handle)
+        }
+    }
+
+    _.pull(go(0, true))
+  }
+
+  def stdout[A]: fs2.Pipe[Task, A, Unit] =
+    _.evalMap { e ⇒
+      Task.delay {
+        val delayed = scala.util.Random.nextInt(300)
+        Thread.sleep(delayed.toLong)
+        println(s"${Thread.currentThread.getName}: latency:$delayed value: $e")
+      }
+    }
+
+  def stdoutSize[A]: fs2.Pipe[Task, Chunk[A], Unit] = {
+    _.evalMap { chunk ⇒
+      Task.delay {
+        val sleep = scala.util.Random.nextInt(300)
+        Thread.sleep(sleep.toLong)
+        println(s"[${Thread.currentThread.getName}] latency:$sleep chunk-size:${chunk.iterator.mkString(",")}")
+      }
+    }
+  }
+
+  /*
+  val src: Stream[Task, Long] = Stream.emit(-100l)
+  (src through (naturals andThen stdout)).run.unsafeRun
+
+  val src1: Stream[Task, Long] = Stream.iterate(Long.MinValue)(_ + 1l)
+  (src1 through (dynamicChunks andThen stdoutSize[Long])).run.unsafeRun
+  */
+
   case class Fs2Daemons(name: String) extends ThreadFactory {
     private def namePrefix = s"$name-thread"
 
@@ -38,7 +109,7 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
     }
   }
 
-  scenario03.run.unsafeAttemptRun
+  scenario04.run.unsafeAttemptRun
 
   def logStdOutDelayed[A](message: String): fs2.Pipe[Task, A, Unit] =
     _.evalMap { e ⇒
@@ -54,6 +125,15 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
     _.evalMap { n ⇒
       Task.delay(println(s"${Thread.currentThread.getName}: $n"))
     }
+
+  /*
+  def oneByOne[F[_], A](count: Int): Pipe[F, A, A] = {
+    def go(remaining: Int): (Handle[F, A] ⇒ Pull[F, A, Unit]) =
+      handle ⇒ {
+        if (remaining <= 0) Pull.done
+        else handle.receive1 { (element, h) ⇒ Pull.output1(element) ⇒ go(remaining - 1)(handle) }
+      }
+  }*/
 
   def logGraphite[A](g: GraphiteMetrics, message: String): fs2.Pipe[Task, A, Unit] =
     _.evalMap { _ ⇒ graphite(g, message) }
@@ -137,7 +217,7 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
    * Result: The source's rate for a long time remains the same (how long depends on waterMark value),
    * but eventually goes down when guard can't keep up anymore, whereas sink's rate goes down immediately.
    *
-   *        +-----+
+   * +-----+
    * +------|guard|
    * |      +-----+
    * +------+   +-----+   +----+
@@ -255,13 +335,13 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
    * 2 sinks run in parallel to balance the load
    * Source throughput == throughput_Sink1 + throughput_Sink2
    *
-   *                             +-----+
-   *                      +------|sink0|
+   * +-----+
+   * +------|sink0|
    * +------+   +-----+   |      +-----+
    * |source|---|queue|---|
    * +------+   +-----+   |      +-----+
-   *                      +------|sink1|
-   *                             +-----+
+   * +------|sink1|
+   * +-----+
    */
   def scenario04: Stream[Task, Unit] = {
     val window = 5000l
@@ -283,7 +363,7 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
       println(s"${Thread.currentThread.getName}: stop $e")
     }
 
-    naturals2(sourceDelay, window, srcMessage, graphiteInstance) //.take(100)
+    naturals2(sourceDelay, window, srcMessage, graphiteInstance).take(100)
       .balance(bufferSize, parallelism)(
         mapAsyncUnordered(parallelism) { e ⇒
           graphite(gr, sinkMessage(Thread.currentThread.getName), 300)
@@ -294,10 +374,26 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
         }
   }
 
+  //Stream.emits(0 to 10).fla
+
   //Task.fromFuture()
   /*def go(out: FileHandle[Task]): Handle[Task,MyEvent] => Pull[Task,Nothing,Unit] =
     _.receive1 {
       case (MyEvent.Data(d), h) => Pull.eval(out.write(data)) >> go(out)(h)
       case (MyEvent.NewFile(name), h) => Pull.eval(out.close) >> io.file.pulls.fromPathAsync[Task](name, ...).flatMap { newOut => go(newOut)(h) }
     }*/
+  /*
+  implicit val st = Strategy.fromFixedDaemonPool(4)
+  implicit val sc = Scheduler.fromFixedDaemonPool(4)
+  val tasks = Stream(1, 2, 3).covary[Task].map { i ⇒
+    Task.delay {
+      println(s"Trying $i")
+      if (i == 3) sys.error("foo") else i
+    }
+  }
+
+  //retry the most recently available Task until it passes or until a new Task is available
+  val retries = Retries.retryTasksOnFailure(tasks, x ⇒ 1.second)
+  retries.run.unsafeRun*/
+
 }
