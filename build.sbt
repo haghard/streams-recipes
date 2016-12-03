@@ -38,7 +38,7 @@ resolvers ++= Seq(
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.4.12"
+val akkaStreamV = "2.4.14"
 
 val Origami = "1.0-20150902134048-8d00462"
 
@@ -46,12 +46,12 @@ initialCommands in (Test, console) := """ammonite.Main().run()"""
 
 libraryDependencies ++= Seq(
   "org.http4s"        %% "jawn-streamz"   % "0.8.1", //https://github.com/rossabaker/jawn-streamz
-  "com.typesafe.akka" %% "akka-stream"       % akkaStreamV,
+  "com.typesafe.akka" %% "akka-stream"    % akkaStreamV,
 
   //"com.mfglabs"       %% "akka-stream-extensions-shapeless" % "0.10.0",
 
   "io.reactivex"      %% "rxscala"           % "0.26.2",
-  "io.monix"          %% "monix"             % "2.0.2",
+  "io.monix"          %% "monix"             % "2.1.1",
 
   "co.fs2"            %% "fs2-core"          % "0.9.2",
   "co.fs2"            %% "fs2-io"            % "0.9.2",
