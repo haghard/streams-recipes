@@ -21,7 +21,7 @@ import com.typesafe.config.ConfigFactory
 import recipes.AkkaRecipes.LogEntry
 import recipes.BalancerRouter._
 import recipes.BatchProducer.Item
-import recipes.ConsistentHashingRouter.{ DBObject2, CHWork }
+import recipes.ConsistentHashingRouter.{ CHWork, DBObject2 }
 
 import scala.collection.{ immutable, mutable }
 import scala.concurrent.duration.{ Deadline, FiniteDuration, _ }
@@ -35,7 +35,8 @@ import scalaz.{ -\/, \/, \/- }
 object AkkaRecipes extends App {
 
   //achieve before 2.0 behavior with stream.materializer.auto-fusing=off
-  val config = ConfigFactory.parseString("""
+  val config = ConfigFactory.parseString(
+    """
       |akka {
       |  stream.materializer.auto-fusing=off
       |
@@ -58,26 +59,27 @@ object AkkaRecipes extends App {
     """.stripMargin)
 
   val config20 =
-    ConfigFactory.parseString("""
-      |akka {
-      |
-      |  flow-dispatcher {
-      |    type = Dispatcher
-      |    executor = "fork-join-executor"
-      |    fork-join-executor {
-      |      parallelism-min = 8
-      |      parallelism-max = 16
-      |    }
-      |  }
-      |  blocking-dispatcher {
-      |    executor = "thread-pool-executor"
-      |    thread-pool-executor {
-      |      core-pool-size-min = 4
-      |      core-pool-size-max = 4
-      |    }
-      |  }
-      |}
-    """.stripMargin)
+    ConfigFactory.parseString(
+      """
+        |akka {
+        |
+        |  flow-dispatcher {
+        |    type = Dispatcher
+        |    executor = "fork-join-executor"
+        |    fork-join-executor {
+        |      parallelism-min = 8
+        |      parallelism-max = 16
+        |    }
+        |  }
+        |  blocking-dispatcher {
+        |    executor = "thread-pool-executor"
+        |    thread-pool-executor {
+        |      core-pool-size-min = 4
+        |      core-pool-size-max = 4
+        |    }
+        |  }
+        |}
+      """.stripMargin)
 
   val statsD =
     new InetSocketAddress(InetAddress.getByName("192.168.0.182"), 8125)
@@ -263,7 +265,9 @@ object AkkaRecipes extends App {
       val sink = Sink.actorSubscriber(SyncActor.props2("akka-sink1", statsD))
 
       //(source alsoTo slidingWindow("akka-scenario1", 2 seconds)) ~> sink
-      (source alsoTo tumblingWindowWithFilter("akka-scenario1", 2 seconds) { _ >= 97l }) ~> sink
+      (source alsoTo tumblingWindowWithFilter("akka-scenario1", 2 seconds) {
+        _ >= 97l
+      }) ~> sink
       ClosedShape
     }
   }
@@ -944,15 +948,15 @@ object AkkaRecipes extends App {
    * Router pulls from the DbCursorPublisher and runs parallel processing for records
    * Router dictates rate to publisher
    * Parallel
-   *                                                  +------+
-   *                                               +--|Worker|--+
-   *                                               |  +------+  |
+   * +------+
+   * +--|Worker|--+
+   * |  +------+  |
    * +-----------------+     +--------------+      |  +------+  |  +-----------+
    * |DbCursorPublisher|-----|BalancerRouter|------|--|Worker|-----|RecordsSink|
    * +-----------------+     +--------------+      |  +------+  |  +-----------+
-   *                                               |  +------+  |
-   *                                               +--|Worker|--+
-   *                                                  +------+
+   * |  +------+  |
+   * +--|Worker|--+
+   * +------+
    */
   def scenario15: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit b ⇒
@@ -1000,6 +1004,7 @@ object AkkaRecipes extends App {
         new PushStage[ByteString, ByteString] {
           override def onPush(elem: ByteString, ctx: Context[ByteString]): SyncDirective =
             ctx.push(elem ++ ByteString('\n'))
+
           override def postStop(): Unit = {
             println("tailing  has been finished")
             proc.destroy()
@@ -1220,7 +1225,9 @@ object BalancerRouter {
 }
 
 object ConsistentHashingRouter {
+
   case class CHWork(id: Long, key: String)
+
   case class DBObject2(id: Long, replyTo: ActorRef)
 
   def props: Props =
@@ -1728,6 +1735,7 @@ object IndividualRateLimiter {
 }
 
 class IndividualRateLimiter(number: Int, period: FiniteDuration) {
+
   import IndividualRateLimiter._
 
   //the index of the next slot to be used
@@ -1757,8 +1765,6 @@ class IndividualRateLimiter(number: Int, period: FiniteDuration) {
 class TimeStampedLogReader[T](time: T ⇒ Long) extends GraphStage[FlowShape[T, T]] {
   var firstEventTime = 0L
   var firstActualTime = 0L
-
-  //val f = Flow[Double].groupedWithin(1000, 1 second)
 
   val in = Inlet[T]("RateAdaptor.in")
   val out = Outlet[T]("RateAdaptor.out")
@@ -1810,7 +1816,7 @@ class Filter[A](p: A ⇒ Boolean) extends GraphStage[FlowShape[A, A]] {
 
   val shape = FlowShape.of(in, out)
 
-  override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
+  override def createLogic(inheritedAttributes: Attributes) =
     new GraphStageLogic(shape) {
       setHandler(in, new InHandler {
         override def onPush(): Unit = {
@@ -1870,25 +1876,23 @@ class DuplicatorN[A] extends GraphStage[FlowShape[A, A]] {
 
   val shape = FlowShape.of(in, out)
 
-  override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
-    new GraphStageLogic(shape) {
-      setHandler(in, new InHandler {
-        override def onPush(): Unit = {
-          val elem = grab(in)
-          // this will temporarily suspend this handler until the two elems
-          // are emitted and then reinstates it
-          emitMultiple(out, immutable.Iterable(elem, elem))
-        }
-      })
+  override def createLogic(inheritedAttributes: Attributes) = new GraphStageLogic(shape) {
+    setHandler(in, new InHandler {
+      override def onPush(): Unit = {
+        val elem = grab(in)
+        // this will temporarily suspend this handler until the two elems
+        // are emitted and then reinstates it
+        emitMultiple(out, immutable.Iterable(elem, elem))
+      }
+    })
 
-      setHandler(out, new OutHandler {
-        override def onPull() = pull(in)
-      })
-    }
+    setHandler(out, new OutHandler {
+      override def onPull() = pull(in)
+    })
+  }
 }
 
-class TimedGate[A](silencePeriod: FiniteDuration)
-    extends GraphStage[FlowShape[A, A]] {
+class TimedGate[A](silencePeriod: FiniteDuration) extends GraphStage[FlowShape[A, A]] {
   val in = Inlet[A]("TimedGate.in")
   val out = Outlet[A]("TimedGate.out")
   val shape = FlowShape.of(in, out)
@@ -1918,8 +1922,7 @@ class TimedGate[A](silencePeriod: FiniteDuration)
 }
 
 //http://blog.kunicki.org/blog/2016/07/20/implementing-a-custom-akka-streams-graph-stage/
-final class AccumulateWhileUnchanged[E, P](propertyExtractor: E ⇒ P)
-    extends GraphStage[FlowShape[E, immutable.Seq[E]]] {
+final class AccumulateWhileUnchanged[E, P](propertyExtractor: E ⇒ P) extends GraphStage[FlowShape[E, immutable.Seq[E]]] {
   val in = Inlet[E]("in")
   val out = Outlet[immutable.Seq[E]]("out")
 
@@ -1978,9 +1981,9 @@ class GraphiteSink[T](name: String, address: InetSocketAddress) extends GraphSta
 
       private def sendUdpMessage(message: String): Unit = {
         sendBuffer.put(message.getBytes(Encoding))
-        sendBuffer.flip()
+        sendBuffer.flip
         channel.send(sendBuffer, address)
-        sendBuffer.limit(sendBuffer.capacity())
+        sendBuffer.limit(sendBuffer.capacity)
         sendBuffer.rewind()
       }
 
@@ -1995,6 +1998,92 @@ class GraphiteSink[T](name: String, address: InetSocketAddress) extends GraphSta
       })
     }
 }
+
+//http://www.cakesolutions.net/teamblogs/lifting-machine-learning-into-akka-streams
+//GraphStage[FlowShape[A, immutable.Seq[A]]]
+class SlidingWindow[A](size: Int) extends PushPullStage[A, List[A]] {
+
+  val in = Inlet[A]("in")
+  val out = Outlet[immutable.Seq[A]]("out")
+
+  require(size > 0)
+
+  private val buffer = mutable.Queue[A]()
+  private var isSaturated = false
+
+  def onPush(elem: A, ctx: Context[List[A]]) = {
+    if (buffer.length == size) {
+      // Buffer is full, so push new window
+      buffer.dequeue //drop element ????
+      buffer.enqueue(elem)
+      ctx.push(buffer.toList)
+    } else {
+      // Buffer is not yet full, so keep consuming from our upstream
+      buffer.enqueue(elem)
+      if (buffer.length == size) {
+        // Buffer has become full, so push new window and record saturation
+        isSaturated = true
+        ctx.push(buffer.toList)
+      } else ctx.pull()
+    }
+  }
+
+  override def onPull(ctx: Context[List[A]]) = {
+    if (ctx.isFinishing) {
+      // Streaming stage is shutting down, so we ensure that all buffer elements are flushed prior to finishing
+      if (buffer.isEmpty) {
+        // Buffer is empty, so we simply finish
+        ctx.finish()
+      } else if (buffer.length == 1) {
+        // Buffer is non-empty, so empty it by sending undersized (non-empty) truncated window sequence and finish
+        if (isSaturated) {
+          // Buffer was previously saturated, so head element has already been seen
+          buffer.dequeue()
+          ctx.finish()
+        } else {
+          // Buffer was never saturated, so head element needs to be pushed
+          ctx.pushAndFinish(buffer.dequeue :: Nil)
+        }
+      } else {
+        // Buffer is non-empty, so empty it by sending undersized (non-empty) truncated window sequence - we will eventually finish here
+        if (isSaturated) {
+          // Buffer was previously saturated, so head element has already been seen
+          buffer.dequeue()
+          ctx.push(buffer.toList)
+        } else {
+          // Buffer was never saturated, so head element should be part of truncated window
+          val window = buffer.toList
+          buffer.dequeue()
+          ctx.push(window)
+        }
+      }
+    } else ctx.pull()
+  }
+
+  override def onUpstreamFinish(ctx: Context[List[A]]): TerminationDirective = {
+    ctx.absorbTermination()
+  }
+}
+
+/*
+class SlidingWindowTest extends AkkaSpec {
+  import StreamTestKit._
+  val in = PublisherProbe[String]()
+  val out = SubscriberProbe[List[String]]()
+  // Handle requests automatically and publish messages when available
+  val pub = new AutoPublisher(in)
+
+  Flow[String].transform(() => SlidingWindow[String](windowSize))
+    .runWith(Source(in), Sink(out))
+
+  val sub = out.expectSubscription()
+  sub.request(msgs.length)
+  for (msg <- msgs) {
+    pub.sendNext(msg)
+  }
+}
+*/
+
 /*
 trait GraphiteMetrics {
   val Encoding = "utf-8"
@@ -2020,9 +2109,9 @@ object Traverse {
    * but with bounded maximal parallelism.
    * Uses Akka Streams' `mapAsync` to achieve maximum throughput, rather than processing in fixed batches.
    *
-   * @param in collection of operands.
+   * @param in          collection of operands.
    * @param maxParallel the maximum number of threads to use.
-   * @param f an asynchronous operation.
+   * @param f           an asynchronous operation.
    * @return Future of the collection of results.
    */
   def traverse[A, B](in: TraversableOnce[A], maxParallel: Int)(f: A ⇒ Future[B])(implicit mat: ActorMaterializer): Future[Seq[B]] =

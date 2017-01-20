@@ -396,4 +396,6 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
   val retries = Retries.retryTasksOnFailure(tasks, x ⇒ 1.second)
   retries.run.unsafeRun*/
 
+  //Scalaz-streams to fs2
+  //https://gist.github.com/pchlupacek/989a2801036a9441da252726a1b4972d
 }
