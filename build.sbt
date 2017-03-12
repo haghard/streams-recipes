@@ -38,7 +38,7 @@ resolvers ++= Seq(
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.4.16"
+val akkaStreamV = "2.4.17"
 
 val Origami = "1.0-20150902134048-8d00462"
 
@@ -53,11 +53,11 @@ libraryDependencies ++= Seq(
   "io.reactivex"      %% "rxscala"           % "0.26.2",
   "io.monix"          %% "monix"             % "2.1.1",
 
-  "co.fs2"            %% "fs2-core"          % "0.9.2",
-  "co.fs2"            %% "fs2-io"            % "0.9.2",
+  "co.fs2"            %% "fs2-core"          % "0.9.4",
+  "co.fs2"            %% "fs2-io"            % "0.9.4",
 
-  "com.spinoco"       %% "fs2-zk"            % "0.1.0-SNAPSHOT",
-  "com.spinoco"       %% "fs2-cassandra"     % "0.1.6",
+  "com.spinoco"       %% "fs2-zk"            % "0.1.1",
+  "com.spinoco"       %% "fs2-cassandra"     % "0.1.7",
   //Users/haghard/.ivy2/local/default/fs2-cache_2.11/1.0/jars/fs2-cache_2.11.jar
 
   "org.spire-math"    %% "jawn-spray"        % "0.9.0",

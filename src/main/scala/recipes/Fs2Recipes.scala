@@ -217,7 +217,7 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
    * Result: The source's rate for a long time remains the same (how long depends on waterMark value),
    * but eventually goes down when guard can't keep up anymore, whereas sink's rate goes down immediately.
    *
-   * +-----+
+   *        +-----+
    * +------|guard|
    * |      +-----+
    * +------+   +-----+   +----+
@@ -335,13 +335,13 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
    * 2 sinks run in parallel to balance the load
    * Source throughput == throughput_Sink1 + throughput_Sink2
    *
-   * +-----+
-   * +------|sink0|
+   *                             +-----+
+   *                      +------|sink0|
    * +------+   +-----+   |      +-----+
    * |source|---|queue|---|
    * +------+   +-----+   |      +-----+
-   * +------|sink1|
-   * +-----+
+   *                      +------|sink1|
+   *                             +-----+
    */
   def scenario04: Stream[Task, Unit] = {
     val window = 5000l
@@ -398,4 +398,30 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
 
   //Scalaz-streams to fs2
   //https://gist.github.com/pchlupacek/989a2801036a9441da252726a1b4972d
+
+  //https://gist.github.com/zeryx/5d918a433dca167975ca047a7e1f4cc1
+  //combines one model with another, dedups too if text in docA is found in docB using windowSize & number of attempts.
+  def combineModels(newModel: Stream[Task, String], oldModel: Stream[Task, String],
+                    windowSize: Int)(implicit s: Strategy): Stream[Task, String] = {
+    val doubleDeduped = dedupStreams[String](newModel, oldModel, windowSize)
+    val singleDeduped = dedupStream[String](doubleDeduped, windowSize)
+    singleDeduped
+  }
+
+  def dedupStreams[A](a: Stream[Task, A], b: Stream[Task, A], windowSize: Int)(implicit s: Strategy): Stream[Task, A] = {
+    a.interleaveAll(b).sliding(windowSize).flatMap { window ⇒
+      val distinct = window
+      println(distinct)
+      Stream.emits(distinct)
+    }
+  }
+
+  //dedups a single stream based on a window size.
+  def dedupStream[A](a: Stream[Task, A], windowSize: Int)(implicit s: Strategy): Stream[Task, A] = {
+    a.sliding(windowSize).flatMap { window ⇒
+      val distinct = window.distinct
+      println(distinct)
+      Stream.emits(distinct)
+    }
+  }
 }
