@@ -83,6 +83,8 @@ libraryDependencies ++= Seq(
   //Future to Task and Task to Future conversions
   //"io.verizon.delorean" %% "core"       % "1.1.37",
 
+  "org.apache.commons" % "commons-collections4" % "4.0",
+
   "com.lihaoyi"       % "ammonite" % "0.7.8" % "test" cross CrossVersion.full
 )
 

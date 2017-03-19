@@ -18,7 +18,7 @@ import akka.stream.stage._
 import akka.util.ByteString
 import com.esri.core.geometry.Point
 import com.typesafe.config.ConfigFactory
-import recipes.AkkaRecipes.LogEntry
+import recipes.AkkaRecipes.{ CircularFifo, LogEntry }
 import recipes.BalancerRouter._
 import recipes.BatchProducer.Item
 import recipes.ConsistentHashingRouter.{ CHWork, DBObject2 }
@@ -122,8 +122,11 @@ object AkkaRecipes extends App {
   //RunnableGraph.fromGraph(scenario12).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario19).run()(ActorMaterializer(Settings)(sys))
 
+  //https://gist.github.com/debasishg/8172796
+  type CircularFifo[T] = org.apache.commons.collections4.queue.CircularFifoQueue[T]
+
   RunnableGraph
-    .fromGraph(scenario15_01)
+    .fromGraph(scenario21)
     .run()(ActorMaterializer(Settings)(sys))
 
   //RunnableGraph.fromGraph(scenario18).run()(ActorMaterializer(Settings20)(sys))
@@ -174,15 +177,12 @@ object AkkaRecipes extends App {
     (Flow[T]
       .conflateWithSeed(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
-      .scan((0l, 0, System.nanoTime())) {
-        case ((acc, iter, last), v) ⇒
-          if (iter == numOfIntervals - 1) (v, 0, System.nanoTime())
-          else (acc + v, iter + 1, last)
+      .scan((0l, 0, System.nanoTime)) {
+        case ((acc, iter, lastTs), v) ⇒
+          if (iter == numOfIntervals - 1) (v, 0, System.nanoTime)
+          else (acc + v, iter + 1, lastTs)
       }
-      .to(Sink.foreach {
-        case (acc, iter, ts) ⇒
-          println(buildProgress(iter, acc, (System.nanoTime() - ts) / nano))
-      })
+      .to(Sink.foreach { case (acc, iter, ts) ⇒ println(buildProgress(iter, acc, (System.nanoTime - ts) / nano)) })
       .withAttributes(Attributes.inputBuffer(1, 1))
   }
 
@@ -219,13 +219,10 @@ object AkkaRecipes extends App {
         import GraphDSL.Implicits._
 
         def conflate =
-          b.add(
-            Flow[T]
-              .withAttributes(Attributes.inputBuffer(1, 1))
-              .conflateWithSeed(identity)((c, _) ⇒ c))
+          b.add(Flow[T].withAttributes(Attributes.inputBuffer(1, 1))
+            .conflateWithSeed(identity)((c, _) ⇒ c))
 
-        val zip = b.add(ZipWith(Tuple3.apply[T, T, T] _)
-          .withAttributes(Attributes.inputBuffer(1, 1)))
+        val zip = b.add(ZipWith(Tuple3.apply[T, T, T] _).withAttributes(Attributes.inputBuffer(1, 1)))
 
         in1 ~> conflate ~> zip.in0
         in2 ~> conflate ~> zip.in1
@@ -948,15 +945,15 @@ object AkkaRecipes extends App {
    * Router pulls from the DbCursorPublisher and runs parallel processing for records
    * Router dictates rate to publisher
    * Parallel
-   * +------+
-   * +--|Worker|--+
-   * |  +------+  |
+   *                                                  +------+
+   *                                               +--|Worker|--+
+   *                                               |  +------+  |
    * +-----------------+     +--------------+      |  +------+  |  +-----------+
    * |DbCursorPublisher|-----|BalancerRouter|------|--|Worker|-----|RecordsSink|
    * +-----------------+     +--------------+      |  +------+  |  +-----------+
-   * |  +------+  |
-   * +--|Worker|--+
-   * +------+
+   *                                               |  +------+  |
+   *                                               +--|Worker|--+
+   *                                                  +------+
    */
   def scenario15: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit b ⇒
@@ -1125,12 +1122,56 @@ object AkkaRecipes extends App {
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
       val sink = Sink.actorSubscriber(SyncActor.props2("akka-sink_19", statsD))
-      val src = throttledSrc(statsD,
-        1 second,
-        900 milliseconds,
-        Int.MaxValue,
-        "akka-source_19")
+      val src = throttledSrc(statsD, 1 second, 900 milliseconds, Int.MaxValue, "akka-source_19")
       src ~> trailingDifference(4) ~> sink
+      ClosedShape
+    }
+  }
+
+  /**
+   *  Sliding window on bounded memory with CircularFifoQueue, drops elements and stores  only last 5
+   */
+  def scenario20(): Graph[ClosedShape, akka.NotUsed] = {
+    GraphDSL.create() { implicit b ⇒
+      import GraphDSL.Implicits._
+      val lenght = 5
+      val sink = Sink.actorSubscriber(SyncActor.props("akka-sink_20", statsD, 10l))
+      val src = throttledSrc(statsD, 1 second, 100 milliseconds, Int.MaxValue, "akka-source_20")
+
+      val slidingWindow = Flow[Int]
+        .conflateWithSeed({ e ⇒
+          val q = new CircularFifo[Int](lenght)
+          q.add(e)
+          q
+        }) { (q, e) ⇒
+          q.add(e)
+          q
+        }.zipWith(Source.tick(1 seconds, 1 seconds, ()))(Keep.left)
+        .withAttributes(Attributes.inputBuffer(1, 1))
+
+      src ~> slidingWindow ~> sink
+      ClosedShape
+    }
+  }
+
+  /**
+   *
+   * Sliding window on bounded memory with CircularFifoQueue, doesn't drop elements
+   */
+  def scenario21(): Graph[ClosedShape, akka.NotUsed] = {
+    GraphDSL.create() { implicit b ⇒
+      import GraphDSL.Implicits._
+      val lenght = 5
+      val sink = Sink.actorSubscriber(SyncActor.props("akka-sink_21", statsD, 10l))
+      val src = throttledSrc(statsD, 1 second, 100 milliseconds, Int.MaxValue, "akka-source_21")
+
+      val slidingWindow = Flow[Int].buffer(1, OverflowStrategy.backpressure)
+        .scan(new CircularFifo[Int](lenght)) { (q, e) ⇒
+          q.add(e)
+          q
+        }
+
+      src ~> slidingWindow ~> sink
       ClosedShape
     }
   }
@@ -1144,8 +1185,7 @@ object AkkaRecipes extends App {
 
       val processing = b.add(Flow[(Int, Int)].map(nums ⇒ nums._1 - nums._2))
 
-      broadcast ~> Flow[Int]
-        .buffer(offset, akka.stream.OverflowStrategy.backpressure) ~> zip.in0
+      broadcast ~> Flow[Int].buffer(offset, akka.stream.OverflowStrategy.backpressure) ~> zip.in0
       broadcast ~> Flow[Int].drop(offset) ~> zip.in1
       zip.out ~> processing
 
@@ -1509,7 +1549,7 @@ class SyncActor private (name: String,
 
   override def receive: Receive = {
     case OnNext(msg: Int) ⇒
-      //println(Thread.currentThread().getName + " synch")
+      println(s"${Thread.currentThread().getName}:  $msg")
       send(s"$name:1|c")
 
     case OnNext(msg: (Int, Int, Int)) ⇒
@@ -1526,6 +1566,10 @@ class SyncActor private (name: String,
 
     case OnNext(log: LogEntry) ⇒
       send(s"$name:1|c")
+
+    case OnNext(q: CircularFifo[Int]) ⇒
+      send(s"$name:1|c")
+      println(s"sliding window ${q}")
 
     case OnError(ex) ⇒
       println(s"OnError SyncActor: ${ex.getMessage}")
