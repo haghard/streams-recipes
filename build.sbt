@@ -38,7 +38,9 @@ resolvers ++= Seq(
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.4.17"
+//val akkaStreamV = "2.5.1"
+
+val akkaStreamV = "2.4.18"
 
 val Origami = "1.0-20150902134048-8d00462"
 
@@ -46,17 +48,21 @@ initialCommands in (Test, console) := """ammonite.Main().run()"""
 
 libraryDependencies ++= Seq(
   "org.http4s"        %% "jawn-streamz"   % "0.8.1", //https://github.com/rossabaker/jawn-streamz
+
+  //"org.http4s"        %% "jawn-fs2"     % "0.9.0",
+  //"org.http4s"        %%  "jawn-fs2"      % "0.10.1"
+
   "com.typesafe.akka" %% "akka-stream"    % akkaStreamV,
 
   //"com.mfglabs"       %% "akka-stream-extensions-shapeless" % "0.10.0",
 
   "io.reactivex"      %% "rxscala"           % "0.26.2",
-  "io.monix"          %% "monix"             % "2.1.1",
+  "io.monix"          %% "monix"             % "2.1.2",
 
-  "co.fs2"            %% "fs2-core"          % "0.9.4",
-  "co.fs2"            %% "fs2-io"            % "0.9.4",
+  "co.fs2"            %% "fs2-core"          % "0.9.5",
+  "co.fs2"            %% "fs2-io"            % "0.9.5",
 
-  "com.spinoco"       %% "fs2-zk"            % "0.1.1",
+  "com.spinoco"       %% "fs2-zk"            % "0.1.5",
   "com.spinoco"       %% "fs2-cassandra"     % "0.1.7",
   //Users/haghard/.ivy2/local/default/fs2-cache_2.11/1.0/jars/fs2-cache_2.11.jar
 
@@ -65,13 +71,15 @@ libraryDependencies ++= Seq(
   "com.esri.geometry" %  "esri-geometry-api" % "1.2.1",
   "io.spray"          %% "spray-json"        % "1.3.2",
 
-  "com.ambiata"       %%  "origami-core"            %   Origami,
-  ("com.ambiata"      %%  "origami-stream"          %   Origami)
+  //"io.dropwizard.metrics"   % "metrics-core"   %   "3.1.0.",
+  //"io.dropwizard.metrics"   % "metrics-graphite" %   "3.1.0.",
+  "com.ambiata"       %%  "origami-core"       %   Origami,
+  ("com.ambiata"      %%  "origami-stream"     %   Origami)
     .exclude("com.google.caliper","caliper")
     .exclude("com.google.guava", "guava")
     .exclude("org.scalaz", "scalaz-stream"),
 
-  "io.swave"          %%  "swave-core"      % "0.5.0",
+  "io.swave"          %%  "swave-core"      % "0.7.0",
 
   "oncue.quiver"      %% "core"             % "5.3.57",
 

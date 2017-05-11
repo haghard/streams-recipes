@@ -125,9 +125,11 @@ object AkkaRecipes extends App {
   //https://gist.github.com/debasishg/8172796
   type CircularFifo[T] = org.apache.commons.collections4.queue.CircularFifoQueue[T]
 
-  RunnableGraph
-    .fromGraph(scenario21)
-    .run()(ActorMaterializer(Settings)(sys))
+  //RunnableGraph.fromGraph(scenario21).run()(ActorMaterializer(Settings)(sys))
+
+  RunnableGraph.fromGraph(scenario15_01).run()(ActorMaterializer(Settings)(sys))
+
+  //scenario15_001.run()(ActorMaterializer(Settings)(sys))
 
   //RunnableGraph.fromGraph(scenario18).run()(ActorMaterializer(Settings20)(sys))
 
@@ -960,6 +962,7 @@ object AkkaRecipes extends App {
       import GraphDSL.Implicits._
       val out = sys.actorOf(Props(classOf[RecordsSink], "sink15", statsD)
         .withDispatcher("akka.flow-dispatcher"), "akka-sink15")
+
       val src = Source.actorPublisher[Long](Props(classOf[DbCursorPublisher], "akka-source15", 20000l, statsD)
         .withDispatcher("akka.flow-dispatcher"))
         .map(DBObject(_, out))
@@ -968,14 +971,72 @@ object AkkaRecipes extends App {
     }
   }
 
+  //
+  import akka.stream.SourceShape
+  import akka.stream.Graph
+  import akka.stream.stage.GraphStage
+  import akka.stream.stage.OutHandler
+  import akka.stream.SinkShape
+  import akka.stream.stage.GraphStage
+  import akka.stream.stage.InHandler
+
+  class NumbersSource extends GraphStage[SourceShape[Int]] {
+    val out: Outlet[Int] = Outlet("NumbersSource")
+    override val shape: SourceShape[Int] = SourceShape(out)
+
+    override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
+      new GraphStageLogic(shape) {
+        // All state MUST be inside the GraphStageLogic,
+        // never inside the enclosing GraphStage.
+        // This state is safe to access and modify from all the
+        // callbacks that are provided by GraphStageLogic and the
+        // registered handlers.
+        private var counter = 1
+
+        setHandler(out, new OutHandler {
+          override def onPull(): Unit = {
+            push(out, counter)
+            counter += 1
+          }
+        })
+      }
+  }
+
+  class StdoutSink extends GraphStage[SinkShape[Int]] {
+    val in: Inlet[Int] = Inlet("StdoutSink")
+    override val shape: SinkShape[Int] = SinkShape(in)
+
+    override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
+      new GraphStageLogic(shape) {
+        override def preStart(): Unit = pull(in)
+        setHandler(in, new InHandler {
+          override def onPush(): Unit = {
+            println(grab(in))
+            pull(in)
+          }
+        })
+      }
+  }
+
+  //akka 2.5
+  def scenario15_001 = {
+    val sourceGraph: Graph[SourceShape[Int], akka.NotUsed] = new NumbersSource
+    val mySource: Source[Int, akka.NotUsed] = Source.fromGraph(sourceGraph)
+    //val r: Future[Int] = mySource.take(10).runFold(0)(_ + _)
+    val stdSink = new StdoutSink
+    (mySource to stdSink)
+  }
+
   def scenario15_01: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
-      val out = sys.actorOf(Props(classOf[RecordsSink], "sink15_01", statsD)
-        .withDispatcher("akka.flow-dispatcher"), "akka-sink15")
-      val src = Source.actorPublisher[Long](Props(classOf[DbCursorPublisher],
-        "akka-source15_01", 20000l, statsD).withDispatcher("akka.flow-dispatcher"))
-        .map(DBObject2(_, out))
+
+      val sink = sys.actorOf(Props(classOf[RecordsSink], "sink15_01", statsD).withDispatcher("akka.flow-dispatcher"), "akka-sink15")
+
+      val src = Source.actorPublisher[Long](
+        Props(classOf[DbCursorPublisher], "akka-source15_01", 20000l, statsD).withDispatcher("akka.flow-dispatcher")
+      ).map(DBObject2(_, sink))
+
       src ~> Sink.actorSubscriber(ConsistentHashingRouter.props)
       ClosedShape
     }
@@ -997,6 +1058,7 @@ object AkkaRecipes extends App {
     val publisher = Source.repeat(0).mapAsync(1)(_ ⇒ readChunk())
       .takeWhile(_.nonEmpty)
       .via(delimeter)
+      /*
       .transform(() ⇒
         new PushStage[ByteString, ByteString] {
           override def onPush(elem: ByteString, ctx: Context[ByteString]): SyncDirective =
@@ -1006,7 +1068,7 @@ object AkkaRecipes extends App {
             println("tailing  has been finished")
             proc.destroy()
           }
-        })
+        })*/
       .runWith(Sink.asPublisher(true))(mat)
 
     Source.fromPublisher(publisher).map(_.utf8String)
@@ -1163,9 +1225,9 @@ object AkkaRecipes extends App {
       import GraphDSL.Implicits._
       val lenght = 5
       val sink = Sink.actorSubscriber(SyncActor.props("akka-sink_21", statsD, 10l))
-      val src = throttledSrc(statsD, 1 second, 100 milliseconds, Int.MaxValue, "akka-source_21")
+      val src = throttledSrc(statsD, 1 second, 50 milliseconds, Int.MaxValue, "akka-source_21")
 
-      val slidingWindow = Flow[Int].buffer(1, OverflowStrategy.backpressure)
+      val slidingWindow = Flow[Int].buffer(lenght, OverflowStrategy.backpressure)
         .scan(new CircularFifo[Int](lenght)) { (q, e) ⇒
           q.add(e)
           q
@@ -1174,6 +1236,18 @@ object AkkaRecipes extends App {
       src ~> slidingWindow ~> sink
       ClosedShape
     }
+  }
+
+  def scenario22(): Graph[ClosedShape, akka.NotUsed] = {
+    val src = throttledSrc(statsD, 1 second, 50 milliseconds, Int.MaxValue, "akka-source_21")
+    //Source.tick(0 milliseconds, 10 minutes, ()).map(_ => Sample(System.currentTimeMillis(), random.nextFloat()))
+
+    //http://blog.colinbreck.com/patterns-for-streaming-measurement-data-with-akka-streams/
+    //The following example will fail the stream, with a timeout exception, after one minute, logging an error to the application log,
+    // with the unique identifier associated with this device
+    src.idleTimeout(1 minute)
+      //.runWith(Sink.foreach(println))
+      //.recover { case ex: java.util.concurrent.TimeoutException =>  }
   }
 
   //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
@@ -1276,27 +1350,30 @@ object ConsistentHashingRouter {
 
 //https://community.oracle.com/blogs/tomwhite/2007/11/27/consistent-hashing
 class ConsistentHashingRouter extends ActorSubscriber with ActorLogging {
-  var Size = 5
-  var Rsize = 0
+  var currentRouteeSize = 5
+  var index = 0
   var routeesMap = Map.empty[Long, ActorRef]
   val keys = Vector("a", "b", "c", "d", "e", "f", "g", "h", "i", "j")
   var removed = false
 
-  val routees = (0 until Size).map { i ⇒
-    val name = "ch-worker-" + i
-    context.actorOf(
-      Props(new ChWorker(name, i)).withDispatcher("akka.flow-dispatcher"),
-      name)
+  val routees = (0 until currentRouteeSize).map { i ⇒
+    val name = "routee-" + i
+    println("Create: " + name)
+    context.actorOf(Props(new ChRoutee(name, i)).withDispatcher("akka.flow-dispatcher"), name)
   }
 
   val hashMapping: ConsistentHashMapping = {
     case CHWork(_, key) ⇒ key
   }
 
+  //println("VirtualNodesFactor: " + context.system.settings.DefaultVirtualNodesFactor)
+
+  val logic = akka.routing.ConsistentHashingRoutingLogic(context.system, currentRouteeSize, hashMapping)
   var router = Router(
-    akka.routing.ConsistentHashingRoutingLogic(context.system, 5, hashMapping),
+    logic,
     routees.map { actor ⇒
-      (context watch actor); ActorRefRoutee(actor)
+      context.watch(actor)
+      ActorRefRoutee(actor)
     }
   )
 
@@ -1307,25 +1384,23 @@ class ConsistentHashingRouter extends ActorSubscriber with ActorLogging {
   override def receive: Actor.Receive = {
     case Terminated(routee) ⇒
       router = (router removeRoutee routee)
-      if (router.routees.size == 0) {
+      if (router.routees.size == 0)
         (context stop self)
-      }
 
     case OnNext(DBObject2(id, requestor)) ⇒
-      if (id % 16 == 0) {
+      if (id % 32 == 0) {
         if (!removed) {
-          router = router.removeRoutee(routees(Rsize))
-          println("remove router " + Rsize)
-          Rsize = Rsize + 1
+          router = router.removeRoutee(routees(index))
+          println(s"Removed routee by index $index")
+          index = index + 1
           removed = true
         } else {
-          Size = Size + 1
-          val name = "ch-worker-" + Size
-          println("add router " + name)
+          currentRouteeSize = currentRouteeSize + 1
+          val name = "routee-" + currentRouteeSize
+          println("Added routee " + name)
           router = router.addRoutee(
-            context.actorOf(Props(new ChWorker(name, Size))
-              .withDispatcher("akka.flow-dispatcher"),
-              name))
+            context.actorOf(Props(new ChRoutee(name, currentRouteeSize))
+              .withDispatcher("akka.flow-dispatcher"), name))
           removed = false
         }
       }
@@ -1334,6 +1409,7 @@ class ConsistentHashingRouter extends ActorSubscriber with ActorLogging {
     case Reply(id) ⇒
       routeesMap(id) ! Done(id)
       routeesMap -= id
+
     case OnComplete ⇒
       log.info("worker-router has received OnComplete")
       routees.foreach { r ⇒
@@ -1409,11 +1485,12 @@ class Worker(name: String) extends Actor with ActorLogging {
   }
 }
 
-class ChWorker(name: String, workerId: Int) extends Actor with ActorLogging {
+class ChRoutee(name: String, workerId: Int) extends Actor with ActorLogging {
   override def receive = {
     case CHWork(id, key) ⇒
-      Thread.sleep(ThreadLocalRandom.current().nextInt(100, 150))
-      log.info("worker {} key {}", workerId, key)
+      Thread.sleep(100)
+      //ThreadLocalRandom.current().nextInt(100, 150))
+      log.info("Routee:{} gets messageId:{} key:{}", workerId, id, key)
       sender() ! Reply(id)
   }
 }
@@ -2043,8 +2120,11 @@ class GraphiteSink[T](name: String, address: InetSocketAddress) extends GraphSta
     }
 }
 
+
 //http://www.cakesolutions.net/teamblogs/lifting-machine-learning-into-akka-streams
 //GraphStage[FlowShape[A, immutable.Seq[A]]]
+/*
+
 class SlidingWindow[A](size: Int) extends PushPullStage[A, List[A]] {
 
   val in = Inlet[A]("in")
@@ -2108,6 +2188,7 @@ class SlidingWindow[A](size: Int) extends PushPullStage[A, List[A]] {
     ctx.absorbTermination()
   }
 }
+*/
 
 /*
 class SlidingWindowTest extends AkkaSpec {
