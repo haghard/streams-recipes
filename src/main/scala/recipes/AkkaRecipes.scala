@@ -1205,12 +1205,11 @@ object AkkaRecipes extends App {
       //val src = Source.tick(100.milliseconds, 100.milliseconds, 1)
       val src = throttledSrc(statsD, 100.milliseconds, 100.milliseconds, Int.MaxValue, "akka-source23")
       val timedSrc = src.via(TimeWindow(1.seconds, eager = false)(identity[Int])(_ + _))
-      val sink = Sink.actorSubscriber(SyncActor.props2("akka-sink23", statsD))
-      /*allWindow("akka-scenario23", 5 seconds))*/
-      (timedSrc alsoTo slidingWindow("akka-scenario23", 5 seconds)) ~> sink
+      (timedSrc alsoTo slidingWindow("akka-scenario23", 5 seconds)) ~> Sink.actorSubscriber(SyncActor.props2("akka-sink23", statsD))
       ClosedShape
     }
   }
+
   //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
   def trailingDifference(offset: Int) =
     GraphDSL.create() { implicit b ⇒
