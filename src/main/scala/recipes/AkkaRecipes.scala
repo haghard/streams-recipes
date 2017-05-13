@@ -29,40 +29,15 @@ import scala.concurrent.forkjoin.ThreadLocalRandom
 import scala.concurrent.{ ExecutionContext, Future }
 import scala.language.postfixOps
 import scala.util.{ Failure, Success }
-import scalaz.{ -\/, \/, \/- }
 
+//http://doc.akka.io/docs/akka/2.5.1/scala/stream/stream-integrations.html
+//http://blog.kunicki.org/blog/2016/07/20/implementing-a-custom-akka-streams-graph-stage/
 //runMain recipes.AkkaRecipes
 object AkkaRecipes extends App {
-
-  //achieve before 2.0 behavior with stream.materializer.auto-fusing=off
-  val config = ConfigFactory.parseString(
-    """
-      |akka {
-      |  stream.materializer.auto-fusing=off
-      |
-      |  flow-dispatcher {
-      |    type = Dispatcher
-      |    executor = "fork-join-executor"
-      |    fork-join-executor {
-      |      parallelism-min = 8
-      |      parallelism-max = 16
-      |    }
-      |  }
-      |  blocking-dispatcher {
-      |    executor = "thread-pool-executor"
-      |    thread-pool-executor {
-      |      core-pool-size-min = 4
-      |      core-pool-size-max = 4
-      |    }
-      |  }
-      |}
-    """.stripMargin)
-
-  val config20 =
+  val config =
     ConfigFactory.parseString(
       """
         |akka {
-        |
         |  flow-dispatcher {
         |    type = Dispatcher
         |    executor = "fork-join-executor"
@@ -84,11 +59,8 @@ object AkkaRecipes extends App {
   val statsD =
     new InetSocketAddress(InetAddress.getByName("192.168.0.182"), 8125)
 
-  def sys: ActorSystem =
-    ActorSystem("Sys", ConfigFactory.empty().withFallback(config))
-
-  def sys20: ActorSystem =
-    ActorSystem("Sys20", ConfigFactory.empty().withFallback(config20))
+  def system: ActorSystem =
+    ActorSystem("flows", ConfigFactory.load(config) /*.empty().withFallback(config)*/ )
 
   val decider: akka.stream.Supervision.Decider = {
     case ex: Throwable ⇒
@@ -96,14 +68,7 @@ object AkkaRecipes extends App {
       akka.stream.Supervision.Stop
   }
 
-  val Settings = ActorMaterializerSettings
-    .create(system = sys)
-    .withInputBuffer(32, 32)
-    .withSupervisionStrategy(decider)
-    .withDispatcher("akka.flow-dispatcher")
-
-  val Settings20 = ActorMaterializerSettings
-    .create(system = sys20)
+  def Settings = ActorMaterializerSettings.create(system)
     .withInputBuffer(32, 32)
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher")
@@ -127,38 +92,32 @@ object AkkaRecipes extends App {
 
   //RunnableGraph.fromGraph(scenario21).run()(ActorMaterializer(Settings)(sys))
 
-  RunnableGraph.fromGraph(scenario15_01).run()(ActorMaterializer(Settings)(sys))
+  //RunnableGraph.fromGraph(scenario15_01).run()(ActorMaterializer(Settings)(system))
+
+  RunnableGraph.fromGraph(scenario23).run()(ActorMaterializer(Settings)(system))
 
   //scenario15_001.run()(ActorMaterializer(Settings)(sys))
 
   //RunnableGraph.fromGraph(scenario18).run()(ActorMaterializer(Settings20)(sys))
 
   //for scenario15
-  val mat: Materializer =
-    ActorMaterializer(Settings.withInputBuffer(1, 1))(sys)
+  val M: Materializer = ActorMaterializer(Settings.withInputBuffer(1, 1))(system)
+
   //RunnableGraph.fromGraph(scenario16(mat)).run()(ActorMaterializer(Settings)(sys))
-
   //RunnableGraph.fromGraph(scenario13_1(mat)).run()(mat)
-
-  /*
-  scenario17.run()(mat).onComplete { _ ⇒
-    sys.terminate()
-  }(mat.executionContext)*/
 
   /**
    * Tumbling windows discretize a stream into non-overlapping windows
    * Using conflate as rate detached operation
    */
-  def tumblingWindow[T](name: String,
-                        duration: FiniteDuration): Sink[T, akka.NotUsed] =
+  def tumblingWindow[T](name: String, duration: FiniteDuration): Sink[T, akka.NotUsed] =
     (Flow[T]
       .conflateWithSeed(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
       .to(Sink.foreach(acc ⇒ println(s"$name number:$acc")))
       .withAttributes(Attributes.inputBuffer(1, 1))
 
-  def tumblingWindowWithFilter[T](name: String, duration: FiniteDuration)(
-    filter: Long ⇒ Boolean): Sink[T, akka.NotUsed] =
+  def tumblingWindowWithFilter[T](name: String, duration: FiniteDuration)(filter: Long ⇒ Boolean): Sink[T, akka.NotUsed] =
     (Flow[T]
       .conflateWithSeed(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
@@ -191,8 +150,7 @@ object AkkaRecipes extends App {
   /**
    *
    */
-  def allWindow[T](name: String,
-                   duration: FiniteDuration): Sink[T, akka.NotUsed] =
+  def allWindow[T](name: String, duration: FiniteDuration): Sink[T, akka.NotUsed] =
     (Flow[T]
       .conflateWithSeed(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
@@ -282,8 +240,7 @@ object AkkaRecipes extends App {
     GraphDSL.create() { implicit builder ⇒
       import GraphDSL.Implicits._
       val source = throttledSrc(statsD, 1 second, 10 milliseconds, Int.MaxValue, "akka-source2")
-      val degradingSink =
-        Sink.actorSubscriber(DegradingActor.props2("akka-sink2", statsD, 1l))
+      val degradingSink = Sink.actorSubscriber(DegradingActor.props2("akka-sink2", statsD, 1l))
       val buffer = Flow[Int].buffer(1 << 7, OverflowStrategy.backpressure)
       (source alsoTo allWindow("akka-scenario2", 5 seconds)) ~> buffer ~> degradingSink
       ClosedShape
@@ -462,8 +419,7 @@ object AkkaRecipes extends App {
     }
   }
 
-  final class DisjunctionRouter[T, A](validationLogic: T ⇒ A \/ T)
-      extends GraphStage[FanOutShape2[T, A, T]] {
+  final class EitherRouter[T, A](validationLogic: T ⇒ A Either T) extends GraphStage[FanOutShape2[T, A, T]] {
     val in = Inlet[T]("in")
     val error = Outlet[A]("error")
     val out = Outlet[T]("out")
@@ -473,16 +429,12 @@ object AkkaRecipes extends App {
     override def createLogic(inheritedAttributes: Attributes) =
       new GraphStageLogic(shape) {
         var initialized = false
-        var pending: Option[(A, Outlet[A]) \/ (T, Outlet[T])] = None
+        var pending: Option[(A, Outlet[A]) Either (T, Outlet[T])] = None
 
         setHandler(in, new InHandler {
           override def onPush(): Unit = {
             pending = validationLogic(grab(in)).fold(
-              { err: A ⇒
-                Option(-\/(err, error))
-              }, { v: T ⇒
-                Option(\/-(v, out))
-              }
+              { err: A ⇒ Option(Left(err, error)) }, { v: T ⇒ Option(Right(v, out)) }
             )
             tryPush
           }
@@ -647,8 +599,8 @@ object AkkaRecipes extends App {
 
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
-      val router = b.add(new DisjunctionRouter[Int, String]({ el: Int ⇒
-        if (el % 10 == 0) -\/(s"error element $el") else \/-(el)
+      val router = b.add(new EitherRouter[Int, String]({ el: Int ⇒
+        if (el % 10 == 0) Left(s"error element $el") else Right(el)
       }))
 
       source ~> router.in
@@ -845,7 +797,7 @@ object AkkaRecipes extends App {
         .run()(mat)
 
       val i = new AtomicInteger()
-      sys.scheduler.schedule(1 second, 20 milliseconds) {
+      system.scheduler.schedule(1 second, 20 milliseconds) {
         i.getAndIncrement()
         if (i.get() < Int.MaxValue) actor ! i
       }(mat.executionContext)
@@ -862,7 +814,7 @@ object AkkaRecipes extends App {
   def scenario13_1(
     implicit mat: Materializer): Graph[ClosedShape, akka.NotUsed] = {
     implicit val Ctx = mat.executionContext
-    implicit val ExtCtx = sys.dispatchers.lookup("akka.blocking-dispatcher")
+    implicit val ExtCtx = system.dispatchers.lookup("akka.blocking-dispatcher")
 
     val pubStatsD = new GraphiteMetrics {
       override val address = statsD
@@ -887,7 +839,7 @@ object AkkaRecipes extends App {
             externalProducer(q, pName, elem + 1)
           case Failure(ex) ⇒
             println(s"error: elem $elem error" + ex.getMessage)
-            sys.scheduler.scheduleOnce(1 seconds)(
+            system.scheduler.scheduleOnce(1 seconds)(
               externalProducer(q, pName, elem))(ExtCtx) //retry
         }(ExtCtx)
       } else {
@@ -947,20 +899,20 @@ object AkkaRecipes extends App {
    * Router pulls from the DbCursorPublisher and runs parallel processing for records
    * Router dictates rate to publisher
    * Parallel
-   *                                                  +------+
-   *                                               +--|Worker|--+
-   *                                               |  +------+  |
+   * +------+
+   * +--|Worker|--+
+   * |  +------+  |
    * +-----------------+     +--------------+      |  +------+  |  +-----------+
    * |DbCursorPublisher|-----|BalancerRouter|------|--|Worker|-----|RecordsSink|
    * +-----------------+     +--------------+      |  +------+  |  +-----------+
-   *                                               |  +------+  |
-   *                                               +--|Worker|--+
-   *                                                  +------+
+   * |  +------+  |
+   * +--|Worker|--+
+   * +------+
    */
   def scenario15: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
-      val out = sys.actorOf(Props(classOf[RecordsSink], "sink15", statsD)
+      val out = system.actorOf(Props(classOf[RecordsSink], "sink15", statsD)
         .withDispatcher("akka.flow-dispatcher"), "akka-sink15")
 
       val src = Source.actorPublisher[Long](Props(classOf[DbCursorPublisher], "akka-source15", 20000l, statsD)
@@ -972,13 +924,8 @@ object AkkaRecipes extends App {
   }
 
   //
-  import akka.stream.SourceShape
-  import akka.stream.Graph
-  import akka.stream.stage.GraphStage
-  import akka.stream.stage.OutHandler
-  import akka.stream.SinkShape
-  import akka.stream.stage.GraphStage
-  import akka.stream.stage.InHandler
+  import akka.stream.{ Graph, SinkShape, SourceShape }
+  import akka.stream.stage.{ GraphStage, InHandler, OutHandler }
 
   class NumbersSource extends GraphStage[SourceShape[Int]] {
     val out: Outlet[Int] = Outlet("NumbersSource")
@@ -1009,6 +956,7 @@ object AkkaRecipes extends App {
     override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
       new GraphStageLogic(shape) {
         override def preStart(): Unit = pull(in)
+
         setHandler(in, new InHandler {
           override def onPush(): Unit = {
             println(grab(in))
@@ -1031,7 +979,7 @@ object AkkaRecipes extends App {
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
 
-      val sink = sys.actorOf(Props(classOf[RecordsSink], "sink15_01", statsD).withDispatcher("akka.flow-dispatcher"), "akka-sink15")
+      val sink = system.actorOf(Props(classOf[RecordsSink], "sink15_01", statsD).withDispatcher("akka.flow-dispatcher"), "akka-sink15")
 
       val src = Source.actorPublisher[Long](
         Props(classOf[DbCursorPublisher], "akka-source15_01", 20000l, statsD).withDispatcher("akka.flow-dispatcher")
@@ -1069,7 +1017,7 @@ object AkkaRecipes extends App {
             proc.destroy()
           }
         })*/
-      .runWith(Sink.asPublisher(true))(mat)
+      .runWith(Sink.asPublisher(true))(M)
 
     Source.fromPublisher(publisher).map(_.utf8String)
   }
@@ -1191,7 +1139,7 @@ object AkkaRecipes extends App {
   }
 
   /**
-   *  Sliding window on bounded memory with CircularFifoQueue, drops elements and stores  only last 5
+   * Sliding window on bounded memory with CircularFifoQueue, drops elements and stores  only last 5
    */
   def scenario20(): Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit b ⇒
@@ -1245,11 +1193,24 @@ object AkkaRecipes extends App {
     //http://blog.colinbreck.com/patterns-for-streaming-measurement-data-with-akka-streams/
     //The following example will fail the stream, with a timeout exception, after one minute, logging an error to the application log,
     // with the unique identifier associated with this device
-    src.idleTimeout(1 minute)
-      //.runWith(Sink.foreach(println))
-      //.recover { case ex: java.util.concurrent.TimeoutException =>  }
+    src.idleTimeout(1 minute).to(Sink.foreach(println))
+    //.runWith(Sink.foreach(println))
+    //.recover { case ex: java.util.concurrent.TimeoutException =>  }
   }
 
+  def scenario23(): Graph[ClosedShape, akka.NotUsed] = {
+    GraphDSL.create() { implicit builder ⇒
+      import GraphDSL.Implicits._
+      import akka.stream.contrib.TimeWindow
+      //val src = Source.tick(100.milliseconds, 100.milliseconds, 1)
+      val src = throttledSrc(statsD, 100.milliseconds, 100.milliseconds, Int.MaxValue, "akka-source23")
+      val timedSrc = src.via(TimeWindow(1.seconds, eager = false)(identity[Int])(_ + _))
+      val sink = Sink.actorSubscriber(SyncActor.props2("akka-sink23", statsD))
+      /*allWindow("akka-scenario23", 5 seconds))*/
+      (timedSrc alsoTo slidingWindow("akka-scenario23", 5 seconds)) ~> sink
+      ClosedShape
+    }
+  }
   //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
   def trailingDifference(offset: Int) =
     GraphDSL.create() { implicit b ⇒
@@ -1269,8 +1230,8 @@ object AkkaRecipes extends App {
   /**
    * Create a source which is throttled to a number of message per second.
    */
-  def throttledSrc(statsD: InetSocketAddress, delay: FiniteDuration, interval: FiniteDuration, limit: Int,
-                   name: String): Source[Int, akka.NotUsed] =
+  def throttledSrc(statsD: InetSocketAddress, delay: FiniteDuration, interval: FiniteDuration,
+                   limit: Int, name: String): Source[Int, akka.NotUsed] =
     Source.fromGraph(
       GraphDSL.create() { implicit b ⇒
         import GraphDSL.Implicits._
@@ -1626,7 +1587,7 @@ class SyncActor private (name: String,
 
   override def receive: Receive = {
     case OnNext(msg: Int) ⇒
-      println(s"${Thread.currentThread().getName}:  $msg")
+      //println(s"${Thread.currentThread().getName}:  $msg")
       send(s"$name:1|c")
 
     case OnNext(msg: (Int, Int, Int)) ⇒
@@ -1852,31 +1813,44 @@ object BatchProducer {
 }
 
 object IndividualRateLimiter {
+
   case object RateLimitExceeded extends RuntimeException
+
 }
 
-class IndividualRateLimiter(number: Int, period: FiniteDuration) {
+trait RateLimiter {
+  def number: Int
 
-  import IndividualRateLimiter._
+  def period: FiniteDuration
 
   //the index of the next slot to be used
   private var cursor = 0
 
-  private val startTimes = Array.fill(number)(Deadline.now - period)
+  private lazy val timesSlots = Array.fill(number)(Deadline.now - period)
 
-  private def enqueue(time: Deadline) = {
-    startTimes(cursor) = time
+  protected def enqueue(time: Deadline) = {
+    timesSlots(cursor) = time
     cursor += 1
     if (cursor == number) cursor = 0
   }
 
-  def require[T](block: ⇒ Future[T]): Future[T] = {
+  protected def available(now: Deadline): Boolean = {
+    (now - timesSlots(cursor)) >= period
+  }
+
+  def require[T](block: ⇒ Future[T]): Future[T]
+}
+
+class IndividualRateLimiter(val number: Int, val period: FiniteDuration) extends RateLimiter {
+
+  import IndividualRateLimiter._
+
+  override def require[T](block: ⇒ Future[T]): Future[T] = {
     val now = Deadline.now
-    if ((now - startTimes(cursor)) < period) Future.failed(RateLimitExceeded)
-    else {
+    if (available(now)) {
       enqueue(now)
       block
-    }
+    } else Future.failed(RateLimitExceeded)
   }
 }
 
@@ -1956,7 +1930,6 @@ class Filter[A](p: A ⇒ Boolean) extends GraphStage[FlowShape[A, A]] {
 class Duplicator[A] extends GraphStage[FlowShape[A, A]] {
   val in = Inlet[A]("Duplicator.in")
   val out = Outlet[A]("Duplicator.out")
-
   val shape = FlowShape.of(in, out)
 
   override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
@@ -2013,6 +1986,11 @@ class DuplicatorN[A] extends GraphStage[FlowShape[A, A]] {
   }
 }
 
+/**
+ * In this sample the stage toggles between open and closed, where open means no elements are passed through.
+ * The stage starts out as closed but as soon as an element is pushed downstream the gate becomes open for
+ * a duration of time during which it will consume and drop upstream messages
+ */
 class TimedGate[A](silencePeriod: FiniteDuration) extends GraphStage[FlowShape[A, A]] {
   val in = Inlet[A]("TimedGate.in")
   val out = Outlet[A]("TimedGate.out")
@@ -2033,7 +2011,7 @@ class TimedGate[A](silencePeriod: FiniteDuration) extends GraphStage[FlowShape[A
         }
       })
       setHandler(out, new OutHandler {
-        override def onPull(): Unit = pull(in)
+        override def onPull() = pull(in)
       })
 
       override protected def onTimer(timerKey: Any): Unit = {
@@ -2042,6 +2020,7 @@ class TimedGate[A](silencePeriod: FiniteDuration) extends GraphStage[FlowShape[A
     }
 }
 
+//https://softwaremill.com/implementing-a-custom-akka-streams-graph-stage/
 //http://blog.kunicki.org/blog/2016/07/20/implementing-a-custom-akka-streams-graph-stage/
 final class AccumulateWhileUnchanged[E, P](propertyExtractor: E ⇒ P) extends GraphStage[FlowShape[E, immutable.Seq[E]]] {
   val in = Inlet[E]("in")
@@ -2089,15 +2068,15 @@ final class AccumulateWhileUnchanged[E, P](propertyExtractor: E ⇒ P) extends G
     }
 }
 
-class GraphiteSink[T](name: String, address: InetSocketAddress) extends GraphStage[SinkShape[T]] {
+class Graphite[T](name: String, address: InetSocketAddress) extends GraphStage[SinkShape[T]] {
+  private val Encoding = "utf-8"
   private val in: Inlet[T] = Inlet("in")
 
   override val shape: SinkShape[T] = SinkShape(in)
 
   override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
     new GraphStageLogic(shape) {
-      val Encoding = "utf-8"
-      val sendBuffer = (ByteBuffer allocate 512)
+      val sendBuffer = ByteBuffer.allocate(512)
       val channel = DatagramChannel.open()
 
       private def sendUdpMessage(message: String): Unit = {
@@ -2105,7 +2084,7 @@ class GraphiteSink[T](name: String, address: InetSocketAddress) extends GraphSta
         sendBuffer.flip
         channel.send(sendBuffer, address)
         sendBuffer.limit(sendBuffer.capacity)
-        sendBuffer.rewind()
+        sendBuffer.rewind
       }
 
       override def preStart(): Unit = pull(in)
@@ -2119,7 +2098,6 @@ class GraphiteSink[T](name: String, address: InetSocketAddress) extends GraphSta
       })
     }
 }
-
 
 //http://www.cakesolutions.net/teamblogs/lifting-machine-learning-into-akka-streams
 //GraphStage[FlowShape[A, immutable.Seq[A]]]
