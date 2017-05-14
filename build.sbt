@@ -35,7 +35,7 @@ resolvers ++= Seq(
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.4.18"
+val akkaStreamV = "2.5.1"
 
 initialCommands in (Test, console) := """ammonite.Main().run()"""
 
@@ -51,7 +51,7 @@ libraryDependencies ++= Seq(
   //"io.dropwizard.metrics"   % "metrics-core"   %   "3.1.0.",
   //"io.dropwizard.metrics"   % "metrics-graphite" %   "3.1.0.",
 
-  "com.typesafe.akka" %% "akka-stream-contrib" % "0.6-9-gf073c94",
+  "com.typesafe.akka" %% "akka-stream-contrib" % "0.6-9-gf073c94",  //local build
 
   //"co.adhoclabs"    && "akka-http-contrib" % "0.0.6"
 
