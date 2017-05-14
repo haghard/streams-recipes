@@ -35,7 +35,7 @@ resolvers ++= Seq(
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.5.1"
+val akkaStreamV = "2.4.18"
 
 initialCommands in (Test, console) := """ammonite.Main().run()"""
 
