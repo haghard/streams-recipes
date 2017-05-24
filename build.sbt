@@ -35,7 +35,7 @@ resolvers ++= Seq(
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.5.1"
+val akkaStreamV = "2.5.2"
 
 initialCommands in (Test, console) := """ammonite.Main().run()"""
 
@@ -57,7 +57,7 @@ libraryDependencies ++= Seq(
 
   "org.apache.commons" % "commons-collections4" % "4.0",
 
-  "com.lihaoyi"       % "ammonite" % "0.8.4" % "test" cross CrossVersion.full
+  "com.lihaoyi"       % "ammonite" % "0.9.0" % "test" cross CrossVersion.full
 )
 
 //streams-recipes/test:console
