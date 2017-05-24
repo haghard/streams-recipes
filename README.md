@@ -1,15 +1,4 @@
 # streams-recipes
-ScalazStream, AkkaStream recipes
-==================================
-
-AkkaStream
-================
-1.
-
-ScalazStream
-================
-1.
-
  
 Run grafana + graphite docker image   
 
