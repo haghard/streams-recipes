@@ -1211,6 +1211,8 @@ object AkkaRecipes extends App {
     }
   }
 
+  //http://doc.akka.io/docs/akka/current/scala/stream/stages-overview.html#partition
+
   def scenario24(): Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit builder ⇒
       import GraphDSL.Implicits._
