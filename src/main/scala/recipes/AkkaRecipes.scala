@@ -1108,7 +1108,7 @@ object AkkaRecipes extends App {
    * This emits lines according to a time that is derived from the message itself.
    */
   def scenario18(): Graph[ClosedShape, akka.NotUsed] = {
-    val rnd = ThreadLocalRandom.current()
+    val rnd = java.util.concurrent.ThreadLocalRandom.current()
     val logEntries = Source.fromIterator(() ⇒
       Iterator.iterate(LogEntry(1000l, Thread.currentThread().getName)) {
         log ⇒
@@ -1118,6 +1118,7 @@ object AkkaRecipes extends App {
       })
 
     val ratedSource = new TimeStampedLogReader[LogEntry](_.ts)
+
     val sink = Sink.actorSubscriber[LogEntry](SyncActor.props2("akka-sink_18", statsD))
 
     //We use asyncBoundary here so that source can use blocking-dispatcher
@@ -2066,8 +2067,8 @@ final class AccumulateWhileUnchanged[E, P](propertyExtractor: E ⇒ P) extends G
             buffer += nextElement
             pull(in)
           } else {
-            val result = buffer.result()
-            buffer.clear()
+            val result = buffer.result
+            buffer.clear
             buffer += nextElement
             push(out, result)
           }
@@ -2078,7 +2079,7 @@ final class AccumulateWhileUnchanged[E, P](propertyExtractor: E ⇒ P) extends G
         override def onPull(): Unit = pull(in)
 
         override def onUpstreamFinish(): Unit = {
-          val result = buffer.result()
+          val result = buffer.result
           if (result.nonEmpty) {
             emit(out, result)
           }
@@ -2087,7 +2088,7 @@ final class AccumulateWhileUnchanged[E, P](propertyExtractor: E ⇒ P) extends G
       })
 
       override def postStop(): Unit = {
-        buffer.clear()
+        buffer.clear
       }
     }
 }
