@@ -1465,7 +1465,7 @@ class Worker(name: String) extends Actor with ActorLogging {
 
   override def receive = {
     case Work(id) ⇒
-      Thread.sleep(ThreadLocalRandom.current().nextInt(100, 150))
+      Thread.sleep(java.util.concurrent.ThreadLocalRandom.current().nextInt(100, 150))
       //log.info("{} has done job {}", name, id)
       sender() ! Reply(id)
   }
@@ -2116,7 +2116,7 @@ class Graphite[T](name: String, address: InetSocketAddress) extends GraphStage[S
 
       setHandler(in, new InHandler {
         override def onPush(): Unit = {
-          grab(in)
+          val elem: T = grab(in)
           sendUdpMessage(s"$name:1|c")
           pull(in)
         }

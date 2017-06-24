@@ -13,3 +13,8 @@ http://blog.akka.io/streams/2016/07/30/mastering-graph-stage-part-1
 ### How to set up grafana_graphite ### 
 
 http://stackoverflow.com/questions/32459582/how-to-set-up-statsd-along-with-grafana-graphite-as-backend-for-kamon
+
+#### Links ###
+
+http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
+https://github.com/paypal/squbs/blob/master/squbs-ext/src/main/scala/org/squbs/streams/Deduplicate.scala
