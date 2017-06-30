@@ -54,9 +54,9 @@ object ScalazRecipes extends App {
   }
 
   def rnd: Process[Task, Int] = {
-    def go(rnd: scala.concurrent.forkjoin.ThreadLocalRandom): Process[Task, Int] =
+    def go(rnd: java.util.concurrent.ThreadLocalRandom): Process[Task, Int] =
       Process.await(Task.now(rnd))(rnd ⇒ Process.emit(rnd.nextInt(1, 100)) ++ go(rnd))
-    go(scala.concurrent.forkjoin.ThreadLocalRandom.current)
+    go(java.util.concurrent.ThreadLocalRandom.current)
   }
 
   def graphite(statsD: GraphiteMetrics, message: String) = sink.lift[Task, Int] { _ ⇒

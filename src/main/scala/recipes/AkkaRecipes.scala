@@ -1238,7 +1238,7 @@ object AkkaRecipes extends App {
     }
   }
 
-  def scenario22(): Graph[ClosedShape, akka.NotUsed] = {
+  /*def scenario22(): Graph[ClosedShape, akka.NotUsed] = {
     val src = throttledSrc(statsD, 1 second, 50 milliseconds, Int.MaxValue, "akka-source_21")
     //Source.tick(0 milliseconds, 10 minutes, ()).map(_ => Sample(System.currentTimeMillis(), random.nextFloat()))
 
@@ -1246,9 +1246,9 @@ object AkkaRecipes extends App {
     //The following example will fail the stream, with a timeout exception, after one minute, logging an error to the application log,
     // with the unique identifier associated with this device
     src.idleTimeout(1 minute)
-      //.runWith(Sink.foreach(println))
-      //.recover { case ex: java.util.concurrent.TimeoutException =>  }
-  }
+    //.runWith(Sink.foreach(println))
+    //.recover { case ex: java.util.concurrent.TimeoutException =>  }
+  }*/
 
   //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
   def trailingDifference(offset: Int) =
@@ -2119,7 +2119,6 @@ class GraphiteSink[T](name: String, address: InetSocketAddress) extends GraphSta
       })
     }
 }
-
 
 //http://www.cakesolutions.net/teamblogs/lifting-machine-learning-into-akka-streams
 //GraphStage[FlowShape[A, immutable.Seq[A]]]
