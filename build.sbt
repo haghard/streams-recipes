@@ -32,7 +32,6 @@ resolvers ++= Seq(
   "Awesome Utilities" at "https://dl.bintray.com/davegurnell/maven",
   "Apache Staging" at "https://repository.apache.org/content/repositories/staging/",
   "oncue"             at "https://bintray.com/oncue/releases/quiver/",
-  //Resolver.url("ambiata-oss", new URL("https://ambiata-oss.s3.amazonaws.com"))(Resolver.ivyStylePatterns),
   Resolver.bintrayRepo("mfglabs", "maven")
 )
 
@@ -40,9 +39,9 @@ promptTheme := ScalapenosTheme
 
 //val akkaStreamV = "2.5.1"
 
-val akkaStreamV = "2.4.18"
+val akkaStreamV = "2.5.11"
 
-val Origami = "1.0-20150902134048-8d00462"
+//val Origami = "1.0-20150902134048-8d00462"
 
 initialCommands in (Test, console) := """ammonite.Main().run()"""
 
@@ -57,13 +56,14 @@ libraryDependencies ++= Seq(
   //"com.mfglabs"       %% "akka-stream-extensions-shapeless" % "0.10.0",
 
   "io.reactivex"      %% "rxscala"           % "0.26.2",
+
   "io.monix"          %% "monix"             % "2.1.2",
 
-  "co.fs2"            %% "fs2-core"          % "0.9.5",
-  "co.fs2"            %% "fs2-io"            % "0.9.5",
+  "co.fs2"            %% "fs2-core"          % "0.9.2",
+  "co.fs2"            %% "fs2-io"            % "0.9.2",
 
   "com.spinoco"       %% "fs2-zk"            % "0.1.5",
-  "com.spinoco"       %% "fs2-cassandra"     % "0.1.7",
+  "com.spinoco"       %% "fs2-cassandra"     % "0.1.8",
   //Users/haghard/.ivy2/local/default/fs2-cache_2.11/1.0/jars/fs2-cache_2.11.jar
 
   "org.spire-math"    %% "jawn-spray"        % "0.9.0",
@@ -73,11 +73,14 @@ libraryDependencies ++= Seq(
 
   //"io.dropwizard.metrics"   % "metrics-core"   %   "3.1.0.",
   //"io.dropwizard.metrics"   % "metrics-graphite" %   "3.1.0.",
+
+  /*
   "com.ambiata"       %%  "origami-core"       %   Origami,
   ("com.ambiata"      %%  "origami-stream"     %   Origami)
     .exclude("com.google.caliper","caliper")
     .exclude("com.google.guava", "guava")
     .exclude("org.scalaz", "scalaz-stream"),
+  */
 
   "io.swave"          %%  "swave-core"      % "0.7.0",
 

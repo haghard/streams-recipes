@@ -64,7 +64,7 @@ package object cake {
     type ValidRecord = ValidationNel[String, Record]
 
     protected trait DbUserLike {
-      def scalar(query: String): M[ValidRecord]
+      def one(query: String): M[ValidRecord]
       def batch(query: String): M[ValidRecord]
     }
 
@@ -103,8 +103,7 @@ package object cake {
     }
 
     def apply[T, M[_]](implicit effect: M[ValidationNel[String, T]],
-                       hoTag: ClassTag[M[_]],
-                       outT: ClassTag[T]): M[ValidationNel[String, T]] = {
+                       hoTag: ClassTag[M[_]], outT: ClassTag[T]): M[ValidationNel[String, T]] = {
       println(s"executable effect: ${hoTag.runtimeClass.getName}[${outT.runtimeClass.getName}]")
       effect
     }
@@ -126,8 +125,7 @@ package object cake {
       override def scalar(query: String): scalaz.concurrent.Future[ValidTweet] =
         scalaz.concurrent.Future(0.successNel[String])
 
-      override def batch(
-          query: String): scalaz.concurrent.Future[ValidTweet] = {
+      override def batch(query: String): scalaz.concurrent.Future[ValidTweet] = {
         scalaz.concurrent.Future {
           Thread.sleep(200)
           println(s"reduce:start ${Thread.currentThread.getName}")
@@ -163,8 +161,7 @@ package object cake {
           Thread.sleep(400)
           println(s"batch:stop $th")
           /*"3 error".failureNel[Tweet] :: "4 error".failureNel[Tweet] ::*/
-          (1.successNel[String] :: 2.successNel[String] ::  Nil)
-            .sequenceU
+          (1.successNel[String] :: 2.successNel[String] ::  Nil).sequenceU
             .map(_.foldMap(identity)(implicitly[Monoid[Tweet]]))
         }(Executor)
 
@@ -185,7 +182,7 @@ package object cake {
     //scalaz.Applicative[scalaz.concurrent.Future] = scalaz.Applicative[scalaz.concurrent.Future]
 
     final class ScalazFutureApi extends DbUserLike {
-      override def scalar(query: String) =
+      override def one(query: String) =
         scalaz.concurrent.Future {
           Thread.sleep(200)
           println(s"one:start ${Thread.currentThread.getName}")
@@ -220,7 +217,7 @@ package object cake {
     override lazy val dbApp = scalaz.Apply[Task]
 
     final class MySqlApi extends DbUserLike {
-      override def scalar(query: String) = Task { 1.successNel[String] }(Executor)
+      override def one(query: String) = Task { 1.successNel[String] }(Executor)
 
       override def batch(query: String): Task[ValidRecord] =
         Task {
@@ -321,18 +318,12 @@ package object cake {
         nd: scalaz.Nondeterminism[M]): M[Out] =
       M.parallelHList(l)
 
-    def sequenceHList[M[_], In <: HList, Out <: HList](
-        l: In)(implicit M: HListOfMonad[M, In, Out], m: Monad[M]): M[Out] =
+    def sequenceHList[M[_], In <: HList, Out <: HList](l: In)(implicit M: HListOfMonad[M, In, Out], m: Monad[M]): M[Out] =
       M.sequenceHList(l)
 
-    case class NondeterministicHListApplicativeBuilder[M[_],
-                                                       In <: HList,
-                                                       Out <: HList](
-        values: In)(implicit m: Monad[M]) {
-      def asTuple[T](implicit ev: HListOfMonad[M, In, Out],
-                     m: Monad[M],
-                     tupler: Tupler.Aux[Out, T],
-                     nd: scalaz.Nondeterminism[M]): M[T] =
+    case class NondeterministicHListApplicativeBuilder[M[_], In <: HList, Out <: HList](values: In)(implicit m: Monad[M]) {
+      def asTuple[T](implicit ev: HListOfMonad[M, In, Out], m: Monad[M],
+                     tupler: Tupler.Aux[Out, T], nd: scalaz.Nondeterminism[M]): M[T] =
         m.map(parallelHList(values))(_.tupled)
 
       def apply[F, FOut](f: F)(implicit fnEv: FnToProduct.Aux[F, Out => FOut],
@@ -410,19 +401,13 @@ package object cake {
    *
    * Accumulate all errors in the NonEmptyList in case of failure
    */
-
-  def validate[F[_]: Foldable, A, B: Monoid](fa : F[A],
-    f: A => B): ValidationNel[Throwable, B] = {
-    fa.foldMap { a =>
-      Validation.fromTryCatchNonFatal[B](f(a))
-        .toValidationNel
-    }
+  def validate[F[_]: Foldable, A, B: Monoid](fa : F[A], f: A => B): ValidationNel[Throwable, B] = {
+    fa.foldMap { a => Validation.fromTryCatchNonFatal[B](f(a)).toValidationNel }
   }
 
-  def validate2[F[_]: Traverse, A, B](fa: F[A],
-     f: A => B): ValidationNel[Throwable, F[B]] = {
-      Applicative[({ type l[a] = ValidationNel[Throwable, a] })#l]
-        .traverse(fa)(a => Validation.fromTryCatchNonFatal[B](f(a)).toValidationNel)
+  def validate2[F[_]: Traverse, A, B](fa: F[A], f: A => B): ValidationNel[Throwable, F[B]] = {
+    Applicative[({ type l[a] = ValidationNel[Throwable, a] })#l]
+      .traverse(fa)(a => Validation.fromTryCatchNonFatal[B](f(a)).toValidationNel)
   }
 
   def req[T, A[_]](x: T)(implicit n: scala.Numeric[T], op: Applicative[A], pool: ExecutorService): A[Or[T]] = {
@@ -472,8 +457,7 @@ package object cake {
     case Failure(errors) => errors.map(_.getMessage).foreach(println(_))
   }
 
-  val program = new ScalazTaskTwitter with MySqlTaskDbService
-  with ZNondeterminism[Task] {
+  val program = new ScalazTaskTwitter with MySqlTaskDbService with ZNondeterminism[Task] {
     override implicit lazy val Executor: java.util.concurrent.ExecutorService =
       java.util.concurrent.Executors.newFixedThreadPool(3, RecipesDaemons("tasks"))
 
@@ -537,15 +521,10 @@ package object cake {
       *
       */
     def gatherZip =
-      zip(
-          (twitterApi batch "reduce page"),
-          (dbApi batch "select page"),
-          (twitterApi batch "reduce page")
-      ).map { tupler: (ValidTweet, ValidRecord, ValidTweet) =>
-        (tupler._1 |@| tupler._2 |@| tupler._3) {
-          case (a, b, c) => s"A:$a B:$b C:$c"
+      zip((twitterApi batch "reduce page"), (dbApi batch "select page"), (twitterApi batch "reduce page"))
+        .map { tupler: (ValidTweet, ValidRecord, ValidTweet) =>
+          (tupler._1 |@| tupler._2 |@| tupler._3) { case (a, b, c) => s"A:$a B:$b C:$c" }
         }
-      }
 
     /**
       * Sequentual with ApplicativeBuilder and Shapeless

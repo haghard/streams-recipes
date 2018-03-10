@@ -24,3 +24,11 @@ http://blog.akka.io/streams/2016/07/30/mastering-graph-stage-part-1
 ### How to set up grafana_graphite ### 
 
 http://stackoverflow.com/questions/32459582/how-to-set-up-statsd-along-with-grafana-graphite-as-backend-for-kamon
+
+### windows ###
+
+https://flink.apache.org/news/2015/12/04/Introducing-windows.html
+
+
+## fs2 ##
+https://lunatech.com/blog/WCl5OikAAIrvQCoc/functional-io-with-fs2-streams
