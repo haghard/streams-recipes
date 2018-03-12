@@ -1,4 +1,5 @@
 package fs
+/*
 
 import fs2.Stream._
 import fs2._
@@ -79,3 +80,4 @@ object ServiceRegistry extends App {
     .unsafeTimed(20.seconds)
     .unsafeRun
 }
+*/

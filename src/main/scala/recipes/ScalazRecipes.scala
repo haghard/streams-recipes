@@ -1,5 +1,6 @@
 package recipes
 
+
 import java.io.FileInputStream
 import java.net.{InetAddress, InetSocketAddress}
 import java.util.concurrent.atomic.AtomicInteger
@@ -584,7 +585,7 @@ object ScalazRecipes extends App {
     (Process.emitAll(Seq('{', '{', '{', '}', '}', '}')) pipe balanced) to sink
       .lift[Task, Boolean](state => Task.delay(println(state)))
 
-  import com.ambiata.origami._, Origami._
+  /*import com.ambiata.origami._, Origami._
   import com.ambiata.origami.stream.FoldableProcessM._
   import com.ambiata.origami.FoldM
   import com.ambiata.origami._, Origami._
@@ -622,6 +623,7 @@ object ScalazRecipes extends App {
 
   //recipes.ScalazRecipes.meanR
   def meanR = (Mean run rnd.take(10)).attemptRun.unsafePerformSync
+*/
 
   /**
     *
@@ -644,7 +646,7 @@ object ScalazRecipes extends App {
     def init: Tee[T, T, T] =
       tee.receiveLOr[T, T, T](tee.passR)(nextR)
 
-    (source0 tee source1)(init).toSource.runLog.unsafePerformSync.toList
+    (source0 tee source1)(init).toSource.runLog.run.toList
   }
 
   //mergeSorted(List(1,3,5,7), List(2,4,6,8,10))

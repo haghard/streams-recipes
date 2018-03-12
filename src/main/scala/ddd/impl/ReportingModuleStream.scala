@@ -37,5 +37,5 @@ trait ReportingModuleStream
 
 object ReportingStreamingService extends ReportingModuleTask {
   val executor = java.util.concurrent.Executors
-    .newFixedThreadPool(2, new RecipesDaemons("reporting-streams"))
+    .newFixedThreadPool(2, new DddDaemons("reporting-streams"))
 }

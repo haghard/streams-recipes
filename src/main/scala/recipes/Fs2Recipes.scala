@@ -3,87 +3,131 @@ package recipes
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.{ Executors, ThreadFactory, ThreadLocalRandom }
 
+import fs2.{ Chunk, Pipe, Pull, Scheduler }
 import fs2.async.mutable
 import fs2.async.mutable.Queue
-import fs2.{ Task, _ }
+import cats.effect.{ Async, Effect, IO }
 
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
 //runMain recipes.Fs2Recipes
 object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
+  val Blocking = ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor(Fs2Daemons("ts-scheduler")))
+  val Main = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(2, Fs2Daemons("main")))
 
-  def naturalsEvery(latency: Long): Stream[Task, Long] = {
-    def go(i: Long): Stream[Task, Long] =
-      Stream.emit(i).flatMap { i ⇒
-        fs2.Stream.eval {
-          Task.delay {
+  def naturalsEvery(latency: Long): fs2.Stream[IO, Long] = {
+    def go(i: Long): fs2.Stream[IO, Long] = {
+      fs2.Stream.emit(i).flatMap { i ⇒
+        fs2.Stream.eval[IO, Long] {
+          IO {
             Thread.sleep(latency)
+            println(s"produce: $i")
             i
           }
-        } ++ go(i + 1)
-      }
+        }
+      } ++ go(i + 1)
+    }
+
     go(0l)
   }
 
-  def times[F[_], T](n: Long): Pipe[F, T, T] = {
-    def go(n: Long): (Handle[F, T] ⇒ Pull[F, T, T]) =
-      handle ⇒ {
-        handle.receive1 { (element: T, h: Handle[F, T]) ⇒
-          if (n == 0) Pull.done
-          else Pull.output1(element) >> go(n - 1)(handle)
-        }
-      }
-    _.pull(go(n))
+  def naturalsEvery2(latency: Long): fs2.Stream[IO, Long] = {
+    def go(i: Long): fs2.Stream[IO, Long] = {
+      println(s"${Thread.currentThread.getName} - go")
+      fs2.Stream.eval {
+        for {
+          _ ← IO.shift(Blocking)
+          n ← IO {
+            Thread.sleep(latency)
+            val now = System.currentTimeMillis
+            println(s"${Thread.currentThread.getName} - ${now}")
+            now
+          }
+          _ ← IO.shift(Main)
+        } yield n
+      } ++ go(i + 1)
+    }
+    go(0l)
   }
 
-  def dynamicChunks[F[_]]: Pipe[F, Long, NonEmptyChunk[Long]] = {
-    def go(size: Int, ind: Int, array: Array[Long]): Handle[F, Long] ⇒ Pull[F, NonEmptyChunk[Long], Any] = {
-      handle ⇒
-        {
-          handle.receive1 { (e, h) ⇒
-            if (ind == size) Pull.output1(NonEmptyChunk.fromChunk(Chunk.longs(array)).get) >> {
-              val newSize = ThreadLocalRandom.current.nextInt(5, 10)
-              go(newSize, 0, Array.fill[Long](newSize)(0l))(h)
-            }
-            else {
-              array(ind) = e
-              go(size, ind + 1, array)(h)
-            }
+  //naturalsEvery2(1000).take(10).compile.drain.unsafeRunAsync { _ ⇒ println("done") }
+
+  def takeByOne[F[_], T](n: Int): fs2.Pipe[F, T, T] = {
+    def loop(s: fs2.Stream[F, T]): Pull[F, T, Unit] = {
+      s.pull.uncons1.flatMap {
+        case None ⇒ Pull.done
+        case Some((head, tail)) ⇒
+          println(s"loop: $head")
+          Pull.outputChunk(Chunk.vector(Vector.fill(n)(head))) >> loop(tail)
+      }
+    }
+    input ⇒ loop(input).stream
+  }
+
+  def takeChunks[F[_], T](n: Int): fs2.Pipe[F, T, T] = {
+    def loop(s: fs2.Stream[F, T], n: Int): Pull[F, T, Unit] = {
+      println(s"loop: $n")
+      s.pull.unconsChunk.flatMap {
+        case None ⇒ Pull.done
+        case Some((head, tail)) ⇒
+          val available = head.size
+          println(s"chunk available: $available")
+          if (available < n) Pull.outputChunk(head) >> loop(tail, n - available)
+          else Pull.outputChunk(head.take(n))
+      }
+    }
+    input ⇒ loop(input, n).stream
+  }
+
+  def takeSegments[F[_], T](n: Long): fs2.Pipe[F, T, T] = {
+    input ⇒
+      input.scanSegmentsOpt(n) { n ⇒
+        if (n <= 0) None
+        else Option { seg ⇒
+          seg.take(n).mapResult {
+            case Left((_, n)) ⇒ //demanded n more elements
+              n
+            case Right(_) ⇒ //no elements left
+              0
           }
         }
-    }
-
-    val size = ThreadLocalRandom.current().nextInt(5, 10)
-    _.pull(go(size, 0, Array.fill[Long](size)(0l)))
+      }
   }
+
+  //fs2.Stream(1,2,3,4,5,5,6,7,8,9,10).through(takeChunks(15)).toVector
 
   def naturals[F[_]]: Pipe[F, Long, Long] = {
-    def go(n: Long, f: Boolean): (Handle[F, Long] ⇒ Pull[F, Long, Long]) = {
-      handle ⇒
-        handle.receive1 { (e, h) ⇒
-          if (f) Pull.output1(e) >> go(e + 1, false)(handle)
-          else Pull.output1(n) >> go(n + 1, false)(handle)
-        }
+    def next(n: Long): Pull[F, Long, Long] = {
+      Thread.sleep(500)
+      println(n)
+      Pull.output1(n) >> next(n + 1l)
     }
 
-    _.pull(go(0, true))
+    in ⇒
+      in.pull.uncons1.flatMap {
+        case None            ⇒ Pull.done
+        case Some((head, _)) ⇒ next(head)
+      }.stream
   }
 
-  def stdout[A]: fs2.Pipe[Task, A, Unit] =
+  //fs2.Stream(0l).covary[IO].through(naturals).take(10).compile.drain.unsafeRunAsync { _ ⇒ println("done") }
+
+  def stdout[A]: fs2.Pipe[IO, A, Unit] =
     _.evalMap { e ⇒
-      Task.delay {
+      IO {
         val delayed = scala.util.Random.nextInt(300)
         Thread.sleep(delayed.toLong)
         println(s"${Thread.currentThread.getName}: latency:$delayed value: $e")
       }
     }
 
-  def stdoutSize[A]: fs2.Pipe[Task, Chunk[A], Unit] = {
+  def stdoutSize[A]: fs2.Pipe[IO, Chunk[A], Unit] = {
     _.evalMap { chunk ⇒
-      Task.delay {
+      IO {
         val sleep = scala.util.Random.nextInt(300)
         Thread.sleep(sleep.toLong)
-        println(s"[${Thread.currentThread.getName}] latency:$sleep chunk-size:${chunk.iterator.mkString(",")}")
+        println(s"[${Thread.currentThread.getName}] latency:$sleep chunk-size:${chunk.toVector.mkString(",")}")
       }
     }
   }
@@ -109,11 +153,13 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
     }
   }
 
-  scenario04.run.unsafeAttemptRun
+  //scenario02.compile.drain.unsafeRunSync()
+  //scenario03.compile.drain.unsafeRunSync()
+  scenario04.compile.drain.unsafeRunSync()
 
-  def logStdOutDelayed[A](message: String): fs2.Pipe[Task, A, Unit] =
+  def logStdOutDelayed[A](message: String): fs2.Pipe[IO, A, Unit] =
     _.evalMap { e ⇒
-      Task.delay {
+      IO {
         val delayed = scala.util.Random.nextInt(300)
         println(s"${Thread.currentThread.getName}: start $message: $e")
         Thread.sleep(delayed.toLong)
@@ -121,43 +167,60 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
       }
     }
 
-  def logStdOut[T]: fs2.Pipe[Task, T, Unit] =
+  def logStdOut[T]: fs2.Pipe[IO, T, Unit] =
     _.evalMap { n ⇒
-      Task.delay(println(s"${Thread.currentThread.getName}: $n"))
+      IO(println(s"${Thread.currentThread.getName}: $n"))
     }
 
-  /*
-  def oneByOne[F[_], A](count: Int): Pipe[F, A, A] = {
-    def go(remaining: Int): (Handle[F, A] ⇒ Pull[F, A, Unit]) =
-      handle ⇒ {
-        if (remaining <= 0) Pull.done
-        else handle.receive1 { (element, h) ⇒ Pull.output1(element) ⇒ go(remaining - 1)(handle) }
-      }
-  }*/
+  def pipeToGraphite[A](g: GraphiteMetrics, message: String): fs2.Pipe[IO, A, Unit] =
+    _.evalMap(_ ⇒ send(g, message))
 
-  def logGraphite[A](g: GraphiteMetrics, message: String): fs2.Pipe[Task, A, Unit] =
-    _.evalMap { _ ⇒ graphite(g, message) }
-
-  def logGraphiteDelayed[A](delay: FiniteDuration)(implicit strategy: Strategy, scheduler: Scheduler): fs2.Pipe[Task, A, A] =
+  def pipeToGraphiteDelayed[A](delay: FiniteDuration)(implicit scheduler: Scheduler, ex: ExecutionContext): fs2.Pipe[IO, A, Unit] =
     _.evalMap { out ⇒
-      val delayed = Task.delay(scala.util.Random.nextInt(delay.toMillis.toInt))
-      delayed.flatMap(d ⇒ Task.now(out).schedule(d.millis))
+      scheduler.delay(fs2.Stream.eval(IO { out }), delay).compile.drain
     }
 
-  def naturals(sourceDelay: FiniteDuration, timeWindow: Long, msg: String, monitoring: GraphiteMetrics,
-               q: mutable.Queue[Task, Long]): Stream[Task, Unit] = {
-    val javaScheduler = Executors.newScheduledThreadPool(2, Fs2Daemons("source"))
-    implicit val scheduler = fs2.Scheduler.fromScheduledExecutorService(javaScheduler)
-    implicit val S = fs2.Strategy.fromExecutor(javaScheduler)
-    implicit val Async = Task.asyncInstance(S)
-    time
+  def naturals0(sourceDelay: FiniteDuration, timeWindow: Long, msg: String, monitoring: GraphiteMetrics,
+                q: mutable.Queue[IO, Long]): fs2.Stream[IO, Unit] = {
+    Scheduler[IO](1).flatMap { scheduler ⇒
+      implicit val _ = ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor(Fs2Daemons("src-scheduler")))
+      scheduler.awakeEvery[IO](sourceDelay)
+        .take(10000)
+        .scan(State(item = 0l)) { (acc, _) ⇒ tumblingWindow(acc, timeWindow) }
+        .evalMap { state ⇒ send(monitoring, msg).map(_ ⇒ state.item) }
+        .to(q.enqueue)
+    }
+  }
+
+  def naturals1(sourceDelay: FiniteDuration, timeWindow: Long, msg: String, monitoring: GraphiteMetrics): fs2.Stream[IO, Unit] = {
+    Scheduler[IO](1).flatMap { scheduler ⇒
+      implicit val _ = ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor(Fs2Daemons("src-scheduler")))
+      scheduler.awakeEvery[IO](sourceDelay)
+        .take(10000)
+        .scan(State(item = 0l)) { (acc, _) ⇒ tumblingWindow(acc, timeWindow) }
+        .evalMap { state ⇒ send(monitoring, msg).map(_ ⇒ state.item) }
+    }
+  }
+
+  def naturals2(sourceDelay: FiniteDuration, timeWindow: Long, msg: String, monitoring: GraphiteMetrics): fs2.Stream[IO, Long] = {
+    Scheduler[IO](1).flatMap { scheduler ⇒
+      implicit val _ = ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor(Fs2Daemons("src-scheduler")))
+      scheduler.awakeEvery[IO](sourceDelay)
+        .take(10000)
+        .scan(State(item = 0l)) { (acc, _) ⇒ tumblingWindow(acc, timeWindow) }
+        .map(_.item)
+    }
+  }
+
+  /*implicit val S = fs2.Strategy.fromExecutor(javaScheduler)
+    implicit val Async = Task.asyncInstance(S)*/
+  /*fs2.async.time
       .awakeEvery(sourceDelay)
       .scan(State(item = 0l)) { (acc, d) ⇒ tumblingWindow(acc, timeWindow) }
       .evalMap { d ⇒ graphite(monitoring, msg).map(_ ⇒ d.item) }
-      .to(q.enqueue)
-  }
+      .to(q.enqueue)*/
 
-  def naturals2(sourceDelay: FiniteDuration, timeWindow: Long, msg: String,
+  /*def naturals2(sourceDelay: FiniteDuration, timeWindow: Long, msg: String,
                 monitoring: GraphiteMetrics): Stream[Task, Long] = {
     val javaScheduler = Executors.newScheduledThreadPool(2, Fs2Daemons("source"))
     implicit val scheduler = fs2.Scheduler.fromScheduledExecutorService(javaScheduler)
@@ -167,47 +230,52 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
       .awakeEvery(sourceDelay)
       .scan(State(item = 0l)) { (acc, d) ⇒ tumblingWindow(acc, timeWindow) }
       .evalMap { d ⇒ graphite(monitoring, msg).map(_ ⇒ d.item) }
-  }
+  }*/
 
   /**
    * Situation:
-   * A source and a sink perform on the same rate at the beginning,
+   * A source and a sink perform on the same rate at the beginning.
    * The sink gets slower, increasing latency with every message.
    * We are using boundedQueue as buffer between the source and the sink.
    * This leads to blocking "enqueue" operation for the source in case no space in the queue.
    * Result:
-   * The source's rate is going to decrease proportionally with the sink's rate.
+   * The source's rate is going to decrease proportionally to the sink's rate.
    */
-  def scenario02: Stream[Task, Unit] = {
+  def scenario02: fs2.Stream[IO, Unit] = {
     val delayPerMsg = 1l
     val window = 5000l
     val bufferSize = 1 << 8
-    val sourceDelay = 10.millis
+    val sourceDelay = 5.millis
 
     val srcMessage = "fs2_source_02:1|c"
     val sinkMessage = "fs2_sink_02:1|c"
 
     val srcG = graphiteInstance
     val sinkG = graphiteInstance
-    implicit val qAsync = Task.asyncInstance(fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(2, Fs2Daemons("queue"))))
 
-    Stream.eval(async.boundedQueue[Task, Long](bufferSize))
-      .flatMap { q ⇒
-        naturals(sourceDelay, window, srcMessage, srcG, q).mergeDrainL {
-          q.dequeue
-            .scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg))
-            .through(logGraphite[(Long, Long)](sinkG, sinkMessage))
-        }
+    implicit val _ = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(2, Fs2Daemons("scenario02")))
+
+    /*fs2.Stream.eval(fs2.async.boundedQueue[IO, Long](bufferSize)).flatMap { q ⇒
+      naturals0(sourceDelay, window, srcMessage, srcG, q).mergeHaltL {
+        q.dequeue
+          .scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg))
+          .through(pipeToGraphite[(Long, Long)](sinkG, sinkMessage))
       }
-      .onError { ex: Throwable ⇒ fs2.Stream.eval(Task.now(println(ex.getMessage))) }
+    }
+    .handleErrorWith(th ⇒ fs2.Stream.eval(IO(println(s"scenario02 error: ${th.getMessage}"))))
+    .onComplete(fs2.Stream.eval(IO(println("scenario02 completed"))))
+    */
 
-    /*
-    val flow = for {
-      q ← Stream.eval(async.boundedQueue[Task, Int](bufferSize))
-      out ← naturals(sourceDelay, window, srcMessage, srcG, q) merge q.dequeue.scan((0l, 0))((acc, c) ⇒ injectLatency(acc, c, delayPerMsg))
-    } yield out*/
-
-    //flow.evalMap(_ ⇒ grafanaSink(sinkG, sinkMessage)).onError { ex: Throwable ⇒ fs2.Stream.eval(Task.now(println(ex.getMessage))) }
+    (for {
+      q ← fs2.Stream.eval(fs2.async.boundedQueue[IO, Long](bufferSize))
+      src = naturals0(sourceDelay, window, srcMessage, srcG, q)
+      sink = q.dequeue
+        .scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg))
+        .through(pipeToGraphite[(Long, Long)](sinkG, sinkMessage))
+      out ← src mergeHaltL sink
+    } yield out)
+      .handleErrorWith(th ⇒ fs2.Stream.eval(IO(println(s"scenario02 error: ${th.getMessage}"))))
+      .onComplete(fs2.Stream.eval(IO(println("scenario02 completed"))))
   }
 
   /**
@@ -217,9 +285,9 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
    * Result: The source's rate for a long time remains the same (how long depends on waterMark value),
    * but eventually goes down when guard can't keep up anymore, whereas sink's rate goes down immediately.
    *
-   *        +-----+
-   * +------|guard|
-   * |      +-----+
+   *            +-----+
+   *      +-----|guard|
+   *      |     +-----+
    * +------+   +-----+   +----+
    * |source|---|queue|---|sink|
    * +------+   +-----+   +----+
@@ -227,13 +295,12 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
    *
    *
    */
-  def scenario03: Stream[Task, Unit] = {
+  def scenario03: fs2.Stream[IO, Unit] = {
     val delayPerMsg = 1l
     val bufferSize = 1 << 8
     val waterMark = bufferSize - 56 //quarter of buffer size
     val sourceDelay = 10.millis
     val window = 5000l
-    val parallelism = 4
 
     val srcMessage = "fs2_source_3:1|c"
     val sinkMessage = "fs2_sink_3:1|c"
@@ -241,52 +308,43 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
     val srcG = graphiteInstance
     val sinkG = graphiteInstance
     val sinkG2 = graphiteInstance
+    implicit val _ = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(2, Fs2Daemons("scenario03")))
 
-    val S = fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(parallelism, Fs2Daemons("queue")))
-    implicit val Async = Task.asyncInstance(S)
-
-    def dropAll(q: Queue[Task, Long]) =
-      Stream
-        .eval(q.size.get.flatMap(size ⇒ Task.traverse((0 to size)) { _ ⇒ q.dequeue1 }))
+    def dropAll(q: Queue[IO, Long]) =
+      fs2.Stream.eval(q.size.get.flatMap(size ⇒ IO((0 to size).foreach(_ ⇒ q.dequeue1))))
         .drain
 
-    def dropQuarter(q: Queue[Task, Long]) = {
-      val chunk = (0 to waterMark / 4)
-      Stream.repeatEval(Task.traverse(chunk) { _ ⇒ q.dequeue1 }.map(_.size))
-    }
-
-    def drop(q: Queue[Task, Long]) = q.dequeue
+    def dropQuarter(q: Queue[IO, Long]) =
+      fs2.Stream.eval(q.size.get.flatMap(size ⇒ IO((0 to (size / 4)).foreach(_ ⇒ q.dequeue1))))
+        .drain
 
     //just drop element
-    def overflowGuard(q: Queue[Task, Long]) =
-      (q.size.discrete.filter(_ > waterMark) zip dropQuarter(q)).through(logGraphite[(Int, Int)](sinkG2, sinkMessage2))
+    def elementDropper(q: Queue[IO, Long]) =
+      (q.size.discrete.filter(_ > waterMark) zip dropQuarter(q))
+        .through(pipeToGraphite[(Int, Int)](sinkG2, sinkMessage2))
 
-    Stream
-      .eval(async.boundedQueue[Task, Long](bufferSize)(Async))
-      .flatMap { q ⇒
-        naturals(sourceDelay, window, srcMessage, srcG, q).mergeDrainL {
-          (q.dequeue
-            .scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg))
-            .through(logGraphite(sinkG, sinkMessage)) mergeHaltBoth overflowGuard(q))
-        }
-      }
-      .onError { ex: Throwable ⇒
-        Stream.eval(Task.delay(println(s"Error: ${ex.getMessage}")))
-      }
-
-    // the same
     /*
-    Stream.eval(async.boundedQueue[Task, Long](bufferSize)(Async)).flatMap { q ⇒
-      naturals(sourceDelay, window, srcMessage, srcG, q).mergeDrainL {
-        concurrent.join(2)(
-          Stream[Task, Stream[Task, Unit]](
-            overflowGuard(q),
-            q.dequeue.scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg)).through(logGraphite(sinkG, sinkMessage))
-          )
+      fs2.Stream.eval(fs2.async.boundedQueue[IO, Long](bufferSize)).flatMap { q ⇒
+        naturals0(sourceDelay, window, srcMessage, srcG, q).mergeHaltL(
+          (q.dequeue.scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg))
+            .through(pipeToGraphite(sinkG, sinkMessage))).mergeHaltBoth(overflowGuard(q))
         )
       }
-    }.onError { ex: Throwable ⇒ Stream.eval(Task.delay(println(s"Error: ${ex.getMessage}"))) }
-   */
+      .handleErrorWith(th ⇒ fs2.Stream.eval(IO(println(s"scenario03 error: ${th.getMessage}"))))
+      .onComplete(fs2.Stream.eval(IO(println("scenario03 completed"))))
+    */
+
+    (for {
+      q ← fs2.Stream.eval(fs2.async.boundedQueue[IO, Long](bufferSize))
+      src = naturals0(sourceDelay, window, srcMessage, srcG, q)
+      sink = q.dequeue.scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg))
+        .through(pipeToGraphite(sinkG, sinkMessage))
+      dropper = elementDropper(q)
+      out ← src mergeHaltL (sink mergeHaltBoth dropper)
+    } yield out)
+      .handleErrorWith(th ⇒ fs2.Stream.eval(IO(println(s"scenario03 error: ${th.getMessage}"))))
+      .onComplete(fs2.Stream.eval(IO(println("scenario03 completed"))))
+
   }
 
   /**
@@ -294,13 +352,13 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
    * and they are available from the source stream,
    * whereas the mapAsyncUnordered2 implementation shaded the input in to substreams, so some may not be busy.
    */
-  def mapAsyncUnordered[F[_]: fs2.util.Async, A, B](parallelism: Int)(f: A ⇒ F[B]): Pipe[F, A, B] =
-    (inner: Stream[F, A]) ⇒
-      concurrent.join(parallelism)(inner.map(a ⇒ Stream.eval(f(a))))
 
-  def mapAsyncUnordered2[F[_], R](parallelism: Int)(stream: Stream[F, R])(implicit F: fs2.util.Async[F]): Stream[F, R] = {
+  def mapAsyncUnordered[F[_], A, B](parallelism: Int)(f: A ⇒ F[B])(implicit F: Effect[F], ec: ExecutionContext): Pipe[F, A, B] =
+    (inner: fs2.Stream[F, A]) ⇒
+      inner.map(a ⇒ fs2.Stream.eval(f(a))).join(parallelism)
+
+  def mapAsyncUnordered2[F[_], R](parallelism: Int, stream: fs2.Stream[F, R])(implicit F: Effect[F], ex: ExecutionContext): fs2.Stream[F, R] = {
     val consistentHash = akka.routing.ConsistentHash[Int]((0 to parallelism), 1)
-    //consistentHash.nodeFor(value.hashCode.toString)
     if (parallelism <= 1) stream
     else {
       val zeroStream = stream.filter { value ⇒ consistentHash.nodeFor(value.hashCode.toString) % parallelism == 0 }
@@ -308,25 +366,6 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
         case (s, num) ⇒
           val filtered = s.filter { value ⇒ consistentHash.nodeFor(value.hashCode.toString) % parallelism == num }
           s.merge(filtered)
-      }
-    }
-  }
-
-  implicit class StreamOps[F[_], A](val source: Stream[F, A]) extends AnyVal {
-    def balance[B](qSize: Int, parallelism: Int)(sink: Pipe[F, A, B], qSizeSink: Pipe[F, Int, Unit])(implicit a: fs2.util.Async[F]): Stream[F, B] = {
-      Stream.eval(async.boundedQueue[F, Option[A]](qSize)).flatMap { q ⇒
-        source.map(Some(_)).to(q.enqueue)
-          //.evalMap { el ⇒ asc.flatMap(q.enqueue1(el)) { r ⇒ println(q.hashCode); asc.pure(()) } }
-          .drain.onFinalize[F] {
-            def close(n: Int): F[Unit] =
-              if (n == 1) q.enqueue1(None) else a.flatMap(q.enqueue1(None))(_ ⇒ close(n - 1))
-
-            close(parallelism)
-            //a.flatMap(q.enqueue1(None)) { r ⇒ println("Source is done"); a.pure(()) }
-          }
-          //.mergeHaltBoth(q.size.discrete.through(qSizeSink).drain)
-          .merge(q.dequeue.unNoneTerminate.through(sink))
-
       }
     }
   }
@@ -343,55 +382,70 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
    *                      +------|sink1|
    *                             +-----+
    */
-  def scenario04: Stream[Task, Unit] = {
+  def scenario04: fs2.Stream[IO, Unit] = {
     val window = 5000l
     val parallelism = 2
     val bufferSize = 1 << 8
 
     val gr = graphiteInstance
-    val sourceDelay = 200.millis
+    val sourceDelay = 100.millis
     val srcMessage = "fs2_source_4:1|c"
-    implicit val Async = Task.asyncInstance(
-      fs2.Strategy.fromExecutor(Executors.newFixedThreadPool(parallelism + 1, Fs2Daemons("sinks"))))
 
     def sinkMessage(th: String) = s"fs2_sink_${th}:1|c"
 
-    def testSink(e: Long) = Task.delay {
+    def testSink(e: Long) = IO {
       val rnd = ThreadLocalRandom.current()
       println(s"${Thread.currentThread.getName}: start $e")
       Thread.sleep(rnd.nextInt(100, 300))
       println(s"${Thread.currentThread.getName}: stop $e")
     }
 
-    naturals2(sourceDelay, window, srcMessage, graphiteInstance).take(100)
-      .balance(bufferSize, parallelism)(
-        mapAsyncUnordered(parallelism) { e ⇒
-          graphite(gr, sinkMessage(Thread.currentThread.getName), 300)
-          //testSink(e)
-        }, logStdOut
-      ).onError { ex: Throwable ⇒
-          Stream.eval(Task.delay(println(s"fs2_scenario04 error: ${ex.getMessage}")))
-        }
-  }
-
-  //Stream.emits(0 to 10).fla
-
-  //Task.fromFuture()
-  /*def go(out: FileHandle[Task]): Handle[Task,MyEvent] => Pull[Task,Nothing,Unit] =
-    _.receive1 {
-      case (MyEvent.Data(d), h) => Pull.eval(out.write(data)) >> go(out)(h)
-      case (MyEvent.NewFile(name), h) => Pull.eval(out.close) >> io.file.pulls.fromPathAsync[Task](name, ...).flatMap { newOut => go(newOut)(h) }
-    }*/
-  /*
-  implicit val st = Strategy.fromFixedDaemonPool(4)
-  implicit val sc = Scheduler.fromFixedDaemonPool(4)
-  val tasks = Stream(1, 2, 3).covary[Task].map { i ⇒
-    Task.delay {
-      println(s"Trying $i")
-      if (i == 3) sys.error("foo") else i
+    def testSink0 = IO {
+      val rnd = ThreadLocalRandom.current()
+      println(s"${Thread.currentThread.getName}: start")
+      Thread.sleep(rnd.nextInt(2000, 3000))
+      println(s"${Thread.currentThread.getName}: stop")
     }
+
+    import ops._
+    implicit val _ = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(3, Fs2Daemons("scenario04")))
+
+    def log = fs2.Sink[IO, Long] { in ⇒
+      IO {
+        println(s"${Thread.currentThread.getName}: start $in")
+        Thread.sleep(ThreadLocalRandom.current().nextInt(1000, 2000))
+        println(s"${Thread.currentThread.getName}: stop $in")
+      }
+    }
+
+    for {
+      q ← fs2.Stream.eval(fs2.async.boundedQueue[IO, Option[Long]](1 << 8))
+      src = Scheduler[IO](1).flatMap {
+        implicit val _ = ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor(Fs2Daemons("src-scheduler")))
+        _.awakeEvery[IO](sourceDelay).take(20).map(v ⇒ Some(v.toMillis)).to(q.enqueue)
+          .onComplete(fs2.Stream.eval(q.enqueue1(None).flatMap(_ ⇒ q.enqueue1(None))))
+      }
+        //.interruptWhen(???)
+
+      sinks = fs2.Stream(
+        q.dequeue.unNoneTerminate.to(log),
+        q.dequeue.unNoneTerminate.to(log)
+      ).join(2)
+
+      //OR
+      //ps0 = q.dequeue.unNoneTerminate.to(log)
+      //ps1 = q.dequeue.unNoneTerminate.to(log)
+      //(ps0 merge ps1).onComplete(fs2.Stream.eval(IO(println("consumers are done")))).drain
+      out ← sinks merge src.drain.onComplete(fs2.Stream.eval(IO(println("producer is done")))).drain
+    } yield out
+
+    /*naturals1(sourceDelay, window, srcMessage, graphiteInstance)
+      .balance[Unit](bufferSize, parallelism)(mapAsyncUnordered[IO, Unit, Unit](parallelism)(_ ⇒ testSink0))
+    */
   }
 
+
+  /*
   //retry the most recently available Task until it passes or until a new Task is available
   val retries = Retries.retryTasksOnFailure(tasks, x ⇒ 1.second)
   retries.run.unsafeRun*/
@@ -401,27 +455,28 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
 
   //https://gist.github.com/zeryx/5d918a433dca167975ca047a7e1f4cc1
   //combines one model with another, dedups too if text in docA is found in docB using windowSize & number of attempts.
-  def combineModels(newModel: Stream[Task, String], oldModel: Stream[Task, String],
-                    windowSize: Int)(implicit s: Strategy): Stream[Task, String] = {
+
+  def combineModels(newModel: fs2.Stream[IO, String], oldModel: fs2.Stream[IO, String],
+                    windowSize: Int): fs2.Stream[IO, String] = {
     val doubleDeduped = dedupStreams[String](newModel, oldModel, windowSize)
     val singleDeduped = dedupStream[String](doubleDeduped, windowSize)
     singleDeduped
   }
 
-  def dedupStreams[A](a: Stream[Task, A], b: Stream[Task, A], windowSize: Int)(implicit s: Strategy): Stream[Task, A] = {
+  def dedupStreams[A](a: fs2.Stream[IO, A], b: fs2.Stream[IO, A], windowSize: Int): fs2.Stream[IO, A] = {
     a.interleaveAll(b).sliding(windowSize).flatMap { window ⇒
       val distinct = window
       println(distinct)
-      Stream.emits(distinct)
+      fs2.Stream.emits(distinct)
     }
   }
 
   //dedups a single stream based on a window size.
-  def dedupStream[A](a: Stream[Task, A], windowSize: Int)(implicit s: Strategy): Stream[Task, A] = {
+  def dedupStream[A](a: fs2.Stream[IO, A], windowSize: Int): fs2.Stream[IO, A] = {
     a.sliding(windowSize).flatMap { window ⇒
       val distinct = window.distinct
       println(distinct)
-      Stream.emits(distinct)
+      fs2.Stream.emits(distinct)
     }
   }
 }

@@ -29,5 +29,5 @@ trait ReportingModuleTask extends ReportingModule[Task] {
 
 object ReportingService extends ReportingModuleTask {
   val executor = java.util.concurrent.Executors
-    .newFixedThreadPool(2, new RecipesDaemons("reporting"))
+    .newFixedThreadPool(2, new DddDaemons("reporting"))
 }

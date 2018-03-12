@@ -1,9 +1,11 @@
+import java.util.concurrent.atomic.AtomicInteger
+
 import shapeless.ops.traversable.ToSizedHList
 
 import util.Try
 import scala.reflect.ClassTag
-import java.util.concurrent.ExecutorService
-import recipes.ScalazRecipes.RecipesDaemons
+import java.util.concurrent.{ExecutorService, ThreadFactory}
+//import recipes.ScalazRecipes.RecipesDaemons
 
 package object cake {
   import scala.concurrent.Future
@@ -11,6 +13,17 @@ package object cake {
   import scalaz._, Scalaz._
   import scalaz.concurrent.{Task => ZTask}
   import scala.concurrent.{ExecutionContext, Future => SFuture, Promise}
+
+  case class CakeDaemons(name: String) extends ThreadFactory {
+    private def namePrefix = s"$name-thread"
+    private val threadNumber = new AtomicInteger(1)
+    private val group: ThreadGroup = Thread.currentThread().getThreadGroup
+    override def newThread(r: Runnable) = {
+      val t = new Thread(group, r, s"$namePrefix-${threadNumber.getAndIncrement()}", 0L)
+      t.setDaemon(true)
+      t
+    }
+  }
 
   //Integration code between Scalaz and Scala standard concurrency libraries
   object Task2Future {
@@ -436,7 +449,7 @@ package object cake {
   def func = {
     import scalaz.concurrent.Future._
 
-    implicit val IOPool = java.util.concurrent.Executors.newFixedThreadPool(3, RecipesDaemons("v-tasks"))
+    implicit val IOPool = java.util.concurrent.Executors.newFixedThreadPool(3, CakeDaemons("v-tasks"))
     implicit val M: Monoid[scalaz.concurrent.Future /*Task*/[Or[Int]]] = monoidOrPar[Int, scalaz.concurrent.Future /*Task*/]
 
     //fail fast
@@ -459,7 +472,7 @@ package object cake {
 
   val program = new ScalazTaskTwitter with MySqlTaskDbService with ZNondeterminism[Task] {
     override implicit lazy val Executor: java.util.concurrent.ExecutorService =
-      java.util.concurrent.Executors.newFixedThreadPool(3, RecipesDaemons("tasks"))
+      java.util.concurrent.Executors.newFixedThreadPool(3, CakeDaemons("tasks"))
 
     override def ND = scalaz.Nondeterminism[Task]
   }
@@ -470,7 +483,7 @@ package object cake {
       with ZNondeterminism[scalaz.concurrent.Future] {
 
     override implicit lazy val Executor = java.util.concurrent.Executors
-      .newFixedThreadPool(3, RecipesDaemons("futures"))
+      .newFixedThreadPool(3, CakeDaemons("futures"))
 
     override def ND = scalaz.Nondeterminism[scalaz.concurrent.Future]
   }
@@ -482,7 +495,7 @@ package object cake {
       with ShapelessMonadSupport {
 
     override implicit lazy val Executor: java.util.concurrent.ExecutorService =
-      java.util.concurrent.Executors.newFixedThreadPool(3, RecipesDaemons("tasks0"))
+      java.util.concurrent.Executors.newFixedThreadPool(3, CakeDaemons("tasks0"))
 
     override lazy val ND = scalaz.Nondeterminism[scalaz.concurrent.Task]
 
@@ -495,7 +508,7 @@ package object cake {
       * Use ApplicativeBuilder and Shapeless
       * It allows doing the same things as original Applicative Builder but this is not limited to 12 elements.
       */
-    def gather =
+    def gather: scalaz.concurrent.Task[String] =
       ((twitterApi batch "reduce page") ||@|| (dbApi batch "select page") ||@|| (dbApi batch "select page")) {
         (a: ValidTweet, b: ValidRecord, c: ValidRecord) ⇒
           s"[twitter:$a] - [db1:$b] - [db2:$c]"
@@ -520,7 +533,7 @@ package object cake {
       *
       *
       */
-    def gatherZip =
+    def gatherZip: Task[Validation[NonEmptyList[String],String]] =
       zip((twitterApi batch "reduce page"), (dbApi batch "select page"), (twitterApi batch "reduce page"))
         .map { tupler: (ValidTweet, ValidRecord, ValidTweet) =>
           (tupler._1 |@| tupler._2 |@| tupler._3) { case (a, b, c) => s"A:$a B:$b C:$c" }
@@ -547,7 +560,7 @@ package object cake {
     import java.util.concurrent.Executors
 
     override implicit lazy val Executor =
-      Executors.newFixedThreadPool(3, new RecipesDaemons("tasks1"))
+      Executors.newFixedThreadPool(3, new CakeDaemons("tasks1"))
 
     override lazy val ND = scalaz.Nondeterminism[scalaz.concurrent.Task]
 
@@ -621,7 +634,7 @@ package object cake {
     /**
       * Sequentual with ApplicativeBuilder
       */
-    def gatherS5 =
+    def gatherS5: scalaz.concurrent.Task[scalaz.Validation[scalaz.NonEmptyList[String],String]] =
       ((twitterApi batch "reduce page") |@| (dbApi batch "select page")) {
         (x, y) =>
           (x |@| y) {

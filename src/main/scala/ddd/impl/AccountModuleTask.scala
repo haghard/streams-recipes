@@ -4,7 +4,6 @@ import ddd.repo.AccountRepo
 import ddd.{ Balance, Amount }
 import ddd.account.{ Checking, Savings, AccountType, Account }
 import ddd.services.AccountModule
-import recipes.ScalazRecipes.RecipesDaemons
 
 import scalaz._
 import Scalaz._
@@ -124,5 +123,5 @@ trait AccountModuleTask extends AccountModule[Task, Account, Amount, Balance] {
 }
 
 object AccountService extends AccountModuleTask {
-  val executor = java.util.concurrent.Executors.newFixedThreadPool(2, new RecipesDaemons("accounts"))
+  val executor = java.util.concurrent.Executors.newFixedThreadPool(2, new DddDaemons("accounts"))
 }

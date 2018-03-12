@@ -1,5 +1,6 @@
 package recipes
 
+/*
 import fs2._
 import java.time.Instant
 import scala.concurrent.duration._
@@ -22,6 +23,8 @@ import scala.concurrent.duration._
 
 //https://gist.github.com/mpilquist/21430db54b22c17557a63a15d7b4be06#file-retries-scala
 //TODO: to try it in action
+
+
 object Retries {
 
   /**
@@ -100,3 +103,4 @@ object Retries {
     }
   }
 }
+*/ 
