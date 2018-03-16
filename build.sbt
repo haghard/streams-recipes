@@ -32,7 +32,8 @@ resolvers ++= Seq(
   "Awesome Utilities" at "https://dl.bintray.com/davegurnell/maven",
   "Apache Staging" at "https://repository.apache.org/content/repositories/staging/",
   "oncue"             at "https://bintray.com/oncue/releases/quiver/",
-  Resolver.bintrayRepo("mfglabs", "maven")
+  Resolver.bintrayRepo("mfglabs", "maven"),
+  "indvd00m-github-repo" at "https://raw.githubusercontent.com/indvd00m/maven-repo/master/repository"
 )
 
 promptTheme := ScalapenosTheme
@@ -64,7 +65,7 @@ libraryDependencies ++= Seq(
   "co.fs2"            %% "fs2-core"          % "0.10.2",
   "co.fs2"            %% "fs2-io"            % "0.10.2",
 
-  //"com.spinoco"       %% "fs2-zk"            % "0.1.6",
+  "com.spinoco"       %% "fs2-zk"            % "0.1.6",
   //"com.spinoco"       %% "fs2-cassandra"     % "0.2.1",
   
   //Users/haghard/.ivy2/local/default/fs2-cache_2.11/1.0/jars/fs2-cache_2.11.jar
@@ -73,6 +74,9 @@ libraryDependencies ++= Seq(
   "org.hdrhistogram"  %  "HdrHistogram"      % "2.1.9",
   "com.esri.geometry" %  "esri-geometry-api" % "1.2.1",
   "io.spray"          %% "spray-json"        % "1.3.2",
+
+  //https://github.com/mikolak-net/travesty
+  "net.mikolak" %% "travesty" % s"0.9_$akkaStreamV",
 
   //"io.dropwizard.metrics"   % "metrics-core"   %   "3.1.0.",
   //"io.dropwizard.metrics"   % "metrics-graphite" %   "3.1.0.",

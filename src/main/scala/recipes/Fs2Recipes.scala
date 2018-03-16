@@ -479,4 +479,20 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
       fs2.Stream.emits(distinct)
     }
   }
+
+  /*def circuitBreaker[F[_], O](s1: Stream[F, O], s2: Stream[F, Boolean]): Stream[F, O] = {
+     def go(h1: Handle[F, O], h2: Handle[F, Boolean]): Pull[F, O, Nothing] =
+       for {
+         (c, h2next) <- h2.await1
+         (o, h1next) <- if (c) {
+           h1.await1
+         } else {
+           Pull.suspend(go(h1, h2next))
+         }
+         _ <- Pull.output1(o)
+         n <- Pull.suspend(go(h1next, h2next))
+       } yield n
+
+     s1.pull2(s2)(go)
+  }*/
 }
