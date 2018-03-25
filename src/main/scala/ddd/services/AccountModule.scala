@@ -10,11 +10,8 @@ trait AccountModule[M[_], Account, Amount, Balance] {
 
   type AccountOperation[A] = Kleisli[M, AccountRepo, ddd.Valid[A]]
 
-  def open(no: String,
-           name: String,
-           rate: Option[BigDecimal],
-           openingDate: Option[Date],
-           accountType: AccountType): AccountOperation[Account]
+  def open(no: String, name: String, rate: Option[BigDecimal],
+           openingDate: Option[Date], accountType: AccountType): AccountOperation[Account]
 
   def close(no: String, closeDate: Option[Date]): AccountOperation[Account]
 
@@ -24,6 +21,7 @@ trait AccountModule[M[_], Account, Amount, Balance] {
 
   def balance(no: String): AccountOperation[Balance]
 
-  def transfer(accounts: ddd.Valid[(String, String)],
-               amount: Amount): AccountOperation[(Account, Account)]
+  def transfer(
+    accounts: ddd.Valid[(String, String)],
+    amount:   Amount): AccountOperation[(Account, Account)]
 }

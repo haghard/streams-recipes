@@ -32,7 +32,7 @@ object InterThreadAtomicLatency {
   }
 
   class BusySpinCasPingRunner(flag: AtomicBoolean, histogram: Histogram)
-      extends Runnable {
+    extends Runnable {
     @tailrec final def loop(i: Int, start: Long): Unit = {
       if (i > 0) {
         while (!flag.compareAndSet(false, true)) {

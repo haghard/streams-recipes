@@ -425,12 +425,11 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
         _.awakeEvery[IO](sourceDelay).take(20).map(v ⇒ Some(v.toMillis)).to(q.enqueue)
           .onComplete(fs2.Stream.eval(q.enqueue1(None).flatMap(_ ⇒ q.enqueue1(None))))
       }
-        //.interruptWhen(???)
+      //.interruptWhen(???)
 
       sinks = fs2.Stream(
         q.dequeue.unNoneTerminate.to(log),
-        q.dequeue.unNoneTerminate.to(log)
-      ).join(2)
+        q.dequeue.unNoneTerminate.to(log)).join(2)
 
       //OR
       //ps0 = q.dequeue.unNoneTerminate.to(log)
@@ -443,7 +442,6 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
       .balance[Unit](bufferSize, parallelism)(mapAsyncUnordered[IO, Unit, Unit](parallelism)(_ ⇒ testSink0))
     */
   }
-
 
   /*
   //retry the most recently available Task until it passes or until a new Task is available

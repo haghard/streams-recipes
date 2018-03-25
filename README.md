@@ -1,14 +1,8 @@
 # streams-recipes
-ScalazStream, AkkaStream recipes
+ScalazStream, AkkaStream, Fs2 recipes
 ==================================
 
-AkkaStream
-================
-1.
-
-ScalazStream
-================
-1.
+https://piotrminkowski.wordpress.com/2017/08/29/visualizing-jenkins-pipeline-results-in-grafana/
 
  
 Run grafana + graphite docker image   

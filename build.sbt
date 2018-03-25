@@ -2,12 +2,12 @@ import SbtPrompt.autoImport._
 
 import scalariform.formatter.preferences._
 
-scalariformSettings
-
-ScalariformKeys.preferences := ScalariformKeys.preferences.value
-  .setPreference(RewriteArrowSymbols, true)
-  .setPreference(AlignParameters, true)
-  .setPreference(AlignSingleLineCaseStatements, true)
+scalariformPreferences := scalariformPreferences.value
+    .setPreference(RewriteArrowSymbols, true)
+    .setPreference(AlignParameters, true)
+    .setPreference(AlignSingleLineCaseStatements, true)
+    //.setPreference(DoubleIndentConstructorArguments, true)
+    //.setPreference(DanglingCloseParenthesis, Preserve)
 
 name := "stream-recipes"
 
@@ -62,8 +62,8 @@ libraryDependencies ++= Seq(
 
   //"io.monix"          %% "monix"             % "2.1.2",
 
-  "co.fs2"            %% "fs2-core"          % "0.10.2",
-  "co.fs2"            %% "fs2-io"            % "0.10.2",
+  "co.fs2"            %% "fs2-core"          % "0.10.3",
+  "co.fs2"            %% "fs2-io"            % "0.10.3",
 
   "com.spinoco"       %% "fs2-zk"            % "0.1.6",
   //"com.spinoco"       %% "fs2-cassandra"     % "0.2.1",
@@ -126,7 +126,6 @@ sourceGenerators in Test += Def.task {
 
 //streams-recipes/test:console
 
-//addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.8.0")
 addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.4")
 addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)
 

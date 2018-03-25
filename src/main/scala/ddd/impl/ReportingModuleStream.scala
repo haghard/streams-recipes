@@ -14,7 +14,7 @@ object ReportingModuleStream {
 
 //trait ReportingModuleStream extends ReportingModule[({ type λ[x] = scalaz.stream.Process[scalaz.concurrent.Task, x] })#λ] {
 trait ReportingModuleStream
-    extends ReportingModule[ReportingModuleStream.PTask] {
+  extends ReportingModule[ReportingModuleStream.PTask] {
   mixin: { def executor: java.util.concurrent.ExecutorService } ⇒
 
   override type T = (String, ddd.Amount)

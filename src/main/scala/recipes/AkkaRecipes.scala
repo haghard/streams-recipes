@@ -149,8 +149,9 @@ object AkkaRecipes extends App {
    * Tumbling windows discretize a stream into non-overlapping windows
    * Using conflate as rate detached operation
    */
-  def tumblingWindow[T](name: String,
-                        duration: FiniteDuration): Sink[T, akka.NotUsed] =
+  def tumblingWindow[T](
+    name:     String,
+    duration: FiniteDuration): Sink[T, akka.NotUsed] =
     (Flow[T]
       .conflateWithSeed(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
       .zipWith(Source.tick(duration, duration, ()))(Keep.left))
@@ -171,9 +172,10 @@ object AkkaRecipes extends App {
    * Sliding windows discretize a stream into overlapping windows
    * Using conflate as rate detached operation
    */
-  def slidingWindow[T](name: String,
-                       duration: FiniteDuration,
-                       numOfIntervals: Long = 5): Sink[T, akka.NotUsed] = {
+  def slidingWindow[T](
+    name:           String,
+    duration:       FiniteDuration,
+    numOfIntervals: Long           = 5): Sink[T, akka.NotUsed] = {
     val nano = 1000000000
     (Flow[T]
       .conflateWithSeed(_ ⇒ 0l)((counter, _) ⇒ counter + 1l)
@@ -411,8 +413,7 @@ object AkkaRecipes extends App {
           case (src, idx) ⇒ b.add(src) ~> merger.in(idx)
         }
         SourceShape(merger.out)
-      }
-    )
+      })
 
     val queryStreams = Source.fromGraph(
       GraphDSL.create() { implicit b ⇒
@@ -424,8 +425,7 @@ object AkkaRecipes extends App {
               .withDispatcher("akka.flow-dispatcher")) ~> merge
         }
         SourceShape(merge.out)
-      }
-    )
+      })
 
     GraphDSL.create() { implicit builder ⇒
       import GraphDSL.Implicits._
@@ -451,7 +451,7 @@ object AkkaRecipes extends App {
   }
 
   final class DisjunctionRouter[T, A](validationLogic: T ⇒ A \/ T)
-      extends GraphStage[FanOutShape2[T, A, T]] {
+    extends GraphStage[FanOutShape2[T, A, T]] {
     val in = Inlet[T]("in")
     val error = Outlet[A]("error")
     val out = Outlet[T]("out")
@@ -470,8 +470,7 @@ object AkkaRecipes extends App {
                 Option(-\/(err, error))
               }, { v: T ⇒
                 Option(\/-(v, out))
-              }
-            )
+              })
             tryPush
           }
         })
@@ -723,8 +722,7 @@ object AkkaRecipes extends App {
         Source.tick(Duration.Zero, interval, ()) ~> zip.in1
         zip.out ~> dropOne.in
         FlowShape(zip.in0, dropOne.outlet)
-      }
-    )
+      })
 
   /**
    * Almost same as ``every``
@@ -736,8 +734,7 @@ object AkkaRecipes extends App {
         val zip = b.add(Zip[T, Unit]().withAttributes(Attributes.inputBuffer(1, 1)))
         Source.tick(interval, interval, ()) ~> zip.in1
         FlowShape(zip.in0, zip.out)
-      }
-    ).map(_._1)
+      }).map(_._1)
   }
 
   /**
@@ -764,8 +761,7 @@ object AkkaRecipes extends App {
         val merge = builder.add(MergePreferred[T](1))
         heartbeats ~> merge.in(0)
         FlowShape(merge.preferred, merge.out)
-      }
-    )
+      })
 
   /*
     For cases where back-pressuring is not a viable strategy, one may wants to drop events from the fast producer, or accumulate them
@@ -847,7 +843,8 @@ object AkkaRecipes extends App {
    * External Producer through Source.queue
    */
   def scenario13_1(
-    implicit mat: Materializer): Graph[ClosedShape, akka.NotUsed] = {
+    implicit
+    mat: Materializer): Graph[ClosedShape, akka.NotUsed] = {
     implicit val Ctx = mat.executionContext
     implicit val ExtCtx = sys.dispatchers.lookup("akka.blocking-dispatcher")
 
@@ -865,8 +862,9 @@ object AkkaRecipes extends App {
       .toMat(Sink.asPublisher[Int](false))(Keep.both).run()(mat)
      */
 
-    def externalProducer(q: akka.stream.scaladsl.SourceQueueWithComplete[Int],
-                         pName: String, elem: Int): Unit = {
+    def externalProducer(
+      q:     akka.stream.scaladsl.SourceQueueWithComplete[Int],
+      pName: String, elem: Int): Unit = {
       if (elem < 10000) {
         (q offer elem).onComplete {
           case Success(QueueOfferResult.Enqueued) ⇒
@@ -1021,8 +1019,7 @@ object AkkaRecipes extends App {
       val sink = sys.actorOf(Props(classOf[RecordsSink], "sink15_01", statsD).withDispatcher("akka.flow-dispatcher"), "akka-sink15")
 
       val src = Source.actorPublisher[Long](
-        Props(classOf[DbCursorPublisher], "akka-source15_01", 20000l, statsD).withDispatcher("akka.flow-dispatcher")
-      ).map(DBObject2(_, sink))
+        Props(classOf[DbCursorPublisher], "akka-source15_01", 20000l, statsD).withDispatcher("akka.flow-dispatcher")).map(DBObject2(_, sink))
 
       src ~> Sink.actorSubscriber(ConsistentHashingRouter.props)
       ClosedShape
@@ -1291,8 +1288,7 @@ object AkkaRecipes extends App {
         zip.out ~> unzip ~> sendMap
 
         SourceShape(sendMap.outlet)
-      }
-    )
+      })
 }
 
 trait GraphiteMetrics {
@@ -1361,8 +1357,7 @@ class ConsistentHashingRouter extends ActorSubscriber with ActorLogging {
     routees.map { actor ⇒
       context.watch(actor)
       ActorRefRoutee(actor)
-    }
-  )
+    })
 
   override protected def requestStrategy = new MaxInFlightRequestStrategy(32) {
     override def inFlightInternally = routeesMap.size
@@ -1533,7 +1528,7 @@ object PubSubSink {
 }
 
 class PubSubSink private (name: String, val address: InetSocketAddress, delay: Long) extends ActorSubscriber with ActorPublisher[Long]
-    with GraphiteMetrics {
+  with GraphiteMetrics {
   private val queue = mutable.Queue[Long]()
 
   override protected val requestStrategy = new MaxInFlightRequestStrategy(10) {
@@ -1586,10 +1581,11 @@ object SyncActor {
   def props3(name: String, address: InetSocketAddress, delay: Long) =
     Props(new SyncActor(name, address, delay))
 
-  def props4(name: String,
-             address: InetSocketAddress,
-             delay: Long,
-             limit: Long) =
+  def props4(
+    name:    String,
+    address: InetSocketAddress,
+    delay:   Long,
+    limit:   Long) =
     Props(new SyncActor(name, address, delay, limit))
       .withDispatcher("akka.flow-dispatcher")
 }
@@ -1642,20 +1638,22 @@ class SyncActor private (name: String, val address: InetSocketAddress, delay: Lo
 }
 
 object BatchActor {
-  def props(name: String,
-            address: InetSocketAddress,
-            delay: Long,
-            bufferSize: Int) =
+  def props(
+    name:       String,
+    address:    InetSocketAddress,
+    delay:      Long,
+    bufferSize: Int) =
     Props(new BatchActor(name, address, delay, bufferSize))
       .withDispatcher("akka.flow-dispatcher")
 }
 
-class BatchActor private (name: String,
-                          val address: InetSocketAddress,
-                          delay: Long,
-                          bufferSize: Int)
-    extends ActorSubscriber
-    with GraphiteMetrics {
+class BatchActor private (
+  name:        String,
+  val address: InetSocketAddress,
+  delay:       Long,
+  bufferSize:  Int)
+  extends ActorSubscriber
+  with GraphiteMetrics {
   private val queue = new mutable.Queue[Int]()
 
   override protected val requestStrategy = new MaxInFlightRequestStrategy(
@@ -1685,10 +1683,11 @@ class BatchActor private (name: String,
 }
 
 object DegradingActor {
-  def props(name: String,
-            address: InetSocketAddress,
-            delayPerMsg: Long,
-            initialDelay: Long) =
+  def props(
+    name:         String,
+    address:      InetSocketAddress,
+    delayPerMsg:  Long,
+    initialDelay: Long) =
     Props(new DegradingActor(name, address, delayPerMsg, initialDelay))
       .withDispatcher("akka.flow-dispatcher")
 
@@ -1697,12 +1696,13 @@ object DegradingActor {
       .withDispatcher("akka.flow-dispatcher")
 }
 
-class DegradingActor private (val name: String,
-                              val address: InetSocketAddress,
-                              delayPerMsg: Long,
-                              initialDelay: Long)
-    extends ActorSubscriber
-    with GraphiteMetrics {
+class DegradingActor private (
+  val name:     String,
+  val address:  InetSocketAddress,
+  delayPerMsg:  Long,
+  initialDelay: Long)
+  extends ActorSubscriber
+  with GraphiteMetrics {
 
   var delay = 0l
   var lastSeenMsg = 0
@@ -1713,9 +1713,10 @@ class DegradingActor private (val name: String,
     this(name, statsD, 0, 0)
   }
 
-  private def this(name: String,
-                   statsD: InetSocketAddress,
-                   delayPerMsg: Long) {
+  private def this(
+    name:        String,
+    statsD:      InetSocketAddress,
+    delayPerMsg: Long) {
     this(name, statsD, delayPerMsg, 0)
   }
 
@@ -1751,7 +1752,7 @@ class DegradingActor private (val name: String,
 }
 
 class DbCursorPublisher(name: String, val Limit: Long, val address: InetSocketAddress) extends ActorPublisher[Long]
-    with GraphiteMetrics with ActorLogging {
+  with GraphiteMetrics with ActorLogging {
   var limit = 0l
   var seqN = 0l
   val showPeriod = 50
@@ -2302,6 +2303,7 @@ object Traverse {
 
   /** Future.sequence, but with bounded parallelism */
   def sequence[A](in: TraversableOnce[Future[A]], maxParallel: Int)(
-    implicit mat: ActorMaterializer): Future[Seq[A]] =
+    implicit
+    mat: ActorMaterializer): Future[Seq[A]] =
     traverse(in, maxParallel)(identity)
 }

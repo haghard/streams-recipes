@@ -1,20 +1,19 @@
 package recipes
 
-
 import java.io.FileInputStream
-import java.net.{InetAddress, InetSocketAddress}
+import java.net.{ InetAddress, InetSocketAddress }
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.{ForkJoinPool, ThreadFactory}
+import java.util.concurrent.{ ForkJoinPool, ThreadFactory }
 
 import scodec.bits.ByteVector
 
 import scala.concurrent.forkjoin.ThreadLocalRandom
 import scala.util.Random
 import scalaz.stream.Process._
-import scalaz.{Nondeterminism, -\/, \/-, \/}
+import scalaz.{ Nondeterminism, -\/, \/-, \/ }
 import scalaz.stream._
 import scalaz.stream.merge._
-import scalaz.concurrent.{Strategy, Task}
+import scalaz.concurrent.{ Strategy, Task }
 import scala.concurrent.duration._
 
 ///runMain recipes.ScalazRecipes
@@ -24,7 +23,7 @@ object ScalazRecipes extends App {
   val limit = Int.MaxValue
   val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.182"), 8125)
   val Ex = Strategy.Executor(
-      new ForkJoinPool(Runtime.getRuntime.availableProcessors()))
+    new ForkJoinPool(Runtime.getRuntime.availableProcessors()))
 
   case class RecipesDaemons(name: String) extends ThreadFactory {
     private def namePrefix = s"$name-thread"
@@ -65,7 +64,7 @@ object ScalazRecipes extends App {
   }
 
   def graphiteS(s: scalaz.stream.async.mutable.Signal[Int], statsD: GraphiteMetrics,
-    message: String) = sink.lift[Task, Int] { x: Int ⇒
+                message: String) = sink.lift[Task, Int] { x: Int ⇒
     s.set(x).map(_ ⇒ statsD send message)
   }
 
@@ -76,20 +75,18 @@ object ScalazRecipes extends App {
     (broadcast.drain merge Process.emit(queues.map(_.dequeue)))(S)
   }
 
-  def broadcastManyBounded[T](n: Int, src: Process[Task, T], waterMark: Int, bufferSize: Int = 4)
-                              (implicit S: Strategy): Process[Task, Seq[Process[Task, T]]] = {
+  def broadcastManyBounded[T](n: Int, src: Process[Task, T], waterMark: Int, bufferSize: Int = 4)(implicit S: Strategy): Process[Task, Seq[Process[Task, T]]] = {
     val queues = (0 until n).map(_ ⇒ async.boundedQueue[T](bufferSize)(S))
     val broadcast = queues./:(src) { (src, q) ⇒
-        ((q.size.discrete.filter(_ > waterMark) zip q.dequeue).drain merge src.observe(q.enqueue))
-      }.onComplete(Process.eval(Task.gatherUnordered(queues.map(_.close))))
+      ((q.size.discrete.filter(_ > waterMark) zip q.dequeue).drain merge src.observe(q.enqueue))
+    }.onComplete(Process.eval(Task.gatherUnordered(queues.map(_.close))))
     (broadcast.drain merge Process.emit(queues.map(_.dequeue)))(S)
   }
 
-  def interleaveN[T](q: scalaz.stream.async.mutable.Queue[T], processes: List[Process[Task, T]])
-                                (implicit S: Strategy): Process[Task, T] = {
+  def interleaveN[T](q: scalaz.stream.async.mutable.Queue[T], processes: List[Process[Task, T]])(implicit S: Strategy): Process[Task, T] = {
     val merge = processes.tail./:(processes.head to q.enqueue) {
-        (acc: Process[Task, Unit], p: Process[Task, T]) ⇒ (acc merge (p to q.enqueue))(S)
-      }.onComplete(Process.eval(q.close))
+      (acc: Process[Task, Unit], p: Process[Task, T]) ⇒ (acc merge (p to q.enqueue))(S)
+    }.onComplete(Process.eval(q.close))
     (merge.drain merge q.dequeue)(S)
   }
 
@@ -102,39 +99,39 @@ object ScalazRecipes extends App {
   }
 
   /**
-    * What is time series data ?
-    *
-    * Measurements taken at regular intervals and each measurement has ts attached to it.
-    * If we have a log from some production system so we have lines with ts attached to it
-    * it isn't a time series data.
-    * So time series data is a continuous measurement at a regular interval
-    *
-    * Of cause you can turn lines with ts into time series
-    *
-    *
-    * TimeSeries:
-    *   TumblingWindow: discretize a stream into non-overlapping windows
-    *   SlidingWindow: discretize a stream into overlapping windows
-    *
-    */
+   * What is time series data ?
+   *
+   * Measurements taken at regular intervals and each measurement has ts attached to it.
+   * If we have a log from some production system so we have lines with ts attached to it
+   * it isn't a time series data.
+   * So time series data is a continuous measurement at a regular interval
+   *
+   * Of cause you can turn lines with ts into time series
+   *
+   *
+   * TimeSeries:
+   *   TumblingWindow: discretize a stream into non-overlapping windows
+   *   SlidingWindow: discretize a stream into overlapping windows
+   *
+   */
   implicit class TimeSeriesProcessesOps[T](val p: Process[Task, T]) extends AnyVal {
-    import scalaz.stream.ReceiveY.{HaltOne, ReceiveL, ReceiveR}
+    import scalaz.stream.ReceiveY.{ HaltOne, ReceiveL, ReceiveR }
 
     /**
-      * Count window
-      */
+     * Count window
+     */
     def countWindow(aggregateInterval: Duration)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
       (discreteStep(aggregateInterval.toMillis) wye p)(tumblingWye[T](aggregateInterval, false))(S)
 
     /**
-      * Tumbling windows discretize a stream into non-overlapping windows
-      */
+     * Tumbling windows discretize a stream into non-overlapping windows
+     */
     def tumblingWindow(aggregateInterval: Duration)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
       (discreteStep(aggregateInterval.toMillis) wye p)(tumblingWye[T](aggregateInterval))(S)
 
     /**
-      * Sliding windows discretize a stream into overlapping windows
-      */
+     * Sliding windows discretize a stream into overlapping windows
+     */
     def slidingWindow(aggregateInterval: Duration, numOfUnits: Int)(implicit S: scalaz.concurrent.Strategy): Process[Task, T] =
       (discreteStep(aggregateInterval.toMillis / numOfUnits) wye p)(tumblingWye[T](aggregateInterval))(S)
 
@@ -153,7 +150,7 @@ object ScalazRecipes extends App {
               go(acc, last, n + 1)
             }
           case ReceiveR(i) ⇒ P.emit(i) ++ go(acc + 1l, last, n)
-          case HaltOne(e) ⇒ P.Halt(e)
+          case HaltOne(e)  ⇒ P.Halt(e)
         }
 
       go(0l, System.nanoTime, 1)
@@ -167,9 +164,9 @@ object ScalazRecipes extends App {
   }
 
   /**
-    * Situation: A source and a sink perform on the same rates.
-    * Result: The source and the sink are going on the same rate.
-    */
+   * Situation: A source and a sink perform on the same rates.
+   * Result: The source and the sink are going on the same rate.
+   */
   def scenario01: Process[Task, Unit] = {
     val sourceDelay = 20l
     val latency: Duration = 25 seconds
@@ -183,10 +180,10 @@ object ScalazRecipes extends App {
   }
 
   /**
-    * Situation: A source and a sink perform on the same rate in the beginning, the sink gets slower later, increasing delay with every message.
-    * We are using boundedQueue as buffer between them, which leads to blocking the source in case no space in the queue.
-    * Result: The source's rate is going to decrease proportionally with the sink's rate.
-    */
+   * Situation: A source and a sink perform on the same rate in the beginning, the sink gets slower later, increasing delay with every message.
+   * We are using boundedQueue as buffer between them, which leads to blocking the source in case no space in the queue.
+   * Result: The source's rate is going to decrease proportionally with the sink's rate.
+   */
   def scenario02: Process[Task, Unit] = {
     val delayPerMsg = 1l
     val bufferSize = 1 << 7
@@ -212,12 +209,12 @@ object ScalazRecipes extends App {
   }
 
   /**
-    * Situation:
-    *  A source and a sink perform on the same rate in the beginning, the sink gets slower later, increases delay with every message.
-    *  We are using circular buffer as buffer between them, it will override elements if no space in the buffer.
-    * Result:
-    *  The sink's rate is going to be decreased but the source's rate stays on the initial level.
-    */
+   * Situation:
+   *  A source and a sink perform on the same rate in the beginning, the sink gets slower later, increases delay with every message.
+   *  We are using circular buffer as buffer between them, it will override elements if no space in the buffer.
+   * Result:
+   *  The sink's rate is going to be decreased but the source's rate stays on the initial level.
+   */
   def scenario03: Process[Task, Unit] = {
     val delayPerMsg = 1l
     val bufferSize = 1 << 7
@@ -244,16 +241,16 @@ object ScalazRecipes extends App {
   }
 
   /**
-    * This behaves like scenario03. The only difference being that we are using queue instead of circular buffer
-    *
-    *
-    *                      +--------+
-    *               +------|dropLast|
-    *               |      +--------+
-    * +------+   +-----+   +----+
-    * |source|---|queue|---|sink|
-    * +------+   +-----+   +----+
-    */
+   * This behaves like scenario03. The only difference being that we are using queue instead of circular buffer
+   *
+   *
+   *                      +--------+
+   *               +------|dropLast|
+   *               |      +--------+
+   * +------+   +-----+   +----+
+   * |source|---|queue|---|sink|
+   * +------+   +-----+   +----+
+   */
   def scenario03_1: Process[Task, Unit] = {
     val delayPerMsg = 1l
     val bufferSize = 1 << 7
@@ -286,15 +283,15 @@ object ScalazRecipes extends App {
   }
 
   /**
-    * This one is different from scenario03_1 only in dropping the whole buffer when waterMark is reached
-    *                      +----------+
-    *               +------|dropBuffer|
-    *               |      +----------+
-    * +------+   +-----+   +----+
-    * |source|---|queue|---|sink|
-    * +------+   +-----+   +----+
-    *
-    */
+   * This one is different from scenario03_1 only in dropping the whole buffer when waterMark is reached
+   *                      +----------+
+   *               +------|dropBuffer|
+   *               |      +----------+
+   * +------+   +-----+   +----+
+   * |source|---|queue|---|sink|
+   * +------+   +-----+   +----+
+   *
+   */
   def scenario03_2: Process[Task, Unit] = {
     val delayPerMsg = 1l
     val bufferSize = 1 << 7
@@ -307,11 +304,11 @@ object ScalazRecipes extends App {
     val sinkMessage = "scalaz-sink3_2:1|c"
 
     val dropBufferProcess = (queue.size.discrete
-          .filter(_ > waterMark) zip (queue dequeueBatch waterMark)).drain
+      .filter(_ > waterMark) zip (queue dequeueBatch waterMark)).drain
 
     ((naturalsEvery(sourceDelay) tumblingWindow window) observe queue.enqueue to graphite(
-            graphiteInstance,
-            srcMessage))
+      graphiteInstance,
+      srcMessage))
       .onComplete(Process.eval_(queue.close))
       .run[Task]
       .unsafePerformAsync(_ ⇒ ())
@@ -329,17 +326,17 @@ object ScalazRecipes extends App {
   }
 
   /**
-    * A fast source do broadcast into two sinks. The first sink is fast and the second is getting slower.
-    * Result: The whole flow rate is going to be decreased up to slow sink.
-    *
-    *                +------+  +-----+
-    *             +--|queue0|--|sink0|
-    * +-------+   |  +------+  +-----+
-    * |source0|---|
-    * +-------+   |  +------+  +-----+
-    *             +--|queue1|--|sink1|
-    *                +------+  +-----+
-    */
+   * A fast source do broadcast into two sinks. The first sink is fast and the second is getting slower.
+   * Result: The whole flow rate is going to be decreased up to slow sink.
+   *
+   *                +------+  +-----+
+   *             +--|queue0|--|sink0|
+   * +-------+   |  +------+  +-----+
+   * |source0|---|
+   * +-------+   |  +------+  +-----+
+   *             +--|queue1|--|sink1|
+   *                +------+  +-----+
+   */
   def scenario04: Process[Task, Unit] = {
     val delayPerMsg = 1l
     val window = 5 seconds
@@ -349,8 +346,8 @@ object ScalazRecipes extends App {
     val sinkMessage1 = "scalaz-sink_4_2:1|c"
 
     val src = (naturalsEvery(producerRate) tumblingWindow window) observe graphite(
-          graphiteInstance,
-          srcMessage)
+      graphiteInstance,
+      srcMessage)
 
     (for {
       outlets ← broadcastN(2, src)(Ex)
@@ -371,22 +368,22 @@ object ScalazRecipes extends App {
   }
 
   /**
-    * A fast source do broadcast into two sinks. The first sink is fast and the second is getting slower.
-    * We use drop strategy when waterMark is exceeded
-    * Result: source and fast sink's rate stay the same, slow sink is going down
-    *
-    *                    +----- drop
-    *                    |
-    *                +------+  +-----+
-    *             +--|queue0|--|sink0|
-    * +-------+   |  +------+  +-----+
-    * |source0|---|
-    * +-------+   |  +------+  +-----+
-    *             +--|queue1|--|sink1|
-    *                +------+  +-----+
-    *                    |
-    *                    +----- drop
-    */
+   * A fast source do broadcast into two sinks. The first sink is fast and the second is getting slower.
+   * We use drop strategy when waterMark is exceeded
+   * Result: source and fast sink's rate stay the same, slow sink is going down
+   *
+   *                    +----- drop
+   *                    |
+   *                +------+  +-----+
+   *             +--|queue0|--|sink0|
+   * +-------+   |  +------+  +-----+
+   * |source0|---|
+   * +-------+   |  +------+  +-----+
+   *             +--|queue1|--|sink1|
+   *                +------+  +-----+
+   *                    |
+   *                    +----- drop
+   */
   def scenario05: Process[Task, Unit] = {
     val delayPerMsg = 1l
     val sourceDelay = 10
@@ -398,8 +395,8 @@ object ScalazRecipes extends App {
     val sinkMessage1 = "scalaz-sink5_1:1|c"
 
     val src = (naturalsEvery(sourceDelay) tumblingWindow window) observe graphite(
-          graphiteInstance,
-          srcMessage)
+      graphiteInstance,
+      srcMessage)
 
     (for {
       outlets ← broadcastManyBounded(2, src, waterMark, bufferSize)(Ex)
@@ -420,20 +417,20 @@ object ScalazRecipes extends App {
   }
 
   /**
-    * Situation: Multiple sources operating on different rates have merged into one sink
-    * Sink's rate = sum(sources)
-    *
-    * +----+
-    * |src0|-+
-    * +----+ |
-    * +----+ | +------------+  +----+
-    * |src1|---|boundedQueue|--|sink|
-    * +----+ | +------------+  +----+
-    * +----+ |
-    * |src2|-+
-    * +----+
-    *
-    */
+   * Situation: Multiple sources operating on different rates have merged into one sink
+   * Sink's rate = sum(sources)
+   *
+   * +----+
+   * |src0|-+
+   * +----+ |
+   * +----+ | +------------+  +----+
+   * |src1|---|boundedQueue|--|sink|
+   * +----+ | +------------+  +----+
+   * +----+ |
+   * |src2|-+
+   * +----+
+   *
+   */
   def scenario07: Process[Task, Unit] = {
     val window = 10 seconds
     val latencies = List(20l, 30l, 40l, 45l)
@@ -444,17 +441,17 @@ object ScalazRecipes extends App {
     }
 
     (interleaveN(async.boundedQueue[Int](1 << 8)(Ex), sources)(Ex) slidingWindow (window, 5)) to graphite(
-        graphiteInstance,
-        "scalaz-sink7:1|c")
+      graphiteInstance,
+      "scalaz-sink7:1|c")
   }
 
   /**
-    * Usage:
-    * val src: Process[Task, Char] = Process.emitAll(Seq('a', 'b', 'c', 'd','e'))
-    * (src |> count).runLog.run
-    * Vector(-\/(1), \/-(a), -\/(2), \/-(b), -\/(3), \/-(c), -\/(4), \/-(d), -\/(5), \/-(e))
-    *
-    */
+   * Usage:
+   * val src: Process[Task, Char] = Process.emitAll(Seq('a', 'b', 'c', 'd','e'))
+   * (src |> count).runLog.run
+   * Vector(-\/(1), \/-(a), -\/(2), \/-(b), -\/(3), \/-(c), -\/(4), \/-(d), -\/(5), \/-(e))
+   *
+   */
   def count[A]: Process1[A, Long \/ A] = {
     def go(acc: Long): Process1[A, Long \/ A] = {
       Process.receive1[A, Long \/ A] { element: A ⇒
@@ -465,10 +462,10 @@ object ScalazRecipes extends App {
   }
 
   /**
-    * A Tee that drop from left while the predicate `p` is true for the
-    * values, then continue with the Tee `rest`
-    *
-    */
+   * A Tee that drop from left while the predicate `p` is true for the
+   * values, then continue with the Tee `rest`
+   *
+   */
   def dropWhileL[L, R, O](p: L ⇒ Boolean)(rest: Tee[L, R, O]): Tee[L, R, O] =
     Process.awaitL[L].flatMap { v ⇒
       if (p(v)) dropWhileL(p)(rest)
@@ -487,17 +484,17 @@ object ScalazRecipes extends App {
     }
 
   /**
-    * Could be used for cassandra's tables join for examples
-    */
+   * Could be used for cassandra's tables join for examples
+   */
   def sortedJoin[L, R, T](keyL: L ⇒ T, keyR: R ⇒ T)(implicit o: Ordering[T]) = {
     def joinTee: Tee[L, R, (L, R)] = Process.awaitL[L].flatMap { l ⇒
       Process.awaitR[R].flatMap { r ⇒
         val lk = keyL(l)
         val rk = keyR(r)
         o.compare(lk, rk) match {
-          case 0 ⇒ Process.emit((l, r)) ++ joinTee
+          case 0  ⇒ Process.emit((l, r)) ++ joinTee
           case -1 ⇒ dropWhileL((o.lt(_: T, rk)).compose(keyL))(tee.feed1R(r)(joinTee))
-          case 1 ⇒ dropWhileR((o.lt(_: T, lk)).compose(keyR))(tee.feed1L(l)(joinTee))
+          case 1  ⇒ dropWhileR((o.lt(_: T, lk)).compose(keyR))(tee.feed1L(l)(joinTee))
         }
       }
     }
@@ -532,7 +529,7 @@ object ScalazRecipes extends App {
 
   def distinct[T]: Process1[T, T] = {
     def go(seen: Set[T]): Process1[T, T] = {
-      Process.await1[T].flatMap { v =>
+      Process.await1[T].flatMap { v ⇒
         if (seen(v)) go(seen)
         else Process.emit(v) ++ go(seen + v)
       }
@@ -542,7 +539,7 @@ object ScalazRecipes extends App {
 
   def monotonic[T <: GrowingState]: Process1[T, T] = {
     def go(count: Long): Process1[T, T] = {
-      Process.await1[T].flatMap { state =>
+      Process.await1[T].flatMap { state ⇒
         if (state.count > count) Process.emit(state) ++ go(state.count)
         else go(count)
       }
@@ -553,20 +550,20 @@ object ScalazRecipes extends App {
   def balanced: Process1[Char, Boolean] = {
     def init: Process1[Char, Boolean] = {
       Process.receive1[Char, Boolean] {
-        case '{' => close ++ init
-        case _ => Process.emit(false)
+        case '{' ⇒ close ++ init
+        case _   ⇒ Process.emit(false)
       }
     }
 
     def close: Process1[Char, Boolean] = {
       Process.receive1[Char, Boolean] {
-        case '}' => Process.emit(true)
-        case '{' =>
+        case '}' ⇒ Process.emit(true)
+        case '{' ⇒
           close.flatMap {
-            case true => close
-            case false => Process.emit(false)
+            case true  ⇒ close
+            case false ⇒ Process.emit(false)
           }
-        case _ => Process.emit(false)
+        case _ ⇒ Process.emit(false)
       }
     }
 
@@ -578,12 +575,12 @@ object ScalazRecipes extends App {
     (Process.unfold(Iterator(1, 1, 2, 1, 3, 2, 5, 3, 10)) { it ⇒
       val next = it.next
       if (it.hasNext) Option(State(next) -> it) else None
-    } pipe monotonic) to sink.lift[Task, GrowingState](state => Task.delay(println(state)))
+    } pipe monotonic) to sink.lift[Task, GrowingState](state ⇒ Task.delay(println(state)))
 
   //recipes.ScalazRecipes.runBalanced
   def runBalanced =
     (Process.emitAll(Seq('{', '{', '{', '}', '}', '}')) pipe balanced) to sink
-      .lift[Task, Boolean](state => Task.delay(println(state)))
+      .lift[Task, Boolean](state ⇒ Task.delay(println(state)))
 
   /*import com.ambiata.origami._, Origami._
   import com.ambiata.origami.stream.FoldableProcessM._
@@ -626,11 +623,12 @@ object ScalazRecipes extends App {
 */
 
   /**
-    *
-    *
-    */
+   *
+   *
+   */
   def mergeSorted[T: scala.math.Ordering](left: List[T], right: List[T])(
-      implicit ord: scala.math.Ordering[T]): List[T] = {
+    implicit
+    ord: scala.math.Ordering[T]): List[T] = {
     val source0 = emitAll(left)
     val source1 = emitAll(right)
 
@@ -652,8 +650,8 @@ object ScalazRecipes extends App {
   //mergeSorted(List(1,3,5,7), List(2,4,6,8,10))
 
   /**
-    * Json streaming
-    */
+   * Json streaming
+   */
   def scenario08: Process[Task, Unit] = {
     import jawnstreamz._
     implicit val facade = jawn.support.spray.Parser.facade

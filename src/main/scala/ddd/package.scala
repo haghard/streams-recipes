@@ -21,26 +21,29 @@ package object ddd {
 
     def today = Calendar.getInstance.getTime
 
-    case class Address(no: String,
-                       street: String,
-                       city: String,
-                       state: String,
-                       zip: String)
+    case class Address(
+      no:     String,
+      street: String,
+      city:   String,
+      state:  String,
+      zip:    String)
 
-    final case class CheckingAccount(no: String,
-                                     name: String,
-                                     dateOfOpen: Option[Date],
-                                     dateOfClose: Option[Date] = None,
-                                     balance: Balance = Balance())
-        extends Account
+    final case class CheckingAccount(
+      no:          String,
+      name:        String,
+      dateOfOpen:  Option[Date],
+      dateOfClose: Option[Date] = None,
+      balance:     Balance      = Balance())
+      extends Account
 
-    final case class SavingsAccount(no: String,
-                                    name: String,
-                                    rateOfInterest: Amount,
-                                    dateOfOpen: Option[Date],
-                                    dateOfClose: Option[Date] = None,
-                                    balance: Balance = Balance())
-        extends Account
+    final case class SavingsAccount(
+      no:             String,
+      name:           String,
+      rateOfInterest: Amount,
+      dateOfOpen:     Option[Date],
+      dateOfClose:    Option[Date] = None,
+      balance:        Balance      = Balance())
+      extends Account
 
     sealed trait Account {
       def no: String
@@ -74,11 +77,12 @@ package object ddd {
           s"Interest rate $rate must be > 0".failureNel[BigDecimal]
         else rate.successNel[String]
 
-      def checkingAccount(no: String,
-                          name: String,
-                          openDate: Option[Date],
-                          closeDate: Option[Date],
-                          balance: Balance): ValidationNel[String, Account] = {
+      def checkingAccount(
+        no:        String,
+        name:      String,
+        openDate:  Option[Date],
+        closeDate: Option[Date],
+        balance:   Balance): ValidationNel[String, Account] = {
         (validateAccountNo(no) |@| validateOpenCloseDate(
           openDate.getOrElse(today),
           closeDate)) {
@@ -86,12 +90,13 @@ package object ddd {
           }
       }
 
-      def savingsAccount(no: String,
-                         name: String,
-                         rate: BigDecimal,
-                         openDate: Option[Date],
-                         closeDate: Option[Date],
-                         balance: Balance): ValidationNel[String, Account] = {
+      def savingsAccount(
+        no:        String,
+        name:      String,
+        rate:      BigDecimal,
+        openDate:  Option[Date],
+        closeDate: Option[Date],
+        balance:   Balance): ValidationNel[String, Account] = {
         (validateAccountNo(no) |@| validateOpenCloseDate(
           openDate.getOrElse(today),
           closeDate) |@| validateRate(rate)) { (n, d, r) ⇒
@@ -128,8 +133,9 @@ package object ddd {
         else a.success
       }
 
-      def updateBalance(a: Account,
-                        amount: Amount): ValidationNel[String, Account] = {
+      def updateBalance(
+        a:      Account,
+        amount: Amount): ValidationNel[String, Account] = {
         (validateAccountAlreadyClosed(a) |@| checkBalance(a, amount)) {
           (_, _) ⇒
             a match {

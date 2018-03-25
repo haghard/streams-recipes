@@ -3,9 +3,10 @@ package recipes
 import com.esri.core.geometry.{ SpatialReference, Geometry, GeometryEngine }
 import spray.json._
 
-class RichGeometry(val geometry: Geometry,
-                   val spatialReference: SpatialReference = SpatialReference.create(4326))
-    extends Serializable {
+class RichGeometry(
+  val geometry:         Geometry,
+  val spatialReference: SpatialReference = SpatialReference.create(4326))
+  extends Serializable {
 
   def area2D(): Double = geometry.calculateArea2D()
 
@@ -47,9 +48,10 @@ object RichGeometry extends Serializable {
     new RichGeometry(g)
 }
 
-case class Feature(id: Option[JsValue],
-                   properties: Map[String, JsValue],
-                   geometry: RichGeometry) {
+case class Feature(
+  id:         Option[JsValue],
+  properties: Map[String, JsValue],
+  geometry:   RichGeometry) {
   def apply(property: String) = properties(property)
   def get(property: String) = properties.get(property)
 }
@@ -60,7 +62,7 @@ case class Features(features: Array[Feature]) extends IndexedSeq[Feature] {
 }
 
 case class GeometryCollection(geometries: Array[RichGeometry])
-    extends IndexedSeq[RichGeometry] {
+  extends IndexedSeq[RichGeometry] {
   def apply(index: Int) = geometries(index)
   def length = geometries.length
 }
@@ -100,12 +102,11 @@ object GeoJsonProtocol extends DefaultJsonProtocol {
   }
 
   implicit object FeatureCollectionJsonFormat
-      extends RootJsonFormat[Features] {
+    extends RootJsonFormat[Features] {
     def write(fc: Features) = {
       JsObject(
         "type" -> JsString("FeatureCollection"),
-        "features" -> JsArray(fc.features.map(_.toJson): _*)
-      )
+        "features" -> JsArray(fc.features.map(_.toJson): _*))
     }
 
     def read(value: JsValue) = {
@@ -114,9 +115,10 @@ object GeoJsonProtocol extends DefaultJsonProtocol {
   }
 
   implicit object GeometryCollectionJsonFormat
-      extends RootJsonFormat[GeometryCollection] {
+    extends RootJsonFormat[GeometryCollection] {
     def write(gc: GeometryCollection) = {
-      JsObject("type" -> JsString("GeometryCollection"),
+      JsObject(
+        "type" -> JsString("GeometryCollection"),
         "geometries" -> JsArray(gc.geometries.map(_.toJson): _*))
     }
 

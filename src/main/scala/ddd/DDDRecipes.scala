@@ -22,7 +22,8 @@ object DDDRecipes extends App {
   def openBoth: Kleisli[scalaz.concurrent.Task, AccountRepo, ddd.Valid[(Balance, Balance)]] =
     for {
       a0 ← open(Account1, "Alan Turing", None, None, Checking)
-      a1 ← open(Account2,
+      a1 ← open(
+        Account2,
         "Nikola Tesla",
         BigDecimal(456.9).some,
         None,
