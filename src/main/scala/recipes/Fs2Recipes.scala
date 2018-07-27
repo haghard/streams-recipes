@@ -54,15 +54,18 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
   //naturalsEvery2(1000).take(10).compile.drain.unsafeRunAsync { _ ⇒ println("done") }
 
   def takeByOne[F[_], T](n: Int): fs2.Pipe[F, T, T] = {
-    def loop(s: fs2.Stream[F, T]): Pull[F, T, Unit] = {
-      s.pull.uncons1.flatMap {
-        case None ⇒ Pull.done
-        case Some((head, tail)) ⇒
-          println(s"loop: $head")
-          Pull.outputChunk(Chunk.vector(Vector.fill(n)(head))) >> loop(tail)
-      }
+    def loop(s: fs2.Stream[F, T], n: Int): Pull[F, T, Unit] = {
+      if (n <= 0) Pull.done
+      else
+        s.pull.uncons1.flatMap {
+          case None ⇒ Pull.done
+          case Some((head, tail)) ⇒
+            println(s"emit: $head")
+            Pull.output1(head) >> loop(tail, n - 1)
+          //Pull.outputChunk(Chunk.vector(Vector.fill(n)(head))) >> loop(tail)
+        }
     }
-    input ⇒ loop(input).stream
+    input ⇒ loop(input, n).stream
   }
 
   def takeChunks[F[_], T](n: Int): fs2.Pipe[F, T, T] = {
@@ -80,6 +83,7 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
     input ⇒ loop(input, n).stream
   }
 
+  //Segments is a bunch of chunks that are being fused together
   def takeSegments[F[_], T](n: Long): fs2.Pipe[F, T, T] = {
     input ⇒
       input.scanSegmentsOpt(n) { n ⇒

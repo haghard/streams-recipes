@@ -13,8 +13,7 @@ name := "stream-recipes"
 
 version := "0.1"
 
-//scalaVersion := "2.11.8"
-scalaVersion := "2.12.4"
+scalaVersion := "2.12.6"
 
 resolvers ++= Seq(
   Resolver.defaultLocal,
@@ -38,7 +37,7 @@ resolvers ++= Seq(
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.5.11"
+val akkaStreamV = "2.5.13"
 val scalazVersion = "7.2.20"
 
 //val Origami = "1.0-20150902134048-8d00462"
@@ -48,7 +47,7 @@ libraryDependencies ++= Seq(
   "org.scalaz"        %% "scalaz-concurrent"  % scalazVersion,
   "org.scalaz"        %% "scalaz-effect"      % scalazVersion,
 
-  "com.chuusai"       %% "shapeless"          % "2.3.2",
+  "com.chuusai"       %% "shapeless"          % "2.3.3",
 
   "org.http4s"        %% "jawn-streamz"   % "0.10.1", //"org.scalaz.stream" %% "scalaz-stream" %  "0.8.6"
   "org.spire-math"    %% "jawn-spray"     % "0.11.0",
@@ -62,8 +61,8 @@ libraryDependencies ++= Seq(
 
   //"io.monix"          %% "monix"             % "2.1.2",
 
-  "co.fs2"            %% "fs2-core"          % "0.10.3",
-  "co.fs2"            %% "fs2-io"            % "0.10.3",
+  "co.fs2"            %% "fs2-core"          % "0.10.5",
+  "co.fs2"            %% "fs2-io"            % "0.10.5",
 
   "com.spinoco"       %% "fs2-zk"            % "0.1.6",
   //"com.spinoco"       %% "fs2-cassandra"     % "0.2.1",
@@ -77,9 +76,6 @@ libraryDependencies ++= Seq(
 
   //https://github.com/mikolak-net/travesty
   "net.mikolak" %% "travesty" % s"0.9_$akkaStreamV",
-
-  //"io.dropwizard.metrics"   % "metrics-core"   %   "3.1.0.",
-  //"io.dropwizard.metrics"   % "metrics-graphite" %   "3.1.0.",
 
   /*
   "com.ambiata"       %%  "origami-core"       %   Origami,
