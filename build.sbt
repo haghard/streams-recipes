@@ -37,7 +37,7 @@ resolvers ++= Seq(
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.5.13"
+val akkaStreamV = "2.5.14"
 val scalazVersion = "7.2.20"
 
 //val Origami = "1.0-20150902134048-8d00462"
