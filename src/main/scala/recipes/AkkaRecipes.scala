@@ -1,6 +1,6 @@
 package recipes
 
-import java.io.FileInputStream
+import java.io.{ File, FileInputStream }
 import java.net.{ InetAddress, InetSocketAddress }
 import java.nio.ByteBuffer
 import java.nio.channels.DatagramChannel
@@ -8,7 +8,6 @@ import java.util.concurrent.atomic.AtomicInteger
 
 import akka.actor._
 import akka.routing.ConsistentHashingRouter.ConsistentHashMapping
-import akka.routing.{ ActorRefRoutee, RoundRobinRoutingLogic, Router }
 import akka.stream._
 import akka.stream.actor.ActorPublisherMessage.{ Cancel, Request }
 import akka.stream.actor.ActorSubscriberMessage.{ OnComplete, OnError, OnNext }
@@ -22,7 +21,7 @@ import recipes.AkkaRecipes.{ CircularFifo, LogEntry }
 import recipes.BalancerRouter._
 import recipes.BatchProducer.Item
 import recipes.ConsistentHashingRouter.{ CHWork, DBObject2 }
-import recipes.CustomStages.InternalBuffer
+import recipes.CustomStages.{ DisjunctionRouter, InternalBufferStage }
 import recipes.Sinks.{ DegradingGraphiteSink, GraphiteSink, GraphiteSink3 }
 
 import scala.collection.{ immutable, mutable }
@@ -31,7 +30,6 @@ import scala.concurrent.forkjoin.ThreadLocalRandom
 import scala.concurrent.{ ExecutionContext, Future }
 import scala.language.postfixOps
 import scala.util.{ Failure, Success }
-import scalaz.{ -\/, \/, \/- }
 
 //runMain recipes.AkkaRecipes
 object AkkaRecipes extends App {
@@ -53,13 +51,14 @@ object AkkaRecipes extends App {
       |    thread-pool-executor {
       |      core-pool-size-min = 2
       |      core-pool-size-max = 4
+      |      throughput = 1
       |    }
       |  }
       |}
     """.stripMargin)
 
   val ms =
-    new InetSocketAddress(InetAddress.getByName("192.168.77.97"), 8125)
+    new InetSocketAddress(InetAddress.getByName("127.0.0.1" /*"192.168.77.97"*/ ), 8125)
 
   def sys: ActorSystem =
     ActorSystem("streams", config)
@@ -79,7 +78,7 @@ object AkkaRecipes extends App {
   //https://gist.github.com/debasishg/8172796
   type CircularFifo[T] = org.apache.commons.collections4.queue.CircularFifoQueue[T]
 
-  RunnableGraph.fromGraph(scenario0).run()(ActorMaterializer(Settings)(sys))
+  RunnableGraph.fromGraph(scenario22(sys)).run()(ActorMaterializer(Settings)(sys))
 
   //for scenario15
   val mat: Materializer = ActorMaterializer(Settings)(sys)
@@ -173,9 +172,9 @@ object AkkaRecipes extends App {
         SourceShape(zip.out)
       })
 
-    val fastest = timedSource(ms, 1 second, 10.milliseconds, Int.MaxValue, "source_0_fastest")
-    val middle = timedSource(ms, 1 second, 15.milliseconds, Int.MaxValue, "source_0_middle")
-    val slowest = timedSource(ms, 1 second, 20.milliseconds, Int.MaxValue, "source_0_slowest")
+    val fastest = timedSource(ms, 0 second, 10.milliseconds, Int.MaxValue, "source_0_fst")
+    val middle = timedSource(ms, 0 second, 15.milliseconds, Int.MaxValue, "source_0_mid")
+    val slowest = timedSource(ms, 0 second, 20.milliseconds, Int.MaxValue, "source_0_slow")
 
     last3(fastest, middle, slowest)
       .alsoTo(allWindow[(Int, Int, Int)]("akka-scenario0", 2 seconds)).async
@@ -204,7 +203,7 @@ object AkkaRecipes extends App {
    */
   def scenario2: Graph[ClosedShape, akka.NotUsed] = {
     val ts = timedSource(ms, 0 second, 10 milliseconds, Int.MaxValue, "source_2")
-    val degradingSink = new DegradingGraphiteSink("sink_2", 1l, ms)
+    val degradingSink = new DegradingGraphiteSink[Int]("sink_2", 1l, ms)
     val buffer = Flow[Int].buffer(1 << 7, OverflowStrategy.backpressure).async
 
     ts.alsoTo(allWindow("akka-scenario2", 5 seconds))
@@ -222,14 +221,14 @@ object AkkaRecipes extends App {
     }*/
   }
 
-  //same as scenario2 but with InternalBuffer
+  //same as scenario2 but with InternalBufferStage
   def scenario2_1: Graph[ClosedShape, akka.NotUsed] = {
-    val ts = timedSource(ms, 10.milliseconds, 10.milliseconds, Int.MaxValue, "source_2_1")
-    val sink = new DegradingGraphiteSink("sink_2_1", 1l, ms)
+    val source = timedSource(ms, 10.milliseconds, 10.milliseconds, Int.MaxValue, "source_2_1")
+    val sink = new DegradingGraphiteSink[Int]("sink_2_1", 1l, ms)
 
-    ts
+    source
       .alsoTo(allWindow("akka-scenario2_1", 10 seconds))
-      .via(new InternalBuffer[Int](1 << 7)).async
+      .via(new InternalBufferStage[Int](1 << 7)).async
       .to(sink)
   }
 
@@ -241,7 +240,7 @@ object AkkaRecipes extends App {
    */
   def scenario3: Graph[ClosedShape, akka.NotUsed] = {
     val source = timedSource(ms, 10 milliseconds, 10 milliseconds, Int.MaxValue, "source_3")
-    val degradingSink = new DegradingGraphiteSink("sink_3", 2l, ms)
+    val degradingSink = new DegradingGraphiteSink[Int]("sink_3", 2l, ms)
     val buffer = Flow[Int].buffer(1 << 7, OverflowStrategy.dropHead)
 
     source.alsoTo(allWindow("akka-scenario3", 5 seconds))
@@ -264,11 +263,12 @@ object AkkaRecipes extends App {
   def scenario4: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
+
       val source = timedSource(ms, 1 second, 10 milliseconds, Int.MaxValue, "source_4")
       val fastSink = new GraphiteSink("sink_4", 0, ms)
-      val slowSink = new DegradingGraphiteSink("sink_4_deg", 1l, ms)
+      val slowSink = new DegradingGraphiteSink[Int]("sink_4_deg", 1l, ms)
 
-      val bcast = b.add(Broadcast[Int](2)) //.addAttributes(Attributes.asyncBoundary)
+      val bcast = b.add(akka.stream.scaladsl.Broadcast[Int](2)) //.addAttributes(Attributes.asyncBoundary)
 
       (source alsoTo allWindow("akka-scenario4", 5 seconds)) ~> bcast ~> fastSink
       bcast ~> slowSink
@@ -290,8 +290,8 @@ object AkkaRecipes extends App {
       val source = timedSource(ms, 0 second, 10 milliseconds, Int.MaxValue, "source_5")
 
       val fastSink = new GraphiteSink("sink_5", 0l, ms)
-      val degradingSink1 = new DegradingGraphiteSink("sink_5_1_deg0", 1l, ms)
-      val degradingSink2 = new DegradingGraphiteSink("sink_5_1_deg1", 2l, ms)
+      val degradingSink1 = new DegradingGraphiteSink[Int]("sink_5_1_deg0", 1l, ms)
+      val degradingSink2 = new DegradingGraphiteSink[Int]("sink_5_1_deg1", 2l, ms)
 
       /*
       source.to(
@@ -322,15 +322,15 @@ object AkkaRecipes extends App {
   def scenario6: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
-      val source = timedSource(ms, 10 milliseconds, 10 milliseconds, 50000, "source_6")
+      val source = timedSource(ms, 0 milliseconds, 10 milliseconds, Int.MaxValue, "source_6")
 
       val fastSink = new GraphiteSink("sink_6_0", 0l, ms)
-      val slowingDownSink = new DegradingGraphiteSink("sink_6_1", 2l, ms)
+      val slowSink = new DegradingGraphiteSink[Int]("sink_6_1", 2l, ms)
 
       val balancer = b.add(Balance[Int](2))
 
       source ~> balancer ~> fastSink
-      balancer ~> slowingDownSink
+      balancer ~> slowSink
       ClosedShape
     }
   }
@@ -397,136 +397,6 @@ object AkkaRecipes extends App {
     }
   }
 
-  final class DisjunctionRouter[T, A](validationLogic: T ⇒ A \/ T)
-    extends GraphStage[FanOutShape2[T, A, T]] {
-    val in = Inlet[T]("in")
-    val error = Outlet[A]("error")
-    val out = Outlet[T]("out")
-
-    override def shape = new FanOutShape2[T, A, T](in, error, out)
-
-    override def createLogic(inheritedAttributes: Attributes) =
-      new GraphStageLogic(shape) {
-        var initialized = false
-        var pending: Option[(A, Outlet[A]) \/ (T, Outlet[T])] = None
-
-        setHandler(in, new InHandler {
-          override def onPush(): Unit = {
-            pending = validationLogic(grab(in)).fold(
-              { err: A ⇒
-                Option(-\/(err, error))
-              }, { v: T ⇒
-                Option(\/-(v, out))
-              })
-            tryPush
-          }
-        })
-
-        List(error, out).foreach {
-          setHandler(_, new OutHandler {
-            override def onPull() = {
-              if (!initialized) {
-                initialized = true
-                tryPull(in)
-              }
-              tryPush
-            }
-          })
-        }
-
-        private def tryPushError(er: A, erOut: Outlet[A]): Unit = {
-          if (isAvailable(erOut)) {
-            push(erOut, er)
-            tryPull(in)
-            pending = None
-
-            if (isClosed(in)) {
-              completeStage()
-            }
-          }
-        }
-
-        private def tryPush(el: T, out: Outlet[T]): Unit = {
-          if (isAvailable(out)) {
-            push(out, el)
-            tryPull(in)
-            pending = None
-
-            if (isClosed(in)) {
-              completeStage()
-            }
-          }
-        }
-
-        private def tryPush(): Unit = {
-          pending.foreach { pen ⇒
-            pen.fold({ kv ⇒
-              tryPushError(kv._1, kv._2)
-            }, { kv ⇒
-              tryPush(kv._1, kv._2)
-            })
-          }
-        }
-      }
-  }
-
-  final class RoundRobinStage4[T] extends GraphStage[FanOutShape4[T, T, T, T, T]] {
-    val in = Inlet[T]("in")
-    val outlets = Vector(Outlet[T]("out0"), Outlet[T]("out1"), Outlet[T]("out2"), Outlet[T]("out3"))
-    var seqNum = 0
-    val s = outlets.size
-
-    override def shape =
-      new FanOutShape4[T, T, T, T, T](in, outlets(0), outlets(1), outlets(2), outlets(3))
-
-    override def createLogic(inheritedAttributes: Attributes) =
-      new GraphStageLogic(shape) {
-        var pending: Option[(T, Outlet[T])] = None
-        var initialized = false
-
-        setHandler(in, new InHandler {
-          override def onPush() = {
-            pending = Some((grab(in), outlets(seqNum % s)))
-            seqNum += 1
-            tryPush()
-          }
-
-          override def onUpstreamFinish() = {
-            if (pending.isEmpty) {
-              completeStage()
-            }
-          }
-        })
-
-        outlets.foreach {
-          setHandler(_, new OutHandler {
-            override def onPull() = {
-              if (!initialized) {
-                initialized = true
-                tryPull(in)
-              }
-              tryPush()
-            }
-          })
-        }
-
-        private def tryPush(): Unit = {
-          pending.foreach {
-            case (el, out) ⇒
-              if (isAvailable(out)) {
-                push(out, el)
-                tryPull(in)
-                pending = None
-
-                if (isClosed(in)) {
-                  completeStage()
-                }
-              }
-          }
-        }
-      }
-  }
-
   /**
    * Execute nested flows in parallel and merge results
    * Parallel fan-out fan-in
@@ -582,7 +452,7 @@ object AkkaRecipes extends App {
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
       val router = b.add(new DisjunctionRouter[Int, String]({ el: Int ⇒
-        if (el % 10 == 0) -\/(s"error element $el") else \/-(el)
+        if (el % 10 == 0) Left(s"error element $el") else Right(el)
       }))
 
       source ~> router.in
@@ -605,11 +475,9 @@ object AkkaRecipes extends App {
         .conflateWithSeed(Vector(_))((acc, element) ⇒ acc :+ element)
         .mapConcat(identity)
 
-    def buffer = Flow[Int].buffer(128, OverflowStrategy.backpressure)
-
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
-      ((source via buffer) via throttledFlow(100 milliseconds)) ~> sink
+      ((source via Flow[Int].buffer(128, OverflowStrategy.backpressure)) via throttledFlow(100 milliseconds)) ~> sink
       ClosedShape
     }
   }
@@ -1123,7 +991,7 @@ object AkkaRecipes extends App {
   }
 
   /**
-   * Sliding window on bounded memory with CircularFifoQueue, drops elements and stores only last 5
+   * Sliding window on bounded memory with CircularFifoQueue, drops elements storing only last 5
    */
   def scenario20(): Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit b ⇒
@@ -1170,17 +1038,39 @@ object AkkaRecipes extends App {
     }
   }
 
-  /*def scenario22(): Graph[ClosedShape, akka.NotUsed] = {
-    val src = throttledSrc(statsD, 1 second, 50 milliseconds, Int.MaxValue, "akka-source_21")
-    //Source.tick(0 milliseconds, 10 minutes, ()).map(_ => Sample(System.currentTimeMillis(), random.nextFloat()))
+  def scenario22(implicit sys: ActorSystem): Graph[ClosedShape, akka.NotUsed] = {
+    implicit val serializer = org.squbs.pattern.stream.QueueSerializer[Int]()
+    //val degradingSink = new DegradingGraphiteSink[org.squbs.pattern.stream.Event[Int]]("sink_22", 2l, ms)
 
-    //http://blog.colinbreck.com/patterns-for-streaming-measurement-data-with-akka-streams/
-    //The following example will fail the stream, with a timeout exception, after one minute, logging an error to the application log,
-    // with the unique identifier associated with this device
-    src.idleTimeout(1 minute)
-    //.runWith(Sink.foreach(println))
-    //.recover { case ex: java.util.concurrent.TimeoutException =>  }
-  }*/
+    val dbFlow = Flow[org.squbs.pattern.stream.Event[Int]]
+      .buffer(1, OverflowStrategy.backpressure)
+      .map { e =>
+        Thread.sleep(200) //save to db
+        println(s"${Thread.currentThread.getName} save ${e.entry} - ${e.index}")
+        e
+      }
+
+    //https://github.com/paypal/squbs/blob/master/docs/persistent-buffer.md
+    val file = new File("/Volumes/dev/github/streams-recipes/pqueue")
+    val pBuffer = new org.squbs.pattern.stream.PersistentBufferAtLeastOnce[Int](file)
+    val commit = pBuffer.commit[Int]
+    val src = timedSource(ms, 1 second, 50 milliseconds, Int.MaxValue, "akka-source_22")
+
+    val (queue, publisher) = Source.queue[Int](1 << 7, OverflowStrategy.backpressure)
+      .toMat(Sink.asPublisher[Int](false))(Keep.both)
+      .run()(mat)
+
+    //read  the latest saved date form DB and fetch the next page
+    //queue.offer()
+
+    //Source.fromPublisher(publisher)
+    src //.alsoTo(allWindow("akka-scenario22", 5 seconds))
+      .via(pBuffer.async)
+      //.mapAsync(2) { e => /*ask*/ }
+      .via(dbFlow.async("akka.blocking-dispatcher")) //AtLeastOnce so the writes should be idempotent
+      .via(commit)
+      .to(Sink.ignore)
+  }
 
   //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
   def trailingDifference(offset: Int) =
@@ -1242,7 +1132,7 @@ object AkkaRecipes extends App {
 
 trait GraphiteMetrics {
   val Encoding = "utf-8"
-  val sendBuffer = (ByteBuffer allocate 512)
+  val sendBuffer = ByteBuffer.allocate(512)
   val channel = DatagramChannel.open()
 
   def address: InetSocketAddress
@@ -1299,14 +1189,16 @@ class ConsistentHashingRouter extends ActorSubscriber with ActorLogging {
   }
 
   //println("VirtualNodesFactor: " + context.system.settings.DefaultVirtualNodesFactor)
+  /*val randevusLogic = new RoutingLogic {
+    override def select(message: Any, routees: immutable.IndexedSeq[Routee]): Routee = ???
+  }
+  */
 
   val logic = akka.routing.ConsistentHashingRoutingLogic(context.system, currentRouteeSize, hashMapping)
-  var router = Router(
-    logic,
-    routees.map { actor ⇒
-      context.watch(actor)
-      ActorRefRoutee(actor)
-    })
+  var router = akka.routing.Router(logic, routees.map { actor ⇒
+    context.watch(actor)
+    akka.routing.ActorRefRoutee(actor)
+  })
 
   override protected def requestStrategy = new MaxInFlightRequestStrategy(32) {
     override def inFlightInternally = routeesMap.size
@@ -1364,9 +1256,9 @@ class BalancerRouter extends ActorSubscriber with ActorLogging {
     .map(i ⇒ s"worker-$i")
     .map(name ⇒ context.actorOf(Props(classOf[Worker], name).withDispatcher("akka.flow-dispatcher"), name))
 
-  var router = Router(RoundRobinRoutingLogic(), workers.map { r ⇒
+  var router = akka.routing.Router(akka.routing.RoundRobinRoutingLogic(), workers.map { r ⇒
     (context watch r)
-    ActorRefRoutee(r)
+    akka.routing.ActorRefRoutee(r)
   })
 
   override val requestStrategy = new MaxInFlightRequestStrategy(MaxInFlight) {

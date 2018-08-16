@@ -69,6 +69,8 @@ libraryDependencies ++= Seq(
   
   //Users/haghard/.ivy2/local/default/fs2-cache_2.11/1.0/jars/fs2-cache_2.11.jar
 
+  "org.squbs" %% "squbs-pattern" %  "0.11.0",
+  "net.openhft" % "chronicle-queue" % "4.16.5",
 
   "org.hdrhistogram"  %  "HdrHistogram"      % "2.1.9",
   "com.esri.geometry" %  "esri-geometry-api" % "1.2.1",

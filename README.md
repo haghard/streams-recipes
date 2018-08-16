@@ -27,3 +27,4 @@ https://flink.apache.org/news/2015/12/04/Introducing-windows.html
 ## fs2 ##
 https://lunatech.com/blog/WCl5OikAAIrvQCoc/functional-io-with-fs2-streams
 https://underscore.io/blog/posts/2018/03/20/fs2.html
+https://gist.github.com/narench/1bead6045874883fc227026e458333f1

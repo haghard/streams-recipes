@@ -57,11 +57,11 @@ object Sinks {
   }
 
   //Degrade with each new message
-  class DegradingGraphiteSink(name: String, delayPerMsg: Long, override val address: InetSocketAddress) extends GraphStage[SinkShape[Int]]
+  final class DegradingGraphiteSink[T](name: String, delayPerMsg: Long, override val address: InetSocketAddress) extends GraphStage[SinkShape[T]]
     with GraphiteMetrics {
 
-    val in: Inlet[Int] = Inlet("GraphiteSink")
-    override val shape: SinkShape[Int] = SinkShape(in)
+    val in: Inlet[T] = Inlet("GraphiteSink")
+    override val shape: SinkShape[T] = SinkShape(in)
 
     override protected def initialAttributes: Attributes =
       Attributes.name("bf").and(ActorAttributes.dispatcher("akka.blocking-dispatcher"))
@@ -75,11 +75,12 @@ object Sinks {
 
         setHandler(in, new InHandler {
           override def onPush(): Unit = {
-            val _ = grab(in)
+            val i = grab(in)
             delay += delayPerMsg
             val latency = delayPerMsg + (delay / 1000)
             Thread.sleep(latency, (delay % 1000).toInt)
             send(s"$name:1|c")
+            //println(s"${Thread.currentThread().getName} fsink ${i}")
             pull(in)
           }
         })
