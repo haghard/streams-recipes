@@ -60,7 +60,7 @@ object Sinks {
   final class DegradingGraphiteSink[T](name: String, delayPerMsg: Long, override val address: InetSocketAddress) extends GraphStage[SinkShape[T]]
     with GraphiteMetrics {
 
-    val in: Inlet[T] = Inlet("GraphiteSink")
+    private val in: Inlet[T] = Inlet("GraphiteSink")
     override val shape: SinkShape[T] = SinkShape(in)
 
     override protected def initialAttributes: Attributes =
@@ -75,7 +75,7 @@ object Sinks {
 
         setHandler(in, new InHandler {
           override def onPush(): Unit = {
-            val i = grab(in)
+            val _ = grab(in)
             delay += delayPerMsg
             val latency = delayPerMsg + (delay / 1000)
             Thread.sleep(latency, (delay % 1000).toInt)

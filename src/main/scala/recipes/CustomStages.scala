@@ -1,12 +1,14 @@
 package recipes
 
 import akka.actor.ActorRef
+import akka.stream.ActorAttributes.SupervisionStrategy
 import akka.stream._
 import akka.stream.stage.GraphStageLogic.StageActor
 
-import scala.collection.mutable
+import scala.collection.{ immutable, mutable }
 import akka.stream.stage._
 
+import scala.concurrent.duration.{ Duration, FiniteDuration }
 import scala.reflect.ClassTag
 
 object CustomStages {
@@ -14,12 +16,47 @@ object CustomStages {
   //(E[]) new Object[capacity];
   //new Array[AnyRef](findNextPositivePowerOfTwo(capacity)).asInstanceOf[Array[T]])
   //new Array[AnyRef](findNextPositivePowerOfTwo(capacity)).asInstanceOf[Array[T]])
+
   object RingBuffer {
     def nextPowerOfTwo(value: Int): Int =
       1 << (32 - Integer.numberOfLeadingZeros(value - 1))
   }
 
-  class RingBuffer[T: scala.reflect.ClassTag] private(capacity: Int, mask: Int, buffer: Array[T]) {
+  //https://en.wikipedia.org/wiki/Moving_average
+  //https://blog.scalac.io/2017/05/25/scala-specialization.html
+  class SimpleRingBuffer[@specialized(Double, Long, Int) T: SourceType: ClassTag: Numeric] private (capacity: Int, buffer: Array[T]) {
+    private var tail: Long = 0l
+    private var head: Long = 0l
+
+    def this(capacity: Int) =
+      this(capacity, Array.ofDim[T](capacity))
+
+    def add(e: T): Unit = {
+      val ind = (tail % capacity).toInt
+
+      buffer(ind) = e
+      tail += 1
+
+      val wrapPoint = tail - capacity
+      if (head <= wrapPoint)
+        head = tail - capacity
+    }
+
+    def currentHead: T = {
+      val ind = (head % capacity).toInt
+      buffer(ind)
+    }
+
+    def sum: Double =
+      implicitly[SourceType[T]].apply(buffer.sum)
+
+    def size(): Int = (tail - head).toInt
+
+    override def toString =
+      s"head: [$head] tail:$tail buffer: ${buffer.mkString(",")}"
+  }
+
+  class RingBuffer[T: scala.reflect.ClassTag] private (capacity: Int, mask: Int, buffer: Array[T]) {
     private var tail: Long = 0l
     private var head: Long = 0l
 
@@ -32,7 +69,7 @@ object CustomStages {
       val wrapPoint = tail - capacity
       if (head <= wrapPoint) false
       else {
-        val ind = tail.toInt & mask
+        val ind = (tail & mask).toInt
         buffer(ind) = e
         tail = tail + 1
         true
@@ -42,13 +79,23 @@ object CustomStages {
     def poll(): Option[T] = {
       if (head >= tail) None
       else {
-        val index = head.toInt & mask
+        val index = (head & mask).toInt
         val element: T = buffer(index)
         buffer(index) = null.asInstanceOf[T]
         head = head + 1
         Some(element)
       }
     }
+
+    def peek(): Option[T] = {
+      if (head >= tail) None
+      else {
+        val index = head.toInt & mask
+        Some(buffer(index))
+      }
+    }
+
+    def size() = (tail - head).toInt
 
     override def toString =
       s"nextHead: [$head/${head.toInt & mask}] nextTail:[$tail/${tail.toInt & mask}] buffer: ${buffer.mkString(",")}"
@@ -59,52 +106,60 @@ object CustomStages {
       https://doc.akka.io/docs/akka/current/stream/stream-customize.html
       https://github.com/mkubala/akka-stream-contrib/blob/feature/101-mkubala-interval-based-rate-limiter/contrib/src/main/scala/akka/stream/contrib/IntervalBasedRateLimiter.scala
 
-      Rate decoupled graph stages
+      Rate decoupled graph stages.
+      The main point being is that an onPush call does not always lead to calling push and
+        an onPull call does not always lead to calling pull.
    */
   class InternalBufferStage[A](maxSize: Int) extends GraphStage[FlowShape[A, A]] {
-    val in = Inlet[A]("buffer.in")
-    val out = Outlet[A]("buffer.out")
-
+    val in = Inlet[A]("ib.in")
+    val out = Outlet[A]("ib.out")
     val shape = FlowShape.of(in, out)
 
     override protected def initialAttributes: Attributes =
-      Attributes.name("bf").and(ActorAttributes.dispatcher("akka.flow-dispatcher"))
+      Attributes.name("ib").and(ActorAttributes.dispatcher("akka.flow-dispatcher"))
 
-    //the main difference is that an onPush call does not always lead to calling push and an onPull call does not always lead to calling pull.
     override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
       new GraphStageLogic(shape) {
+        //this if how we can access internal decider
+        val decider = inheritedAttributes.get[akka.stream.ActorAttributes.SupervisionStrategy]
+          .map(_.decider).getOrElse(Supervision.stoppingDecider)
+
         var isDownstreamRequested = false
-        val buffer = mutable.Queue[A]()
+        val fifo = mutable.Queue[A]()
 
-        def nonFull: Boolean =
-          buffer.size < maxSize
+        def watermarkIsNotReached: Boolean =
+          fifo.size < maxSize
 
-        // a detached stage needs to start upstream demand
-        // itself as it is not triggered by downstream demand
+        // a detached stage needs to start upstream demand itself as it's not triggered by downstream demand
         override def preStart(): Unit =
           pull(in)
 
         setHandler(in, new InHandler {
           override def onPush(): Unit = {
             val elem = grab(in)
-            buffer enqueue elem //O(1)
+            fifo enqueue elem //O(1)
 
-            //if (buffer.size > 1) println(s"buffer-size ${buffer.size}")
+            /*
+            FOR DEBUG
+            if (buffer.size > 1)
+              println(s"buffer-size ${buffer.size}")
+            */
 
             if (isDownstreamRequested) {
               isDownstreamRequested = false
-              val bufferedElem = buffer.dequeue
+              val bufferedElem = fifo.dequeue
               push(out, bufferedElem)
             }
-            if (nonFull) {
+
+            if (watermarkIsNotReached)
               pull(in)
-            }
+
           }
 
           override def onUpstreamFinish(): Unit = {
-            if (buffer.nonEmpty) {
+            if (fifo.nonEmpty) {
               // emit the rest if possible
-              emitMultiple(out, buffer.toIterator)
+              emitMultiple(out, fifo.toIterator)
             }
             completeStage()
           }
@@ -112,13 +167,13 @@ object CustomStages {
 
         setHandler(out, new OutHandler {
           override def onPull(): Unit = {
-            if (buffer.isEmpty) {
+            if (fifo.isEmpty) {
               isDownstreamRequested = true
             } else {
-              val elem = buffer.dequeue //O(1)
+              val elem = fifo.dequeue //O(1)
               push(out, elem)
             }
-            if (!nonFull && !hasBeenPulled(in)) {
+            if (!watermarkIsNotReached && !hasBeenPulled(in)) {
               pull(in)
             }
           }
@@ -318,16 +373,25 @@ object CustomStages {
       }
   }
 
+  object ActorBasedSource {
 
-  object ActorSource {
     case class ConnectSource(ref: ActorRef)
+
   }
 
   //A custom graph stage to create a Source using getActorStage
+  //As a result you're able to send messages to an actor(sourceFeeder) and propagate them to a Source.
   //Example: https://github.com/Keenworks/SampleActorStage/blob/master/src/main/scala/com/keenworks/sample/sampleactorstage/MessageSource.scala
+  /*
 
-  //How to use: Source.fromGraph(new ActorSource[ByteString](sourceRef) ...
-  final class ActorSource[T: ClassTag](sourceFeeder: ActorRef) extends GraphStage[SourceShape[T]] {
+    How to use:
+      Source.fromGraph(new ActorSource[ByteString](sourceRef) ...
+
+      sourceRef ! message
+
+
+   */
+  final class ActorBasedSource[T: ClassTag](sourceFeeder: ActorRef) extends GraphStage[SourceShape[T]] {
     val out: Outlet[T] = Outlet("out")
     override val shape: SourceShape[T] = SourceShape(out)
 
@@ -337,10 +401,11 @@ object CustomStages {
         val buffer = mutable.Queue[T]()
 
         override def preStart(): Unit = {
-          sourceFeeder ! ActorSource.ConnectSource(actorStage.ref)
+          sourceFeeder ! ActorBasedSource.ConnectSource(actorStage.ref)
         }
 
-        setHandler(out,
+        setHandler(
+          out,
           new OutHandler {
             override def onDownstreamFinish(): Unit = {
               val result = buffer.result
@@ -358,8 +423,7 @@ object CustomStages {
             }
 
             override def onPull(): Unit = tryPush()
-          }
-        )
+          })
 
         def tryPush(): Unit = {
           if (isAvailable(out) && buffer.nonEmpty) {
@@ -370,12 +434,146 @@ object CustomStages {
 
         def onReceive(x: (ActorRef, Any)): Unit = {
           x._2 match {
-            case msg: T =>
+            case msg: T ⇒
               buffer enqueue msg
               tryPush()
-            case other =>
+            case other ⇒
               failStage(throw new Exception(s"Unexpected message type ${other.getClass.getSimpleName}"))
           }
+        }
+      }
+  }
+
+  sealed trait SessionOverflowStrategy
+
+  case object DropOldest extends SessionOverflowStrategy
+
+  case object DropNewest extends SessionOverflowStrategy
+
+  case object FailStage extends SessionOverflowStrategy
+
+  final case class Overflow(msg: String) extends RuntimeException(msg)
+
+  //https://efekahraman.github.io/2019/01/session-windows-in-akka-streams
+  //https://softwaremill.com/windowing-data-in-akka-streams/
+  //https://github.com/efekahraman/akka-streams-session-window
+  //Session windows represent a period of activity. Concretely, windows are separated by a predefined inactivity/gap period.
+
+  /*
+
+  val window: GraphStage[FlowShape[Int, Int]] = SessionWindow(1 second, 10, FailStage)
+  Source(range)
+    .via(sessionWindow)
+    .runFold(Nil: List[Int])(_ :+ _)
+  */
+  final class SessionWindow[T](inactivity: FiniteDuration, maxSize: Int, overflowStrategy: SessionOverflowStrategy)
+    extends GraphStage[FlowShape[T, T]] {
+
+    import scala.collection.immutable.Queue
+
+    require(maxSize > 1, "maxSize must be greater than 1")
+    require(inactivity > Duration.Zero)
+
+    val in: Inlet[T] = Inlet[T]("SessionWindow.in")
+    val out: Outlet[T] = Outlet[T]("SessionWindow.out")
+
+    override val shape: FlowShape[T, T] = FlowShape(in, out)
+
+    override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
+      new TimerGraphStageLogic(shape) with InHandler with OutHandler {
+
+        private var queue: Queue[T] = Queue.empty[T]
+        private var nextDeadline: Long = System.nanoTime + inactivity.toNanos
+
+        setHandlers(in, out, this)
+
+        override def preStart(): Unit =
+          schedulePeriodically(shape, inactivity)
+
+        override def postStop(): Unit =
+          queue = Queue.empty[T]
+
+        override def onPush(): Unit = {
+          val element: T = grab(in)
+          queue =
+            if (queue.size < maxSize) queue.enqueue(element)
+            else
+              overflowStrategy match {
+                case DropOldest ⇒
+                  if (queue.isEmpty) queue.enqueue(element)
+                  else queue.tail.enqueue(element)
+                case DropNewest ⇒ queue
+                case FailStage ⇒
+                  failStage(Overflow(s"Received messages are more than $maxSize"))
+                  Queue.empty[T]
+              }
+
+          nextDeadline = System.nanoTime + inactivity.toNanos
+
+          if (!hasBeenPulled(in)) pull(in)
+        }
+
+        override def onPull(): Unit =
+          if (!hasBeenPulled(in)) pull(in)
+
+        override def onUpstreamFinish(): Unit = {
+          if (queue.nonEmpty) {
+            emitMultiple(out, queue)
+          }
+          super.onUpstreamFinish()
+        }
+
+        final override protected def onTimer(key: Any): Unit =
+          if (nextDeadline - System.nanoTime < 0 && queue.nonEmpty) {
+            emitMultiple(out, queue)
+            queue = Queue.empty[T]
+          }
+      }
+  }
+
+  //http://blog.kunicki.org/blog/2016/07/20/implementing-a-custom-akka-streams-graph-stage/
+  final class AccumulateWhileUnchanged[E, P](propertyExtractor: E ⇒ P) extends GraphStage[FlowShape[E, immutable.Seq[E]]] {
+    val in = Inlet[E]("in")
+    val out = Outlet[immutable.Seq[E]]("out")
+
+    override def shape = FlowShape.of(in, out)
+
+    override def createLogic(inheritedAttributes: Attributes) =
+      new GraphStageLogic(shape) {
+        private var currentState: Option[P] = None
+        private val buffer = Vector.newBuilder[E]
+
+        setHandlers(in, out, new InHandler with OutHandler {
+          override def onPush(): Unit = {
+            val nextElement = grab(in)
+            val nextState = propertyExtractor(nextElement)
+
+            if (currentState.isEmpty || currentState.contains(nextState)) {
+              buffer += nextElement
+              pull(in)
+            } else {
+              val result = buffer.result
+              buffer.clear()
+              buffer += nextElement
+              push(out, result)
+            }
+
+            currentState = Some(nextState)
+          }
+
+          override def onPull(): Unit = pull(in)
+
+          override def onUpstreamFinish(): Unit = {
+            val result = buffer.result()
+            if (result.nonEmpty) {
+              emit(out, result)
+            }
+            completeStage()
+          }
+        })
+
+        override def postStop(): Unit = {
+          buffer.clear()
         }
       }
   }

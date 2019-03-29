@@ -37,8 +37,9 @@ resolvers ++= Seq(
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.5.14"
+val akkaStreamV = "2.5.21"
 val scalazVersion = "7.2.20"
+val ZIOVersion  = "0.5.3"
 
 //val Origami = "1.0-20150902134048-8d00462"
 
@@ -77,7 +78,9 @@ libraryDependencies ++= Seq(
   "io.spray"          %% "spray-json"        % "1.3.2",
 
   //https://github.com/mikolak-net/travesty
-  "net.mikolak" %% "travesty" % s"0.9_$akkaStreamV",
+  //"net.mikolak" %% "travesty" % s"0.9_$akkaStreamV",
+
+  "org.scalaz"      %%  "scalaz-zio"      % ZIOVersion,
 
   /*
   "com.ambiata"       %%  "origami-core"       %   Origami,
@@ -91,7 +94,8 @@ libraryDependencies ++= Seq(
 
   //"io.verizon.quiver"      %% "core"        % "6.0.0-scalaz-7.2-SNAPSHOT",
 
-  //"com.typesafe.akka" %% "akka-stream-contrib" % "0.6",
+  "com.typesafe.akka" %% "akka-stream-contrib" % "0.9",
+
 
   //"co.adhoclabs"    && "akka-http-contrib" % "0.0.6"
 

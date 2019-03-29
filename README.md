@@ -22,7 +22,15 @@ http://stackoverflow.com/questions/32459582/how-to-set-up-statsd-along-with-graf
 ### windows ###
 
 https://flink.apache.org/news/2015/12/04/Introducing-windows.html
+https://efekahraman.github.io/2019/01/session-windows-in-akka-streams
+https://softwaremill.com/windowing-data-in-akka-streams/
+https://blog.kunicki.org/blog/2016/07/20/implementing-a-custom-akka-streams-graph-stage/
+https://github.com/efekahraman/akka-streams-session-window
 
+
+https://github.com/svezfaz/akka-backpressure-scala-central-talk.git
+
+netstat -na | grep ${PORT}
 
 ## fs2 ##
 https://lunatech.com/blog/WCl5OikAAIrvQCoc/functional-io-with-fs2-streams
