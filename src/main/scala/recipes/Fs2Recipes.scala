@@ -418,9 +418,9 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
    *                             +-----+
    */
   def scenario04: fs2.Stream[IO, Unit] = {
-    val window = 5000l
-    val parallelism = 2
-    val bufferSize = 1 << 8
+    //val window = 5000l
+    //val parallelism = 2
+    //val bufferSize = 1 << 8
 
     val gr = graphiteInstance
     val sourceDelay = 100.millis

@@ -13,7 +13,7 @@ name := "stream-recipes"
 
 version := "0.1"
 
-scalaVersion := "2.12.6"
+scalaVersion := "2.12.8"
 
 resolvers ++= Seq(
   Resolver.defaultLocal,
@@ -39,7 +39,7 @@ promptTheme := ScalapenosTheme
 
 val akkaStreamV = "2.5.21"
 val scalazVersion = "7.2.20"
-val ZIOVersion  = "0.5.3"
+val ZIOVersion  = "0.6.3"
 
 //val Origami = "1.0-20150902134048-8d00462"
 
@@ -73,7 +73,7 @@ libraryDependencies ++= Seq(
   "org.squbs" %% "squbs-pattern" %  "0.11.0",
   "net.openhft" % "chronicle-queue" % "4.16.5",
 
-  "org.hdrhistogram"  %  "HdrHistogram"      % "2.1.9",
+  "org.hdrhistogram"  %  "HdrHistogram"      % "2.1.10",
   "com.esri.geometry" %  "esri-geometry-api" % "1.2.1",
   "io.spray"          %% "spray-json"        % "1.3.2",
 
@@ -96,37 +96,23 @@ libraryDependencies ++= Seq(
 
   "com.typesafe.akka" %% "akka-stream-contrib" % "0.9",
 
-
   //"co.adhoclabs"    && "akka-http-contrib" % "0.0.6"
-
 
   //Future to Task and Task to Future conversions
   //"io.verizon.delorean" %% "core"       % "1.1.37",
 
-  "org.apache.commons" % "commons-collections4" % "4.0"
+  "org.apache.commons" % "commons-collections4" % "4.0",
 
-  //"com.lihaoyi" % "ammonite" % "1.0.5" % "test" cross CrossVersion.full
+  // li haoyi ammonite repl embed
+  ("com.lihaoyi" % "ammonite" % "1.6.0" % "test").cross(CrossVersion.full)
 )
 
-//initialCommands in (Test, console) := """ammonite.Main().run()"""
-/*
+//test:run
 sourceGenerators in Test += Def.task {
   val file = (sourceManaged in Test).value / "amm.scala"
-  IO.write(file, """object amm extends App { ammonite.Main.main(args) }""")
+  IO.write(file, """object amm extends App { ammonite.Main().run() }""")
   Seq(file)
 }.taskValue
-
-(fullClasspath in Test) ++= {
-  (updateClassifiers in Test).value
-    .configurations
-    .find(_.configuration == Test.name)
-    .get
-    .modules
-    .flatMap(_.artifacts)
-    .collect{case (a, f) if a.classifier == Some("sources") => f}
-}*/
-
-//streams-recipes/test:console
 
 addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.4")
 addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)

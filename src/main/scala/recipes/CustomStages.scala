@@ -1,5 +1,7 @@
 package recipes
 
+import java.io.{ File, FileOutputStream }
+
 import akka.actor.ActorRef
 import akka.stream.ActorAttributes.SupervisionStrategy
 import akka.stream._
@@ -116,7 +118,9 @@ object CustomStages {
     val shape = FlowShape.of(in, out)
 
     override protected def initialAttributes: Attributes =
-      Attributes.name("ib").and(ActorAttributes.dispatcher("akka.flow-dispatcher"))
+      Attributes.name("ib")
+        //.and(ActorAttributes.dispatcher("akka.blocking-dispatcher"))
+        .and(ActorAttributes.dispatcher("akka.flow-dispatcher"))
 
     override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
       new GraphStageLogic(shape) {
@@ -248,7 +252,7 @@ object CustomStages {
       }
   }
 
-  final class DisjunctionRouter[T, A](validationLogic: T ⇒ A Either T) extends GraphStage[FanOutShape2[T, A, T]] {
+  final class DisjunctionStage[T, A](validation: T ⇒ A Either T) extends GraphStage[FanOutShape2[T, A, T]] {
     val in = Inlet[T]("in")
     val error = Outlet[A]("error")
     val out = Outlet[T]("out")
@@ -262,7 +266,7 @@ object CustomStages {
 
         setHandler(in, new InHandler {
           override def onPush(): Unit = {
-            pending = validationLogic(grab(in))
+            pending = validation(grab(in))
               .fold({ err: A ⇒ Option(Left(err, error)) }, { v: T ⇒ Option(Right(v, out)) })
             tryPush
           }
@@ -292,7 +296,7 @@ object CustomStages {
           }
         }
 
-        private def tryPush(el: T, out: Outlet[T]): Unit = {
+        private def tryPushResult(el: T, out: Outlet[T]): Unit = {
           if (isAvailable(out)) {
             push(out, el)
             tryPull(in)
@@ -309,7 +313,7 @@ object CustomStages {
             out.fold({ kv ⇒
               tryPushError(kv._1, kv._2)
             }, { kv ⇒
-              tryPush(kv._1, kv._2)
+              tryPushResult(kv._1, kv._2)
             })
           }
         }
@@ -578,4 +582,42 @@ object CustomStages {
       }
   }
 
+  // Stage to measure backpressure
+  final class Map[In, Out](f: In ⇒ Out) extends GraphStage[FlowShape[In, Out]] {
+    val in = Inlet[In]("map.in")
+    val out = Outlet[Out]("map.out")
+
+    override val shape: FlowShape[In, Out] = FlowShape(in, out)
+
+    override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
+      new GraphStageLogic(shape) with InHandler with OutHandler {
+        val histogram = new org.HdrHistogram.Histogram(3600000000000L, 3)
+
+        var lastPulled: Long = System.nanoTime
+        var lastPushed: Long = lastPulled
+
+        //
+
+        override def onPush(): Unit = {
+          push(out, f(grab(in)))
+          val now = System.nanoTime
+          //ratio between time spent for the pull and time spent for the push (percentage)
+          // 0 percent means -- never backpressured
+          // 100 percent means -- always backpressured
+          histogram.recordValue((lastPulled - lastPulled) * 100 / now - lastPushed)
+          lastPushed = now
+        }
+
+        override def onPull(): Unit = {
+          pull(in)
+          lastPulled = System.nanoTime
+        }
+
+        override def postStop(): Unit = {
+          val out = new FileOutputStream(new File("./histograms/" + System.currentTimeMillis + ".txt"))
+          val d = (1000000.0).asInstanceOf[java.lang.Double]
+          histogram.outputPercentileDistribution(new java.io.PrintStream(out), d) //in millis
+        }
+      }
+  }
 }

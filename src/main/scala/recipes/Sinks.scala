@@ -8,8 +8,8 @@ import akka.stream.stage.{ GraphStage, GraphStageLogic, InHandler }
 object Sinks {
 
   //Constant delay
-  class GraphiteSink(name: String, delay: Long, override val address: InetSocketAddress) extends GraphStage[SinkShape[Int]]
-    with GraphiteMetrics {
+  final class GraphiteSink(name: String, delay: Long, override val address: InetSocketAddress)
+    extends GraphStage[SinkShape[Int]] with GraphiteMetrics {
 
     val in: Inlet[Int] = Inlet("GraphiteSink")
     override val shape: SinkShape[Int] = SinkShape(in)
@@ -32,8 +32,8 @@ object Sinks {
       }
   }
 
-  class GraphiteSink3(name: String, delay: Long, override val address: InetSocketAddress) extends GraphStage[SinkShape[(Int, Int, Int)]]
-    with GraphiteMetrics {
+  final class GraphiteSink3(name: String, delay: Long, override val address: InetSocketAddress)
+    extends GraphStage[SinkShape[(Int, Int, Int)]] with GraphiteMetrics {
 
     val in: Inlet[(Int, Int, Int)] = Inlet("GraphiteSink")
     override val shape: SinkShape[(Int, Int, Int)] = SinkShape(in)
@@ -57,8 +57,8 @@ object Sinks {
   }
 
   //Degrade with each new message
-  final class DegradingGraphiteSink[T](name: String, delayPerMsg: Long, override val address: InetSocketAddress) extends GraphStage[SinkShape[T]]
-    with GraphiteMetrics {
+  final class DegradingGraphiteSink[T](name: String, delayPerMsg: Long, override val address: InetSocketAddress)
+    extends GraphStage[SinkShape[T]] with GraphiteMetrics {
 
     private val in: Inlet[T] = Inlet("GraphiteSink")
     override val shape: SinkShape[T] = SinkShape(in)
