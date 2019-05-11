@@ -116,4 +116,4 @@ sourceGenerators in Test += Def.task {
 addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.4")
 addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)
 
-cancelable in Global := true
+//cancelable in Global := true

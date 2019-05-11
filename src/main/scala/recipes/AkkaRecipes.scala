@@ -424,6 +424,7 @@ object AkkaRecipes extends App {
 
   /*
     Many to one with dynamically growing number of sources
+    MergeHub creates a source that emits elements merged from a dynamic set of producers
   */
   def scenario7_1(mat: Materializer): Unit = {
     implicit val ec = mat.executionContext
@@ -436,28 +437,28 @@ object AkkaRecipes extends App {
       onCompleteMessage = DegradingBlockingActor.OnCompleted,
       onFailureMessage = DegradingBlockingActor.StreamFailure(_))
 
+    def attachNSources(sink: Sink[Int, NotUsed], iterNum: Int, limit: Int = 5): Future[Unit] = {
+      val f = akka.pattern.after(5.second, sys.scheduler)(Future {
+        val src = timedSource(ms, 0.millis, (iterNum * 100).millis, (iterNum * 10000) + numOfMsgPerSource,
+          s"source_7_1-$iterNum", iterNum * 10000)
+        src.to(sink).run()(mat)
+        ()
+      })
+      f.onComplete { _ ⇒
+        if (iterNum < limit)
+          attachNSources(sink, iterNum + 1, limit)
+      }
+      f
+    }
+
+    //This sink can be  materialized (ie. run)  arbitrary many  times
     val sinkHub: Sink[Int, NotUsed] =
       MergeHub.source[Int](1 << 6)
         //.to(new GraphiteSink("sink_0", 0, ms))
         .to(manyToOneSink)
         .run()(mat)
 
-    def attachNSources(iterNum: Int, limit: Int): Future[Unit] = {
-      val f = akka.pattern.after(5.second, sys.scheduler)(Future {
-        val src = timedSource(ms, 0.millis, (iterNum * 100).millis, (iterNum * 10000) + numOfMsgPerSource,
-          s"source_7_1-$iterNum", iterNum * 10000)
-        src.to(sinkHub)
-          .run()(mat)
-        ()
-      })
-      f.onComplete { _ ⇒
-        if (iterNum < limit)
-          attachNSources(iterNum + 1, limit)
-      }
-      f
-    }
-
-    attachNSources(1, 5)
+    attachNSources(sinkHub, 1)
   }
 
   /**
@@ -730,6 +731,8 @@ object AkkaRecipes extends App {
     val pubStatsD = new GraphiteMetrics {
       override val address = ms
     }
+
+    // If you want to get a queue as a source
     val (queue, publisher) = Source
       .queue[Int](1 << 7, OverflowStrategy.backpressure)
       .toMat(Sink.asPublisher[Int](false))(Keep.both)
@@ -811,15 +814,15 @@ object AkkaRecipes extends App {
    * Router pulls from the DbCursorPublisher and runs parallel processing for records
    * Router dictates rate to publisher
    * Parallel
-   * +------+
-   * +--|Worker|--+
-   * |  +------+  |
+   *                                                  +------+
+   *                                               +--|Worker|--+
+   *                                               |  +------+  |
    * +-----------------+     +--------------+      |  +------+  |  +-----------+
    * |DbCursorPublisher|-----|BalancerRouter|------|--|Worker|-----|RecordsSink|
    * +-----------------+     +--------------+      |  +------+  |  +-----------+
-   * |  +------+  |
-   * +--|Worker|--+
-   * +------+
+   *                                               |  +------+  |
+   *                                               +--|Worker|--+
+   *                                                  +------+
    */
   def scenario15: Graph[ClosedShape, akka.NotUsed] = {
     GraphDSL.create() { implicit b ⇒
