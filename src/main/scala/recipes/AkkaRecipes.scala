@@ -31,7 +31,7 @@ import scala.concurrent.forkjoin.ThreadLocalRandom
 import scala.concurrent.{ ExecutionContext, Future }
 import scala.language.postfixOps
 import scala.reflect.ClassTag
-import scala.util.{ Failure, Success }
+import scala.util.{ Failure, Success, Try }
 
 //runMain recipes.AkkaRecipes
 object AkkaRecipes extends App {
@@ -86,11 +86,12 @@ object AkkaRecipes extends App {
 
   //RunnableGraph.fromGraph(scenario22(sys)).run()(ActorMaterializer(Settings)(sys))
 
-  RunnableGraph.fromGraph(scenario23(sys))
-    .run()(ActorMaterializer(Settings)(sys))
+  //RunnableGraph.fromGraph(scenario23(sys)).run()(ActorMaterializer(Settings)(sys))
 
-  //for scenario15
   val mat: Materializer = ActorMaterializer(Settings)(sys)
+  implicit val ec = mat.executionContext
+
+  scenario7_1(mat)
 
   /**
    * Tumbling windows discretize a stream into non-overlapping windows
@@ -419,6 +420,44 @@ object AkkaRecipes extends App {
         .actorSubscriber(SyncActor.props("akka-sink7", ms, 0l))
       ClosedShape
     }
+  }
+
+  /*
+    Many to one with dynamically growing number of sources
+  */
+  def scenario7_1(mat: Materializer): Unit = {
+    implicit val ec = mat.executionContext
+    val numOfMsgPerSource = 300
+
+    val manyToOneSink: Sink[Int, NotUsed] = Sink.actorRefWithAck[Int](
+      sys.actorOf(DegradingBlockingActor.props("akka-sink-7_1", ms, 10)),
+      onInitMessage = DegradingBlockingActor.Init,
+      ackMessage = DegradingBlockingActor.Ack,
+      onCompleteMessage = DegradingBlockingActor.OnCompleted,
+      onFailureMessage = DegradingBlockingActor.StreamFailure(_))
+
+    val sinkHub: Sink[Int, NotUsed] =
+      MergeHub.source[Int](1 << 6)
+        //.to(new GraphiteSink("sink_0", 0, ms))
+        .to(manyToOneSink)
+        .run()(mat)
+
+    def attachNSources(iterNum: Int, limit: Int): Future[Unit] = {
+      val f = akka.pattern.after(5.second, sys.scheduler)(Future {
+        val src = timedSource(ms, 0.millis, (iterNum * 100).millis, (iterNum * 10000) + numOfMsgPerSource,
+          s"source_7_1-$iterNum", iterNum * 10000)
+        src.to(sinkHub)
+          .run()(mat)
+        ()
+      })
+      f.onComplete { _ ⇒
+        if (iterNum < limit)
+          attachNSources(iterNum + 1, limit)
+      }
+      f
+    }
+
+    attachNSources(1, 5)
   }
 
   /**
@@ -1176,7 +1215,7 @@ object AkkaRecipes extends App {
    * Create a source which is throttled to a number of message per second.
    */
   def timedSource(statsD: InetSocketAddress, delay: FiniteDuration, interval: FiniteDuration, limit: Int,
-                  name: String): Source[Int, akka.NotUsed] =
+                  name: String, start: Int = 0): Source[Int, akka.NotUsed] =
     Source.fromGraph(
       GraphDSL.create() { implicit b ⇒
         import GraphDSL.Implicits._
@@ -1189,7 +1228,7 @@ object AkkaRecipes extends App {
 
         // two sources
         val tickSource = Source.tick(delay, interval, ())
-        val dataSource = Source.fromIterator(() ⇒ Iterator.range(1, limit))
+        val dataSource = Source.fromIterator(() ⇒ Iterator.range(start, limit))
 
         def send(message: String) = {
           sendBuffer.put(message getBytes "utf-8")
@@ -1733,7 +1772,7 @@ class DegradingBlockingActor private (val name: String, val address: InetSocketA
       Thread.sleep(latency, (d % 1000).toInt)
 
       //if (java.util.concurrent.ThreadLocalRandom.current.nextDouble > 0.92)
-      //println(s"${Thread.currentThread.getName} got:$msg  Degrade: $latency")
+      println(s"${Thread.currentThread.getName} got:$msg  Degrade: $latency")
 
       send(s"$name:1|c")
       sender() ! DegradingBlockingActor.Ack

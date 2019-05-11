@@ -37,7 +37,7 @@ resolvers ++= Seq(
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.5.21"
+val akkaStreamV = "2.5.22"
 val scalazVersion = "7.2.20"
 val ZIOVersion  = "0.6.3"
 
@@ -56,8 +56,6 @@ libraryDependencies ++= Seq(
   //"org.http4s"        %% "jawn-fs2"     % "0.9.0",
   //"org.http4s"        %%  "jawn-fs2"      % "0.10.1"
 
-  "com.typesafe.akka" %% "akka-stream"    % akkaStreamV,
-
   //"com.mfglabs"       %% "akka-stream-extensions-shapeless" % "0.10.0",
 
   //"io.monix"          %% "monix"             % "2.1.2",
@@ -70,7 +68,8 @@ libraryDependencies ++= Seq(
   
   //Users/haghard/.ivy2/local/default/fs2-cache_2.11/1.0/jars/fs2-cache_2.11.jar
 
-  "org.squbs" %% "squbs-pattern" %  "0.11.0",
+  "com.typesafe.akka" %% "akka-stream" % akkaStreamV,
+  ("org.squbs" %% "squbs-pattern" %  "0.12.0").excludeAll("com.typesafe.akka"),
   "net.openhft" % "chronicle-queue" % "4.16.5",
 
   "org.hdrhistogram"  %  "HdrHistogram"      % "2.1.10",
@@ -94,7 +93,7 @@ libraryDependencies ++= Seq(
 
   //"io.verizon.quiver"      %% "core"        % "6.0.0-scalaz-7.2-SNAPSHOT",
 
-  "com.typesafe.akka" %% "akka-stream-contrib" % "0.9",
+  //"com.typesafe.akka" %% "akka-stream-contrib" % "0.9",
 
   //"co.adhoclabs"    && "akka-http-contrib" % "0.0.6"
 
