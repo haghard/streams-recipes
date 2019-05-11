@@ -91,7 +91,8 @@ object AkkaRecipes extends App {
   val mat: Materializer = ActorMaterializer(Settings)(sys)
   implicit val ec = mat.executionContext
 
-  scenario7_1(mat)
+  //scenario7_1(mat)
+  scenario7_2(mat)
 
   /**
    * Tumbling windows discretize a stream into non-overlapping windows
@@ -459,6 +460,52 @@ object AkkaRecipes extends App {
         .run()(mat)
 
     attachNSources(sinkHub, 1)
+  }
+
+  def scenario7_2(mat: Materializer): Unit = {
+    implicit val ec = mat.executionContext
+    val numOfMsgPerSource = 300
+
+    def createSink(n: Int): Sink[Int, NotUsed] = Sink.actorRefWithAck[Int](
+      sys.actorOf(DegradingBlockingActor.props(s"akka-sink-7_1-$n", ms, 10)),
+      onInitMessage = DegradingBlockingActor.Init,
+      ackMessage = DegradingBlockingActor.Ack,
+      onCompleteMessage = DegradingBlockingActor.OnCompleted,
+      onFailureMessage = DegradingBlockingActor.StreamFailure(_))
+
+    def attachNSources(sink: Sink[Int, NotUsed], i: Int, limit: Int = 5): Future[Unit] = {
+      val f = akka.pattern.after(5.second, sys.scheduler)(Future {
+        val src = timedSource(ms, 0.millis, (i * 100).millis, (i * 10000) + numOfMsgPerSource,
+          s"source_7_1-$i", i * 10000)
+        src.to(sink).run()(mat)
+        ()
+      })
+      f.onComplete { _ ⇒
+        if (i < limit)
+          attachNSources(sink, i + 1, limit)
+      }
+      f
+    }
+
+    def attachNSinks(source: Source[Int, NotUsed], i: Int, limit: Int = 5): Future[Unit] = {
+      val f = akka.pattern.after(5.second, sys.scheduler)(Future {
+        source.to(createSink(i)).run()(mat)
+        ()
+      })
+      f.onComplete { _ ⇒
+        if (i < limit)
+          attachNSinks(source, i + 1, limit)
+      }
+      f
+    }
+
+    val (sinkHub, sourceHub) =
+      MergeHub.source[Int](1 << 6)
+        .toMat(BroadcastHub.sink[Int](1 << 6))(Keep.both)
+        .run()(mat)
+
+    attachNSources(sinkHub, 1, 3)
+    attachNSinks(sourceHub, 1, 3)
   }
 
   /**
@@ -1775,7 +1822,7 @@ class DegradingBlockingActor private (val name: String, val address: InetSocketA
       Thread.sleep(latency, (d % 1000).toInt)
 
       //if (java.util.concurrent.ThreadLocalRandom.current.nextDouble > 0.92)
-      println(s"${Thread.currentThread.getName} got:$msg  Degrade: $latency")
+      println(s"${Thread.currentThread.getName} $name got:$msg  Degrade:$latency")
 
       send(s"$name:1|c")
       sender() ! DegradingBlockingActor.Ack
