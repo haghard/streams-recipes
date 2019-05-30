@@ -583,7 +583,8 @@ object CustomStages {
   }
 
   // Stage to measure backpressure
-  final class Map[In, Out](f: In ⇒ Out) extends GraphStage[FlowShape[In, Out]] {
+  //https://youtu.be/4s1YzgrRR2A?list=PLbZ2T3O9BuvczX5j03bWMrMFzK5OAs9mZ
+  final class BackpressureMeasurementStage[In, Out](f: In ⇒ Out) extends GraphStage[FlowShape[In, Out]] {
     val in = Inlet[In]("map.in")
     val out = Outlet[Out]("map.out")
 
@@ -604,7 +605,8 @@ object CustomStages {
           //ratio between time spent for the pull and time spent for the push (percentage)
           // 0 percent means -- never backpressured
           // 100 percent means -- always backpressured
-          histogram.recordValue((lastPulled - lastPulled) * 100 / now - lastPushed)
+          val v = (lastPulled - lastPulled) * 100 / now - lastPushed
+          histogram.recordValue(v)
           lastPushed = now
         }
 

@@ -21,9 +21,8 @@ object ScalazRecipes extends App {
   val showLimit = 1000
   val observePeriod = 5000
   val limit = Int.MaxValue
-  val statsD = new InetSocketAddress(InetAddress.getByName("192.168.0.182"), 8125)
-  val Ex = Strategy.Executor(
-    new ForkJoinPool(Runtime.getRuntime.availableProcessors()))
+  val statsD = new InetSocketAddress(InetAddress.getByName("192.168.77.83"), 8125)
+  val Ex = Strategy.Executor(new ForkJoinPool(Runtime.getRuntime.availableProcessors))
 
   case class RecipesDaemons(name: String) extends ThreadFactory {
     private def namePrefix = s"$name-thread"

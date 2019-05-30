@@ -60,10 +60,10 @@ libraryDependencies ++= Seq(
 
   //"io.monix"          %% "monix"             % "2.1.2",
 
-  "co.fs2"            %% "fs2-core"          % "0.10.5",
-  "co.fs2"            %% "fs2-io"            % "0.10.5",
+  "co.fs2"            %% "fs2-core"          %  "1.0.4", //"0.10.5",
+  "co.fs2"            %% "fs2-io"            %  "1.0.4", //"0.10.5",
 
-  "com.spinoco"       %% "fs2-zk"            % "0.1.6",
+  //"com.spinoco"       %% "fs2-zk"            % "0.1.6",
   //"com.spinoco"       %% "fs2-cassandra"     % "0.2.1",
   
   //Users/haghard/.ivy2/local/default/fs2-cache_2.11/1.0/jars/fs2-cache_2.11.jar
@@ -103,7 +103,7 @@ libraryDependencies ++= Seq(
   "org.apache.commons" % "commons-collections4" % "4.0",
 
   // li haoyi ammonite repl embed
-  ("com.lihaoyi" % "ammonite" % "1.6.0" % "test").cross(CrossVersion.full)
+  ("com.lihaoyi" % "ammonite" % "1.6.7" % "test").cross(CrossVersion.full)
 )
 
 //test:run

@@ -1,19 +1,29 @@
+/*
+
 package recipes
 
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.{ Executors, ThreadFactory, ThreadLocalRandom }
+import java.util.concurrent.{Executors, ThreadFactory, ThreadLocalRandom}
 
-import fs2.{ Chunk, Pipe, Pull, Scheduler }
-import fs2.async.mutable
-import fs2.async.mutable.Queue
+import cats.effect.internals.IOAppPlatform
+import fs2.{Chunk, Pipe, Pull}
+//import fs2.async.mutable
+//import fs2.async.mutable.Queue
 import cats.effect.{ Async, Effect, IO }
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import scala.math.BigDecimal.RoundingMode
 
+
+import cats.effect._
+import cats.implicits._
+import fs2._
+import fs2.concurrent.Queue
+
 //runMain recipes.Fs2Recipes
-object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
+object Fs2Recipes extends GraphiteSupport with TimeWindows with IOApp {
+
   val Blocking = ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor(Fs2Daemons("ts-scheduler")))
   val Main = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(2, Fs2Daemons("main")))
 
@@ -55,11 +65,10 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
   }
 
   //type Sink[F[_], -I] = Pipe[F, I, Unit]
-  def myStdOut[A]: fs2.Sink[IO, A] =
+  def myStdOut[A]: fs2.Pipe[IO, A, Unit] =
     _.evalMap(e ⇒ IO(println(s"${Thread.currentThread.getName}: out:$e")))
 
-  val src = naturalsEvery(500)
-
+  /*val src = naturalsEvery(500)
   //dedupStreams(src, src, 5).to(myStdOut).compile.drain.unsafeRunSync()
 
   case class AvgState(isEmited: Boolean, avg: Double = .0, droppedElem: Long = 0)
@@ -78,13 +87,13 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
         s.copy(avg = r, droppedElem = elements.head)
       }
     }).map(_.avg)
-  proc.to(myStdOut).compile.drain.unsafeRunSync()
+  proc.through(myStdOut).compile.drain.unsafeRunSync()*/
 
   //naturalsEvery(500).to(myStdOut)
 
   //naturalsEvery2(1000).take(10).compile.drain.unsafeRunAsync { _ ⇒ println("done") }
 
-  def takeByOne[F[_], T](n: Int): fs2.Pipe[F, T, T] = {
+  /*def takeByOne[F[_], T](n: Int): fs2.Pipe[F, T, T] = {
     def loop(s: fs2.Stream[F, T], n: Int): Pull[F, T, Unit] = {
       if (n <= 0) Pull.done
       else
@@ -128,7 +137,7 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
           }
         }
       }
-  }
+  }*/
 
   //fs2.Stream(1,1,1,2,2,2,3,3,4,4,5,5,5,6,7,8,9,10).through(takeChunks(15)).toVector
 
@@ -188,9 +197,12 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
     }
   }
 
-  //scenario02.compile.drain.unsafeRunSync()
-  //scenario03.compile.drain.unsafeRunSync()
-  scenario04.compile.drain.unsafeRunSync()
+
+  def run(args: List[String]): IO[ExitCode] = {
+    //scenario02.compile.drain.unsafeRunSync()
+    //scenario03.compile.drain.unsafeRunSync()
+    scenario04.compile.drain.unsafeRunSync()
+  }
 
   def logStdOutDelayed[A](message: String): fs2.Pipe[IO, A, Unit] =
     _.evalMap { e ⇒
@@ -210,23 +222,32 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
   def pipeToGraphite[A](g: GraphiteMetrics, message: String): fs2.Pipe[IO, A, Unit] =
     _.evalMap(_ ⇒ send(g, message))
 
-  def pipeToGraphiteDelayed[A](delay: FiniteDuration)(implicit scheduler: Scheduler, ex: ExecutionContext): fs2.Pipe[IO, A, Unit] =
+  /*def pipeToGraphiteDelayed[A](delay: FiniteDuration)(implicit scheduler: Scheduler, ex: ExecutionContext): fs2.Pipe[IO, A, Unit] =
     _.evalMap { out ⇒
       scheduler.delay(fs2.Stream.eval(IO { out }), delay).compile.drain
-    }
+    }*/
 
   def naturals0(sourceDelay: FiniteDuration, timeWindow: Long, msg: String, monitoring: GraphiteMetrics,
-                q: mutable.Queue[IO, Long]): fs2.Stream[IO, Unit] = {
-    fs2.Scheduler[IO](1).flatMap { scheduler ⇒
+                q: Queue[IO, Long]): Stream[IO, Unit] = {
+    //implicit val ec = ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor(Fs2Daemons("src-scheduler")))
+    //implicit val cs: ContextShift[IO] = IO.contextShift(ec)
+
+    Stream.fixedRate[IO](sourceDelay)
+      .scan(State(item = 0l)) { (acc, _) ⇒ tumblingWindow(acc, timeWindow) }
+      .evalMap { state ⇒ send(monitoring, msg).map(_ ⇒ state.item) }
+      .through(q.enqueue)
+
+    /*fs2.Scheduler[IO](1).flatMap { scheduler ⇒
       implicit val ec = ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor(Fs2Daemons("src-scheduler")))
       scheduler.awakeEvery[IO](sourceDelay)
         .take(10000)
         .scan(State(item = 0l)) { (acc, _) ⇒ tumblingWindow(acc, timeWindow) }
         .evalMap { state ⇒ send(monitoring, msg).map(_ ⇒ state.item) }
         .to(q.enqueue)
-    }
+    }*/
   }
 
+/*
   def naturals1(sourceDelay: FiniteDuration, timeWindow: Long, msg: String, monitoring: GraphiteMetrics): fs2.Stream[IO, Unit] = {
     Scheduler[IO](1).flatMap { scheduler ⇒
       implicit val ec = ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor(Fs2Daemons("src-scheduler")))
@@ -245,7 +266,9 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
         .scan(State(item = 0l)) { (acc, _) ⇒ tumblingWindow(acc, timeWindow) }
         .map(_.item)
     }
-  }
+  }*/
+
+
 
   /*implicit val S = fs2.Strategy.fromExecutor(javaScheduler)
     implicit val Async = Task.asyncInstance(S)*/
@@ -289,6 +312,7 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
     val sinkG = graphiteInstance
 
     implicit val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(2, Fs2Daemons("scenario02")))
+    implicit val cs: ContextShift[IO] = IO.contextShift(ec)
 
     /*fs2.Stream.eval(fs2.async.boundedQueue[IO, Long](bufferSize)).flatMap { q ⇒
       naturals0(sourceDelay, window, srcMessage, srcG, q).mergeHaltL {
@@ -302,7 +326,7 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
     */
 
     (for {
-      q ← fs2.Stream.eval(fs2.async.boundedQueue[IO, Long](bufferSize))
+      q ← fs2.Stream.eval(Queue.bounded[IO, Long](bufferSize))
       src = naturals0(sourceDelay, window, srcMessage, srcG, q)
       sink = q.dequeue
         .scan((0l, 0l))((acc, c) ⇒ slowDown(acc, c, delayPerMsg))
@@ -442,37 +466,39 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
       println(s"${Thread.currentThread.getName}: stop")
     }
 
-    import ops._
-    implicit val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(3, Fs2Daemons("scenario04")))
-
-    def log = fs2.Sink[IO, Long] { in ⇒
+    def worker(i: Int) = fs2.Sink[IO, Long] { in ⇒
       IO {
-        println(s"${Thread.currentThread.getName}: start $in")
+        println(s"${Thread.currentThread.getName}: w:$i start $in")
         Thread.sleep(ThreadLocalRandom.current().nextInt(1000, 2000))
-        println(s"${Thread.currentThread.getName}: stop $in")
+        println(s"${Thread.currentThread.getName}: w:$i stop $in")
       }
     }
 
-    for {
+    implicit val ec =
+      ExecutionContext.fromExecutor(Executors.newFixedThreadPool(4, Fs2Daemons("scenario-04-sink")))
+
+    (for {
       q ← fs2.Stream.eval(fs2.async.boundedQueue[IO, Option[Long]](1 << 8))
-      src = Scheduler[IO](1).flatMap {
-        val sch = ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor(Fs2Daemons("src-scheduler")))
+      src = Scheduler[IO](1).flatMap { s ⇒
+        val sPool = ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor(Fs2Daemons("src-scheduler")))
         val cf = IO.ioConcurrentEffect
-        _.awakeEvery[IO](sourceDelay)(cf, sch).take(20).map(v ⇒ Some(v.toMillis)).to(q.enqueue)
+        s.awakeEvery[IO](sourceDelay)(cf, sPool).take(20000).map(v ⇒ Some(v.toMillis)).to(q.enqueue)
           .onComplete(fs2.Stream.eval(q.enqueue1(None).flatMap(_ ⇒ q.enqueue1(None))))
       }
       //.interruptWhen(???)
 
       sinks = fs2.Stream(
-        q.dequeue.unNoneTerminate.to(log),
-        q.dequeue.unNoneTerminate.to(log)).join(2)
+        q.dequeue.unNoneTerminate.to(worker(0)),
+        q.dequeue.unNoneTerminate.to(worker(1)),
+        q.dequeue.unNoneTerminate.to(worker(2)),
+        q.dequeue.unNoneTerminate.to(worker(3))).join(4)
 
       //OR
       //ps0 = q.dequeue.unNoneTerminate.to(log)
       //ps1 = q.dequeue.unNoneTerminate.to(log)
       //(ps0 merge ps1).onComplete(fs2.Stream.eval(IO(println("consumers are done")))).drain
       out ← sinks merge src.drain.onComplete(fs2.Stream.eval(IO(println("producer is done")))).drain
-    } yield out
+    } yield out)
 
     /*naturals1(sourceDelay, window, srcMessage, graphiteInstance)
       .balance[Unit](bufferSize, parallelism)(mapAsyncUnordered[IO, Unit, Unit](parallelism)(_ ⇒ testSink0))
@@ -529,3 +555,4 @@ object Fs2Recipes extends GraphiteSupport with TimeWindows with App {
      s1.pull2(s2)(go)
   }*/
 }
+*/

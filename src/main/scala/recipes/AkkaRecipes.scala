@@ -60,7 +60,7 @@ object AkkaRecipes extends App {
     """.stripMargin)
 
   val ms =
-    new InetSocketAddress(InetAddress.getByName("127.0.0.1" /*"192.168.77.97"*/ ), 8125)
+    new InetSocketAddress(InetAddress.getByName( /*"127.0.0.1"*/ "192.168.77.83"), 8125)
 
   def sys: ActorSystem =
     ActorSystem("streams", config)
@@ -464,7 +464,7 @@ object AkkaRecipes extends App {
 
   def scenario7_2(mat: Materializer): Unit = {
     implicit val ec = mat.executionContext
-    val numOfMsgPerSource = 300
+    val numOfMsgPerSource = 3000
 
     def createSink(n: Int): Sink[Int, NotUsed] = Sink.actorRefWithAck[Int](
       sys.actorOf(DegradingBlockingActor.props(s"akka-sink-7_1-$n", ms, 10)),
@@ -487,14 +487,14 @@ object AkkaRecipes extends App {
       f
     }
 
-    def attachNSinks(source: Source[Int, NotUsed], i: Int, limit: Int = 5): Future[Unit] = {
+    def attachNSinks(sourceH: Source[Int, NotUsed], i: Int, limit: Int = 5): Future[Unit] = {
       val f = akka.pattern.after(5.second, sys.scheduler)(Future {
-        source.to(createSink(i)).run()(mat)
+        sourceH.to(createSink(i)).run()(mat)
         ()
       })
       f.onComplete { _ ⇒
         if (i < limit)
-          attachNSinks(source, i + 1, limit)
+          attachNSinks(sourceH, i + 1, limit)
       }
       f
     }

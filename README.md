@@ -19,6 +19,20 @@ http://blog.akka.io/streams/2016/07/30/mastering-graph-stage-part-1
 
 http://stackoverflow.com/questions/32459582/how-to-set-up-statsd-along-with-grafana-graphite-as-backend-for-kamon
 
+
+If you set up a new datasource with the following properties:
+
+Name: graphite
+Default: checked
+Type: Graphite
+URL: http://localhost:8000
+Access: proxy
+You should then have a datasource that points to the Graphite metric data within the Docker container.
+
+Note - the default username/password for the Grafana UI is admin/admin.
+
+
+
 ### windows ###
 
 https://flink.apache.org/news/2015/12/04/Introducing-windows.html
