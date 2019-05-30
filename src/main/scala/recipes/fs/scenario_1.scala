@@ -46,6 +46,13 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
     i
   }
 
+  def worker[T](i: Int): Long ⇒ IO[Unit] =
+    (out: Long) ⇒ IO[Unit] {
+      println(s"${Thread.currentThread.getName}: w:$i start $out")
+      Thread.sleep(ThreadLocalRandom.current().nextLong(100l, 300l))
+      println(s"${Thread.currentThread.getName}: w:$i stop $out")
+    }
+
   def flow: Stream[IO, Unit] = {
     val sName = "scenario1"
     val delayPerMsg = 1l
@@ -98,6 +105,31 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
     })
   }
 
+  //static number of workers
+  def oneToManyFlow =
+    (for {
+      q ← Stream.eval(fs2.concurrent.Queue.bounded[IO, Option[Long]](1 << 3))
+      src = Stream
+        .fixedRate[IO](50.millis)
+        .scan[Option[Long]](Some(0l))((a, _) ⇒ a.map(_ + 1l))
+        .take(200)
+        .through(q.enqueue)
+        .onComplete(Stream.fixedRate[IO](500.millis).map(_ ⇒ None).through(q.enqueue))
+
+      all = Seq(
+        q.dequeue.unNoneTerminate.evalMap(worker(0)(_)),
+        q.dequeue.unNoneTerminate.evalMap(worker(1)(_)),
+        q.dequeue.unNoneTerminate.evalMap(worker(2)(_)),
+        q.dequeue.unNoneTerminate.evalMap(worker(3)(_)),
+        q.dequeue.unNoneTerminate.evalMap(worker(4)(_)))
+
+      sinks = all.reduce(_ merge _) //wait for all
+
+      //wait for either, which in our  case should be  the sinks, because src  never terminates
+      flow ← sinks mergeHaltBoth src.drain
+    } yield flow)
+      .onComplete(fs2.Stream.eval(IO(println(s"★ ★ ★  OneToMany completed ★ ★ ★"))))
+
   //src.balanceN[Unit](1 << 5, 4)(mapAsyncUnordered[IO, Long, Unit](4)(testSink(_)))
   def mapAsyncUnordered[F[_], A, B](parallelism: Int)(f: A ⇒ F[B])(implicit F: Concurrent[F]): Pipe[F, A, B] =
     (inner: fs2.Stream[F, A]) ⇒
@@ -105,5 +137,6 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
 
   override def run(args: List[String]): IO[ExitCode] =
     flow.compile.drain.as(ExitCode.Success)
+    //oneToManyFlow.compile.drain.as(ExitCode.Success)
     //flow2.compile.drain.as(ExitCode.Success)
 }
