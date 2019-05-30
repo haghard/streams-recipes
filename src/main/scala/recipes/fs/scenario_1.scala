@@ -80,14 +80,22 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
   def flow2 = {
     val window = 5000l
     val sourceDelay = 100.millis
+    val par = 4
 
     val src = Stream.fixedRate[IO](sourceDelay)
       .scan(State[Long](item = 0l))((acc, _) ⇒ tumblingWindow(acc, window))
       .map(_.item)
-      .take(100)
+      .take(200)
 
-    //src.balanceN(4, 1 << 5)(testSink(_))
-    src.balanceN2(4, 1 << 5)(testSink(_))
+    //src.balanceN(par, 1 << 5)(testSink(_))
+
+    src.balanceN2(par, 1 << 5)(i ⇒ IO {
+      val ind = i % par
+      println(s"${Thread.currentThread.getName}: worker:${ind} starts: $i")
+      Thread.sleep(ThreadLocalRandom.current.nextInt(100, 500))
+      println(s"${Thread.currentThread.getName}: worker:${ind} stop: $i")
+      i
+    })
   }
 
   //src.balanceN[Unit](1 << 5, 4)(mapAsyncUnordered[IO, Long, Unit](4)(testSink(_)))
@@ -97,5 +105,5 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
 
   override def run(args: List[String]): IO[ExitCode] =
     flow.compile.drain.as(ExitCode.Success)
-  //flow2.compile.drain.as(ExitCode.Success)
+    //flow2.compile.drain.as(ExitCode.Success)
 }

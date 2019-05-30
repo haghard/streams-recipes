@@ -16,13 +16,15 @@ package object fs {
     def apply(v: T): Long
   }
 
-  /*implicit val int2Double = new HashedType[Int] {
-    def apply(v: Int): Double = v.toDouble
-  }*/
+  implicit val state2Long = new HasLongHash[State[Long]] {
+    def apply(v: State[Long]): Long = v.item
+  }
 
   implicit val long2long = new HasLongHash[Long] {
     def apply(v: Long): Long = v
   }
+
+  case class State[T: HasLongHash: ClassTag](item: T, ts: Long = System.currentTimeMillis, count: Long = 0)
 
   case class FsDaemons(name: String) extends ThreadFactory {
     private def namePrefix = s"$name-thread"
@@ -38,12 +40,7 @@ package object fs {
   }
 
   implicit class StreamOps[A](val source: Stream[IO, A]) {
-    /*private def close(n: Int, q: Queue[IO, Option[A]]): IO[Unit] = {
-      if (n == 1) q.enqueue1(None)
-      else (0 to n).map(_ ⇒ q.enqueue1(None)).head
-    }*/
 
-    //sink: Pipe[IO, A, B]
     def balanceN[B](parallelism: Int, bufferSize: Int)(f: A ⇒ IO[B])(implicit F: Concurrent[IO], T: Timer[IO]): Stream[IO, B] = {
       Stream.eval(Queue.bounded[IO, Option[A]](bufferSize)).flatMap { q ⇒
         //val onClose = Stream.eval(close(parallelism, q))
@@ -68,7 +65,7 @@ package object fs {
         val qSrc: Stream[IO, Nothing] = source.map(Some(_)).through(q.enqueue).onComplete(onClose).drain
         val qSink: Stream[IO, B] = q.dequeue.unNoneTerminate.through(_.evalMap(f))
 
-        val zero = qSink.filter(h(_) % shards.size == 0)
+        val zero = qSink.filter(h(_) % shards.size == shards.head)
         val sinks = shards.tail.foldLeft(zero) { (stream, ind) ⇒
           stream.merge(qSink.filter(h(_) % shards.size == ind))
         }

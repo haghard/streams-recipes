@@ -2,18 +2,12 @@ package recipes
 
 import java.util.concurrent.ThreadLocalRandom
 
-import recipes.fs.HasLongHash
-
-import scala.reflect.ClassTag
-
 trait TimeWindows {
-
-  case class State[T: HasLongHash: ClassTag](item: T, ts: Long = System.currentTimeMillis, count: Long = 0)
 
   private def show(acc: Long, sec: Long) =
     s" ★ ★ ★ ${Thread.currentThread.getName}: count:$acc interval: $sec sec ★ ★ ★ "
 
-  def tumblingWindow(acc: State[Long], timeWindow: Long): State[Long] = {
+  def tumblingWindow(acc: fs.State[Long], timeWindow: Long): fs.State[Long] = {
     if (System.currentTimeMillis - acc.ts > timeWindow) {
       println(show(acc.count, timeWindow / 1000))
       acc.copy(item = acc.item + 1l, ts = System.currentTimeMillis, count = 0l)
