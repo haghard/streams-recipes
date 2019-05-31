@@ -50,7 +50,7 @@ package object fs {
           .unNoneTerminate
           .through(_.map(a ⇒ fs2.Stream.eval(f(a))).parJoin(parallelism))
 
-        //wait for either completes, which in our case should be the qSink, because the src never terminates
+        //wait for either completes which in our case should be the qSink, because the src never terminates
         val r: Stream[IO, B] = src.mergeHaltBoth(qSink)
         r
       }
@@ -70,9 +70,35 @@ package object fs {
           stream.merge(qSink.filter(h(_) % shards.size == ind))
         }
 
-        //wait for either completes, which in our case should be the sinks, because the src never terminates
+        //wait for either completes which in our case should be the sinks, because the src never terminates
         val r: Stream[IO, B] = qSrc.mergeHaltBoth(sinks)
         r
+      }
+    }
+
+    //looks like the most correct implementation
+    def balanceN3[B](parallelism: Int, bufferSize: Int)(f: Int ⇒ A ⇒ IO[B])(implicit F: Concurrent[IO]): Stream[IO, Unit] = {
+      import cats.implicits._
+      val queues: IO[Vector[Queue[IO, Option[A]]]] =
+        implicitly[cats.Traverse[Vector]]
+          .traverse(Vector.range(0, parallelism))(_ ⇒ Queue.bounded[IO, Option[A]](bufferSize))
+
+      Stream.eval(queues).flatMap { qs ⇒
+
+        val sinks: Stream[IO, Unit] =
+          Stream.emits(
+            qs.zipWithIndex.map {
+              case (q, ind) ⇒
+                q.dequeue.unNoneTerminate.evalMap(f(ind))
+            }).parJoin(parallelism).drain
+
+        val balancedSrc: Stream[IO, Unit] = source.mapAccumulate(-1l)((seqNum, elem) ⇒ (seqNum + 1l, elem))
+          .evalMap { case (seqNum, elem) ⇒ qs(seqNum.toInt % parallelism).enqueue1(Some(elem)) } ++
+          Stream.emits(qs).evalMap(_.enqueue1(None))
+          .onComplete(Stream.eval(IO(println(" ★ ★ ★  Source is done   ★ ★ ★ "))))
+
+        //wait for both exit
+        sinks merge balancedSrc
       }
     }
   }
