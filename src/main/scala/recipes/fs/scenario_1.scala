@@ -13,12 +13,13 @@ import scala.concurrent.duration._
 import scala.concurrent.ExecutionContext
 
 /*
-  Flow description:
-  The source and sink run at the same rate at the beginning.
-  The sink slows down over time, increasing latency on every message.
-  I use the bounded queue between the source and the sink.
-  This leads to blocking "enqueue" operation for the source in case no space in the queue.
-  Result: The source's rate is going to decrease proportionally to the sink's rate.
+  The setup of the scenario is as follows:
+    The source and sink run at the same rate at the beginning.
+    The sink slows down over time, increasing latency on every message.
+    I use the bounded queue between the source and the sink.
+    This leads to blocking "enqueue" operation for the source in case no space in the queue.
+    Result: The source's rate is going to decrease proportionally to the sink's rate.
+
 */
 object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
 
@@ -108,9 +109,9 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
       .map(_.item)
       .take(200)
 
-    //src.balanceN(par, 1 << 5)(testSink(_))
+    //src.broadcastN(par, 1 << 5)(testSink(_))
 
-    /*src.balanceN2(par, 1 << 5)(i ⇒ IO {
+    /*src.broadcastN2(par, 1 << 5)(i ⇒ IO {
       val ind = i % par
       println(s"${Thread.currentThread.getName}: worker:${ind} starts: $i")
       Thread.sleep(ThreadLocalRandom.current.nextInt(100, 500))
@@ -118,7 +119,7 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
       i
     })*/
 
-    src.balanceN3(par, 1 << 4) { ind: Int ⇒ (e) ⇒ IO {
+    src.broadcastN3(par, 1 << 4) { ind: Int ⇒ (e) ⇒ IO {
       println(s"${Thread.currentThread.getName}: w:$ind starts: $e")
       Thread.sleep(ThreadLocalRandom.current.nextInt(100, 500))
       println(s"${Thread.currentThread.getName}: w:$ind stop: $e")

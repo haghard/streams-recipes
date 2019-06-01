@@ -41,7 +41,7 @@ package object fs {
 
   implicit class StreamOps[A](val source: Stream[IO, A]) {
 
-    def balanceN[B](parallelism: Int, bufferSize: Int)(f: A ⇒ IO[B])(implicit F: Concurrent[IO], T: Timer[IO]): Stream[IO, B] = {
+    def broadcastN[B](parallelism: Int, bufferSize: Int)(f: A ⇒ IO[B])(implicit F: Concurrent[IO], T: Timer[IO]): Stream[IO, B] = {
       Stream.eval(Queue.bounded[IO, Option[A]](bufferSize)).flatMap { q ⇒
         //val onClose = Stream.eval(close(parallelism, q))
         val onClose = Stream.fixedRate[IO](100.millis).map(_ ⇒ None).through(q.enqueue)
@@ -56,7 +56,7 @@ package object fs {
       }
     }
 
-    def balanceN2[B: HasLongHash: ClassTag](parallelism: Int, bufferSize: Int)(f: A ⇒ IO[B])(implicit F: Concurrent[IO], T: Timer[IO]): Stream[IO, B] = {
+    def broadcastN2[B: HasLongHash: ClassTag](parallelism: Int, bufferSize: Int)(f: A ⇒ IO[B])(implicit F: Concurrent[IO], T: Timer[IO]): Stream[IO, B] = {
       Stream.eval(Queue.bounded[IO, Option[A]](bufferSize)).flatMap { q ⇒
         val h = implicitly[HasLongHash[B]]
         val shards = Vector.range(0, parallelism)
@@ -77,7 +77,7 @@ package object fs {
     }
 
     //looks like the most correct implementation
-    def balanceN3[B](parallelism: Int, bufferSize: Int)(f: Int ⇒ A ⇒ IO[B])(implicit F: Concurrent[IO]): Stream[IO, Unit] = {
+    def broadcastN3[B](parallelism: Int, bufferSize: Int)(f: Int ⇒ A ⇒ IO[B])(implicit F: Concurrent[IO]): Stream[IO, Unit] = {
       import cats.implicits._
       val queues: IO[Vector[Queue[IO, Option[A]]]] =
         implicitly[cats.Traverse[Vector]]
