@@ -39,6 +39,14 @@ package object fs {
     }
   }
 
+
+  /*
+    The use case for `broadcastN` method is as follows:
+      You have a queue of incoming payloads, each payload needs to be processed using some user provided function.
+      The processing must be done sequentially for all payloads that belong to the same partition, but two payloads
+      belonging to different partitions can be processed concurrently.
+      Partition number = seqNum % parallelism
+  */
   implicit class StreamOps[A](val source: Stream[IO, A]) {
 
     def broadcastN[B](parallelism: Int, bufferSize: Int)(f: A ⇒ IO[B])(implicit F: Concurrent[IO], T: Timer[IO]): Stream[IO, B] = {
@@ -77,7 +85,7 @@ package object fs {
     }
 
     //looks like the most correct implementation
-    def broadcastN3[B](parallelism: Int, bufferSize: Int)(f: Int ⇒ A ⇒ IO[B])(implicit F: Concurrent[IO]): Stream[IO, Unit] = {
+    def broadcastN3[B](parallelism: Long, bufferSize: Int)(f: Int ⇒ A ⇒ IO[B])(implicit F: Concurrent[IO]): Stream[IO, Unit] = {
       import cats.implicits._
       val queues: IO[Vector[Queue[IO, Option[A]]]] =
         implicitly[cats.Traverse[Vector]]
@@ -90,10 +98,10 @@ package object fs {
             qs.zipWithIndex.map {
               case (q, ind) ⇒
                 q.dequeue.unNoneTerminate.evalMap(f(ind))
-            }).parJoin(parallelism).drain
+            }).parJoin(parallelism.toInt).drain
 
         val balancedSrc: Stream[IO, Unit] = source.mapAccumulate(-1l)((seqNum, elem) ⇒ (seqNum + 1l, elem))
-          .evalMap { case (seqNum, elem) ⇒ qs(seqNum.toInt % parallelism).enqueue1(Some(elem)) } ++
+          .evalMap { case (seqNum, elem) ⇒ qs(seqNum % parallelism).enqueue1(Some(elem)) } ++
           Stream.emits(qs).evalMap(_.enqueue1(None))
           .onComplete(Stream.eval(IO(println(" ★ ★ ★  Source is done   ★ ★ ★ "))))
 
