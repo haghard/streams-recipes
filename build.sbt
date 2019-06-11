@@ -33,6 +33,7 @@ resolvers ++= Seq(
   "oncue"             at "https://bintray.com/oncue/releases/quiver/",
   Resolver.bintrayRepo("mfglabs", "maven"),
   "indvd00m-github-repo" at "https://raw.githubusercontent.com/indvd00m/maven-repo/master/repository"
+  //Resolver.bintrayRepo("codeheroes", "maven")
 )
 
 promptTheme := ScalapenosTheme
@@ -60,8 +61,8 @@ libraryDependencies ++= Seq(
 
   //"io.monix"          %% "monix"             % "2.1.2",
 
-  "co.fs2"            %% "fs2-core"          %  "1.0.4", //"0.10.5",
-  "co.fs2"            %% "fs2-io"            %  "1.0.4", //"0.10.5",
+  "co.fs2"            %% "fs2-core"          %  "1.0.5", //"0.10.5",
+  "co.fs2"            %% "fs2-io"            %  "1.0.5", //"0.10.5",
 
   //"com.spinoco"       %% "fs2-zk"            % "0.1.6",
   //"com.spinoco"       %% "fs2-cassandra"     % "0.2.1",
@@ -80,6 +81,9 @@ libraryDependencies ++= Seq(
   //"net.mikolak" %% "travesty" % s"0.9_$akkaStreamV",
 
   "org.scalaz"      %%  "scalaz-zio"      % ZIOVersion,
+
+  //elastic load balancer, build only for 2.11
+  //"akka-http-lb" %% "akka-http-lb" % "0.5.0",
 
   /*
   "com.ambiata"       %%  "origami-core"       %   Origami,

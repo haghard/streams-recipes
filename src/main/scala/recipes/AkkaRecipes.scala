@@ -60,7 +60,7 @@ object AkkaRecipes extends App {
     """.stripMargin)
 
   val ms =
-    new InetSocketAddress(InetAddress.getByName( /*"127.0.0.1"*/ "192.168.77.83"), 8125)
+    new InetSocketAddress(InetAddress.getByName("127.0.0.1" /*"192.168.77.83"*/ ), 8125)
 
   def sys: ActorSystem =
     ActorSystem("streams", config)
@@ -466,7 +466,7 @@ object AkkaRecipes extends App {
     implicit val ec = mat.executionContext
     val numOfMsgPerSource = 3000
 
-    def createSink(n: Int): Sink[Int, NotUsed] = Sink.actorRefWithAck[Int](
+    def actorBasedSink(n: Int): Sink[Int, NotUsed] = Sink.actorRefWithAck[Int](
       sys.actorOf(DegradingBlockingActor.props(s"akka-sink-7_1-$n", ms, 10)),
       onInitMessage = DegradingBlockingActor.Init,
       ackMessage = DegradingBlockingActor.Ack,
@@ -477,32 +477,42 @@ object AkkaRecipes extends App {
       val f = akka.pattern.after(5.second, sys.scheduler)(Future {
         val src = timedSource(ms, 0.millis, (i * 100).millis, (i * 10000) + numOfMsgPerSource,
           s"source_7_1-$i", i * 10000)
+        println("attached source:" + i)
         src.to(sink).run()(mat)
         ()
       })
       f.onComplete { _ ⇒
-        if (i < limit)
-          attachNSources(sink, i + 1, limit)
+        if (i < limit) attachNSources(sink, i + 1, limit)
+        else Future.successful(())
       }
       f
     }
 
     def attachNSinks(sourceH: Source[Int, NotUsed], i: Int, limit: Int = 5): Future[Unit] = {
       val f = akka.pattern.after(5.second, sys.scheduler)(Future {
-        sourceH.to(createSink(i)).run()(mat)
+        //println("attached sink:" + i)
+        sourceH.to(actorBasedSink(i)).run()(mat)
         ()
       })
       f.onComplete { _ ⇒
-        if (i < limit)
-          attachNSinks(sourceH, i + 1, limit)
+        if (i < limit) attachNSinks(sourceH, i + 1, limit)
+        else Future.successful(())
       }
       f
     }
 
+    val bufferSize = 1 << 6
     val (sinkHub, sourceHub) =
-      MergeHub.source[Int](1 << 6)
-        .toMat(BroadcastHub.sink[Int](1 << 6))(Keep.both)
+      MergeHub.source[Int](bufferSize)
+        .toMat(BroadcastHub.sink[Int](bufferSize))(Keep.both)
         .run()(mat)
+
+    /*
+      Ensure that the Broadcast output is dropped if there are no listening parties.
+      If this dropping Sink is not attached, then the broadcast hub will not drop any
+      elements itself when there are no subscribers, backpressuring the producer instead.
+    */
+    //sourceHub.runWith(Sink.ignore)(mat)
 
     attachNSources(sinkHub, 1, 3)
     attachNSinks(sourceHub, 1, 3)
@@ -1807,6 +1817,12 @@ class DegradingBlockingActor private (val name: String, val address: InetSocketA
   def this(name: String, statsD: InetSocketAddress, delayPerMsg: Long) =
     this(name, statsD, delayPerMsg, 0)
 
+  override def preStart(): Unit =
+    println(s"${Thread.currentThread.getName} $name started !!!")
+
+  override def postStop(): Unit =
+    println(s"${Thread.currentThread.getName} $name stopped !!!")
+
   def awaitInitialization: Receive = {
     case DegradingBlockingActor.Init ⇒
       sender() ! DegradingBlockingActor.Ack
@@ -1821,8 +1837,15 @@ class DegradingBlockingActor private (val name: String, val address: InetSocketA
       val latency = initialDelay + (d / 1000)
       Thread.sleep(latency, (d % 1000).toInt)
 
-      //if (java.util.concurrent.ThreadLocalRandom.current.nextDouble > 0.92)
-      println(s"${Thread.currentThread.getName} $name got:$msg  Degrade:$latency")
+      if (java.util.concurrent.ThreadLocalRandom.current.nextDouble > 0.9995 /*&& !name.contains("7_1-3")*/ ) {
+        println(s"${Thread.currentThread.getName} Boom $name !!!!!")
+        //throw new Exception("Boom !!!")
+        //sender() ! DegradingBlockingActor.StreamFailure(new Exception("Boom !!!"))
+        context stop self
+      }
+
+      if (java.util.concurrent.ThreadLocalRandom.current.nextDouble > 0.99)
+        println(s"${Thread.currentThread.getName} $name got:$msg Degrade:$latency")
 
       send(s"$name:1|c")
       sender() ! DegradingBlockingActor.Ack
@@ -1831,9 +1854,12 @@ class DegradingBlockingActor private (val name: String, val address: InetSocketA
     case DegradingBlockingActor.OnCompleted ⇒
       context stop self
     case DegradingBlockingActor.StreamFailure(ex) ⇒
+      context stop self
       println("Stream has been completed: " + ex.getMessage)
     case other ⇒
-      throw new Exception("Unexpected msg" + other)
+      println("Unexpected msg: " + other)
+      sender() ! DegradingBlockingActor.StreamFailure(new Exception("Unexpected message: " + other))
+      context stop self
   }
 
   override def receive: Receive = awaitInitialization

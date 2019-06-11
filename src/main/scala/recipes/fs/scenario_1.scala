@@ -20,13 +20,41 @@ import scala.concurrent.ExecutionContext
     This leads to blocking "enqueue" operation for the source in case no space in the queue.
     Result: The source's rate is going to decrease proportionally to the sink's rate.
 
+https://fs2.io/concurrency-primitives.html
+https://www.beyondthelines.net/programming/streaming-patterns-with-fs2/
+
 */
 object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
 
-  //  https://fs2.io/concurrency-primitives.html
-
   implicit val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(5, FsDaemons("scenario01")))
   implicit val cs: ContextShift[IO] = IO.contextShift(ec)
+
+  /*
+    fs2.Stream.emits(1 to 10000)
+      .chunkN(10)
+      .covary[IO]
+      .parEvalMap(10)(writeToDB[IO])
+      .compile
+      .drain
+      .unsafeRunSync
+  */
+  def writeToDB[F[_]: Async](chunk: Chunk[Int]): F[Unit] =
+    Async[F].async { cb ⇒
+      println(s"Writing batch of $chunk to database by ${Thread.currentThread.getName}")
+      cb(Right(()))
+    }
+
+  //type Pipe[F[_], -I, +O] = Stream[F, I] => Stream[F, O]
+  def pipe2Graphite[F[_]: Sync, T](monitoring: GraphiteMetrics, message: String): Pipe[F, T, T] /*Stream[F, T] => Stream[F, T]*/ =
+    _.evalTap { _ ⇒
+      Sync[F].delay(send(monitoring, message))
+      //Sync[F].delay(println(s"Stage $name processing $i by ${Thread.currentThread.getName}"))
+    }
+
+  def pipe2GraphitePar[F[_]: Sync: LiftIO, T](monitoring: GraphiteMetrics, message: String): Stream[F, T] ⇒ Stream[F, T] =
+    _.evalTap { _ ⇒
+      (IO.shift *> IO(send(monitoring, message))).runAsync(_ ⇒ IO.unit).to[F]
+    }
 
   def stop[T](in: Stream[IO, T]): Stream[IO, T] = {
     val signal: Stream[IO, Boolean] = Signal.constant[IO, Boolean](false).discrete

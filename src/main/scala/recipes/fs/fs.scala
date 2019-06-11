@@ -39,7 +39,6 @@ package object fs {
     }
   }
 
-
   /*
     The use case for `broadcastN` method is as follows:
       You have a queue of incoming payloads, each payload needs to be processed using some user provided function.
@@ -101,7 +100,7 @@ package object fs {
             }).parJoin(parallelism.toInt).drain
 
         val balancedSrc: Stream[IO, Unit] = source.mapAccumulate(-1l)((seqNum, elem) ⇒ (seqNum + 1l, elem))
-          .evalMap { case (seqNum, elem) ⇒ qs(seqNum % parallelism).enqueue1(Some(elem)) } ++
+          .evalMap { case (seqNum, elem) ⇒ qs((seqNum % parallelism).toInt).enqueue1(Some(elem)) } ++
           Stream.emits(qs).evalMap(_.enqueue1(None))
           .onComplete(Stream.eval(IO(println(" ★ ★ ★  Source is done   ★ ★ ★ "))))
 

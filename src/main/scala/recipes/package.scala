@@ -14,7 +14,7 @@ package object recipes {
       implicitly[Numeric[A]].plus(l.numerator, r.numerator),
       l.denominator + r.denominator)
   }
-  
+
   object CustomMonoids {
     import Ordering.Implicits._
 
@@ -51,8 +51,6 @@ package object recipes {
       override def combine(x: Boolean, y: Boolean) = x || y
     }
   }
-
-
 
   trait SourceType[T] {
     def apply(v: T): Double
