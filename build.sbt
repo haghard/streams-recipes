@@ -38,7 +38,7 @@ resolvers ++= Seq(
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.5.22"
+val akkaStreamV = "2.5.23"
 val scalazVersion = "7.2.20"
 val ZIOVersion  = "0.6.3"
 
@@ -61,8 +61,8 @@ libraryDependencies ++= Seq(
 
   //"io.monix"          %% "monix"             % "2.1.2",
 
-  "co.fs2"            %% "fs2-core"          %  "1.0.5", //"0.10.5",
-  "co.fs2"            %% "fs2-io"            %  "1.0.5", //"0.10.5",
+  "co.fs2"            %% "fs2-core"          %  "1.1.0-M1", //"0.10.5",
+  "co.fs2"            %% "fs2-io"            %  "1.1.0-M1", //"0.10.5",
 
   //"com.spinoco"       %% "fs2-zk"            % "0.1.6",
   //"com.spinoco"       %% "fs2-cassandra"     % "0.2.1",
