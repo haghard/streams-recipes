@@ -28,6 +28,7 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
 
   implicit val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(5, FsDaemons("scenario01")))
   implicit val cs: ContextShift[IO] = IO.contextShift(ec)
+  implicit val t = cats.effect.IO.timer(ec)
 
   /*
     fs2.Stream.emits(1 to 10000)
@@ -43,6 +44,53 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
       println(s"Writing batch of $chunk to database by ${Thread.currentThread.getName}")
       cb(Right(()))
     }
+
+  def evalAsync[F[_]: Async, T: cats.Monoid](chunk: Chunk[Long]): F[Long] =
+    Async[F].async { cb ⇒
+      val r = chunk.foldLeft(cats.Monoid[Long].empty)(_ |+| _)
+      Thread.sleep(500)
+      println(Thread.currentThread.getName + " > " + r)
+      cb(Right(r))
+    }
+
+  def pipeAsync[F[_]: Sync: LiftIO]: Stream[F, Long] ⇒ Stream[F, Long] =
+    _.evalTap { i ⇒
+      (IO.shift *> IO.sleep(100.millis) *> IO(i))
+        .runAsync({ in ⇒
+          in match {
+            case Left(e) ⇒
+              IO.raiseError(e)
+            case Right(r) ⇒
+              IO(println(s"processing by ${Thread.currentThread.getName}")) *> IO(r)
+          }
+        }).to[F]
+      //.runAsync(_ ⇒ IO.unit).to[F]
+    }
+
+  Stream.emits(1l to 100l).covary[IO].chunkN(10, true).parEvalMap(4)(evalAsync[IO, Long]).compile.foldMonoid(cats.Monoid[Long]).unsafeRunAsync(r=> println("" + r))
+
+  Stream.emits(1l to 100l).covary[IO].chunkN(10, true).parEvalMap(4)(evalAsync[IO, Long]).compile.drain.unsafeRunAsync(_ => ())
+
+  //fs2.Stream.emits(1l to 100l).covary[IO].through(pipeAsync[IO]).compile.drain.unsafeRunSync
+
+  //fs2.Stream.emits(1l to 100l).through(sumEvery(10)).covary[IO].compile.foldMonoid(cats.Monoid[Long]).unsafeRunSync()
+  //fs2.Stream.emits(1l to 100l).through(sumEvery(10)).covary[IO].compile.drain.unsafeRunSync()
+  //fs2.Stream.emits(1l to 100l).through(sumEvery(10)).covary[IO].compile.toList.unsafeRunSync()
+
+  def sumEvery[F[_], T: cats.Monoid](batchSize: Int): Pipe[F, T, T] = { in ⇒
+    def go(s: Stream[F, T]): Pull[F, T, Unit] = {
+      s.pull.unconsN(batchSize, true).flatMap {
+        case Some((chunk, tailStr)) ⇒
+          val chunkResult: T = chunk.foldLeft(cats.Monoid[T].empty)(_ |+| _)
+          println(chunkResult)
+          //Sync[F].delay(println(chunkResult)) *>
+          Pull.output1(chunkResult) >> go(tailStr)
+        case None ⇒
+          Pull.done
+      }
+    }
+    go(in).stream
+  }
 
   //type Pipe[F[_], -I, +O] = Stream[F, I] => Stream[F, O]
   def pipe2Graphite[F[_]: Sync, T](monitoring: GraphiteMetrics, message: String): Pipe[F, T, T] /*Stream[F, T] => Stream[F, T]*/ =
