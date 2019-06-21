@@ -14,7 +14,7 @@ object DDDRecipes extends App {
   import ddd.account._
   import ddd.impl.AccountService._
   import ddd.impl.ReportingService._
-  import ddd.impl.ReportingStreamingService.{ balances ⇒ pBalances }
+  import ddd.impl.ReportingStreamingService.{balances ⇒ pBalances}
 
   val Account1 = "3445684569463567"
   val Account2 = "3463568456374573"
@@ -22,12 +22,7 @@ object DDDRecipes extends App {
   def openBoth: Kleisli[scalaz.concurrent.Task, AccountRepo, ddd.Valid[(Balance, Balance)]] =
     for {
       a0 ← open(Account1, "Alan Turing", None, None, Checking)
-      a1 ← open(
-        Account2,
-        "Nikola Tesla",
-        BigDecimal(456.9).some,
-        None,
-        Savings)
+      a1 ← open(Account2, "Nikola Tesla", BigDecimal(456.9).some, None, Savings)
     } yield (a0 |@| a1) { (a, b) ⇒
       (a.balance, b.balance)
     }
@@ -50,7 +45,7 @@ object DDDRecipes extends App {
 
     override def store(a: Account): ValidationNel[String, Account] = {
       println(Thread.currentThread().getName + ": store")
-      repo += (a.no -> a)
+      repo += (a.no → a)
       a.success
     }
 
@@ -68,7 +63,7 @@ object DDDRecipes extends App {
   object AccountRepositoryFromMap extends AccountRepositoryInMemory
 
   val program = for {
-    _ ← openBoth
+    _        ← openBoth
     accounts ← creditBoth
 
     //balance1 ← balance(Account1)

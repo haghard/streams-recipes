@@ -1,14 +1,5 @@
 import SbtPrompt.autoImport._
 
-import scalariform.formatter.preferences._
-
-scalariformPreferences := scalariformPreferences.value
-    .setPreference(RewriteArrowSymbols, true)
-    .setPreference(AlignParameters, true)
-    .setPreference(AlignSingleLineCaseStatements, true)
-    //.setPreference(DoubleIndentConstructorArguments, true)
-    //.setPreference(DanglingCloseParenthesis, Preserve)
-
 name := "stream-recipes"
 
 version := "0.1"
@@ -42,6 +33,8 @@ val akkaStreamV = "2.5.23"
 val scalazVersion = "7.2.20"
 val ZIOVersion  = "0.6.3"
 
+scalafmtOnCompile := true
+
 //val Origami = "1.0-20150902134048-8d00462"
 
 libraryDependencies ++= Seq(
@@ -57,10 +50,6 @@ libraryDependencies ++= Seq(
   //"org.http4s"        %% "jawn-fs2"     % "0.9.0",
   //"org.http4s"        %%  "jawn-fs2"      % "0.10.1"
 
-  //"com.mfglabs"       %% "akka-stream-extensions-shapeless" % "0.10.0",
-
-  //"io.monix"          %% "monix"             % "2.1.2",
-
   "co.fs2"            %% "fs2-core"          %  "1.1.0-M1", //"0.10.5",
   "co.fs2"            %% "fs2-io"            %  "1.1.0-M1", //"0.10.5",
 
@@ -70,6 +59,9 @@ libraryDependencies ++= Seq(
   //Users/haghard/.ivy2/local/default/fs2-cache_2.11/1.0/jars/fs2-cache_2.11.jar
 
   "com.typesafe.akka" %% "akka-stream" % akkaStreamV,
+  "com.typesafe.akka" %% "akka-stream-typed" % akkaStreamV,
+  //"com.typesafe.akka" %% "akka-actor-typed" % akkaStreamV,
+
   ("org.squbs" %% "squbs-pattern" %  "0.12.0").excludeAll("com.typesafe.akka"),
   "net.openhft" % "chronicle-queue" % "4.16.5",
 
@@ -107,7 +99,7 @@ libraryDependencies ++= Seq(
   "org.apache.commons" % "commons-collections4" % "4.0",
 
   // li haoyi ammonite repl embed
-  ("com.lihaoyi" % "ammonite" % "1.6.7" % "test").cross(CrossVersion.full)
+  ("com.lihaoyi" % "ammonite" % "1.6.8" % "test").cross(CrossVersion.full)
 )
 
 //test:run

@@ -28,27 +28,27 @@ import scala.concurrent.duration._
 object Retries {
 
   /**
-   * Returns a stream that evaluates the specified task once and then for each unit that appears in the `changes` stream. If any task evaluation
-   * fails with an exception, the task is retried according to the specified `retryDelay` schedule until it succeeds or a value from the `changes`
-   * stream appears.
-   *
-   * @param task       task to evaluate
-   * @param changes    stream that signals the task should be evaluated again (or if currently retrying, the retry delay should be reset)
-   * @param retryDelay function which determines how long to wait before retrying the task after the specified evaluation attempt number
-   */
+ * Returns a stream that evaluates the specified task once and then for each unit that appears in the `changes` stream. If any task evaluation
+ * fails with an exception, the task is retried according to the specified `retryDelay` schedule until it succeeds or a value from the `changes`
+ * stream appears.
+ *
+ * @param task       task to evaluate
+ * @param changes    stream that signals the task should be evaluated again (or if currently retrying, the retry delay should be reset)
+ * @param retryDelay function which determines how long to wait before retrying the task after the specified evaluation attempt number
+ */
   def retryTaskOnFailureAndChange[A](task: Task[A], changes: Stream[Task, Unit], retryDelay: Int ⇒ FiniteDuration)(implicit strategy: Strategy, scheduler: Scheduler): Stream[Task, Either[Throwable, A]] = {
     val firstAndChanges: Stream[Task, Task[A]] = (Stream.emit(()) ++ changes).map(_ ⇒ task)
     retryTasksOnFailure(firstAndChanges, retryDelay)
   }
 
   /**
-   * Returns a stream that evaluates the specified stream of tasks. Each task is evaluated at least once. If evaluation of a task fails, and
-   * the next task is not yet available from the `tasks` stream, then the failed task is retried according to the retry schedule specified by
-   * the `retryDelay` function.
-   *
-   * @param tasks      tasks to evaluate
-   * @param retryDelay function which determines how long to wait before retrying the task after the specified evaluation attempt number
-   */
+ * Returns a stream that evaluates the specified stream of tasks. Each task is evaluated at least once. If evaluation of a task fails, and
+ * the next task is not yet available from the `tasks` stream, then the failed task is retried according to the retry schedule specified by
+ * the `retryDelay` function.
+ *
+ * @param tasks      tasks to evaluate
+ * @param retryDelay function which determines how long to wait before retrying the task after the specified evaluation attempt number
+ */
   def retryTasksOnFailure[A](tasks: Stream[Task, Task[A]], retryDelay: Int ⇒ FiniteDuration)(implicit strategy: Strategy, scheduler: Scheduler): Stream[Task, Either[Throwable, A]] = {
     Stream.eval(async.synchronousQueue[Task, Unit]).flatMap { clockTicksQueue ⇒
       (clockTicksQueue.dequeue either tasks.through(signalize)).through(retryOnFailureAndChangePipe(retryDelay, clockTicksQueue.enqueue1(())))
@@ -103,4 +103,4 @@ object Retries {
     }
   }
 }
-*/ 
+ */

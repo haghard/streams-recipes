@@ -18,8 +18,8 @@ object InterThreadAtomicLatency {
   }
 
   def benchmark() {
-    val flag = new AtomicBoolean()
-    val histogram = new Histogram(3)
+    val flag       = new AtomicBoolean()
+    val histogram  = new Histogram(3)
     val pingThread = new Thread(new BusySpinCasPingRunner(flag, histogram))
     val pongThread = new Thread(new BusySpinCasPongRunner(flag))
 
@@ -31,9 +31,8 @@ object InterThreadAtomicLatency {
     histogram.outputPercentileDistribution(System.out, 1000.0)
   }
 
-  class BusySpinCasPingRunner(flag: AtomicBoolean, histogram: Histogram)
-    extends Runnable {
-    @tailrec final def loop(i: Int, start: Long): Unit = {
+  class BusySpinCasPingRunner(flag: AtomicBoolean, histogram: Histogram) extends Runnable {
+    @tailrec final def loop(i: Int, start: Long): Unit =
       if (i > 0) {
         while (!flag.compareAndSet(false, true)) {
           //busy spin
@@ -41,20 +40,18 @@ object InterThreadAtomicLatency {
         histogram.recordValue(System.nanoTime() - start)
         loop(i - 1, System.nanoTime)
       }
-    }
 
     override def run() = loop(iterations, System.nanoTime())
   }
 
   class BusySpinCasPongRunner(flag: AtomicBoolean) extends Runnable {
-    @tailrec final def loop(i: Int): Unit = {
+    @tailrec final def loop(i: Int): Unit =
       if (i > 0) {
         while (!flag.compareAndSet(true, false)) {
           // busy spin
         }
         loop(i - 1)
       }
-    }
 
     override def run() = loop(iterations)
   }

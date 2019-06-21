@@ -80,4 +80,4 @@ object ServiceRegistry extends App {
     .unsafeTimed(20.seconds)
     .unsafeRun
 }
-*/
+ */

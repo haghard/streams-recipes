@@ -15,8 +15,8 @@ object ConditionVariablesPingPong {
   val pingCondition = pingLock.newCondition()
   val pongCondition = pongLock.newCondition()
 
-  var pingValue = -1l
-  var pongValue = -1l
+  var pingValue = -1L
+  var pongValue = -1L
 
   def main(args: Array[String]) = {
     var i = 5
@@ -27,7 +27,7 @@ object ConditionVariablesPingPong {
   }
 
   def benchmark() {
-    val histogram = new Histogram(3)
+    val histogram  = new Histogram(3)
     val pingThread = new Thread(new PingRunner(histogram))
     val pongThread = new Thread(new PongRunner())
 
@@ -42,7 +42,7 @@ object ConditionVariablesPingPong {
   }
 
   class PingRunner(histogram: Histogram) extends Runnable {
-    @tailrec final def loop(i: Int, start: Long): Unit = {
+    @tailrec final def loop(i: Int, start: Long): Unit =
       if (i <= iterations) {
         try {
           pingLock.lock()
@@ -66,12 +66,11 @@ object ConditionVariablesPingPong {
         histogram.recordValue(System.nanoTime() - start)
         loop(i + 1, System.nanoTime())
       } else ()
-    }
     override def run() = loop(0, System.nanoTime())
   }
 
   class PongRunner extends Runnable {
-    @tailrec final def loop(i: Int): Unit = {
+    @tailrec final def loop(i: Int): Unit =
       if (i <= iterations) {
         try {
           pingLock.lock()
@@ -93,7 +92,6 @@ object ConditionVariablesPingPong {
         }
         loop(i + 1)
       } else ()
-    }
 
     override def run() = loop(0)
   }

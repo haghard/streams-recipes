@@ -13,6 +13,7 @@ Run grafana + graphite docker image
 
 ### Useful links ###
 
+http://allaboutscala.com/scala-frameworks/akka/
 http://blog.akka.io/streams/2016/07/30/mastering-graph-stage-part-1
 
 ### How to set up grafana_graphite ### 

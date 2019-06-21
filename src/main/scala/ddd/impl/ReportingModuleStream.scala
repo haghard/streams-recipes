@@ -13,25 +13,23 @@ object ReportingModuleStream {
 }
 
 //trait ReportingModuleStream extends ReportingModule[({ type λ[x] = scalaz.stream.Process[scalaz.concurrent.Task, x] })#λ] {
-trait ReportingModuleStream
-  extends ReportingModule[ReportingModuleStream.PTask] {
+trait ReportingModuleStream extends ReportingModule[ReportingModuleStream.PTask] {
   mixin: { def executor: java.util.concurrent.ExecutorService } ⇒
 
   override type T = (String, ddd.Amount)
 
   override def balances: ReportOperation[Seq[T]] =
     scalaz.Kleisli
-      .kleisli[ReportingModuleStream.PTask, AccountRepo, ddd.Valid[Seq[T]]] {
-        repo: AccountRepo ⇒
-          scalaz.stream.Process.eval {
-            scalaz.concurrent.Task {
-              repo.all.fold({ error ⇒
-                error.toString().failureNel
-              }, { as: Seq[ddd.account.Account] ⇒
-                as.map(a ⇒ (a.no, a.balance.amount)).success
-              })
-            }(executor)
-          }
+      .kleisli[ReportingModuleStream.PTask, AccountRepo, ddd.Valid[Seq[T]]] { repo: AccountRepo ⇒
+        scalaz.stream.Process.eval {
+          scalaz.concurrent.Task {
+            repo.all.fold({ error ⇒
+              error.toString().failureNel
+            }, { as: Seq[ddd.account.Account] ⇒
+              as.map(a ⇒ (a.no, a.balance.amount)).success
+            })
+          }(executor)
+        }
       }
 }
 

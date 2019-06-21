@@ -21,7 +21,7 @@ object InterThreadVolatileLatency {
   def testRun(): Unit = {
     ping = -1
     pong = -1
-    val histogram = new Histogram(3)
+    val histogram  = new Histogram(3)
     val pongThread = new Thread(new PongRunner())
     val pingThread = new Thread(new PingRunner(histogram))
     pongThread.start()
@@ -34,7 +34,7 @@ object InterThreadVolatileLatency {
   }
 
   class PingRunner(histogram: Histogram) extends Runnable {
-    @tailrec final def loop(i: Int, start: Long): Unit = {
+    @tailrec final def loop(i: Int, start: Long): Unit =
       if (i <= iterations) {
         ping = i
         while (i != pong) {
@@ -43,13 +43,12 @@ object InterThreadVolatileLatency {
         histogram.recordValue(System.nanoTime() - start)
         loop(i + 1, System.nanoTime())
       }
-    }
 
     override def run() = loop(0, System.nanoTime())
   }
 
   class PongRunner extends Runnable {
-    @tailrec final def loop(i: Int): Unit = {
+    @tailrec final def loop(i: Int): Unit =
       if (i <= iterations) {
         while (i != ping) {
           // busy spin
@@ -57,7 +56,6 @@ object InterThreadVolatileLatency {
         pong = i
         loop(i + 1)
       }
-    }
 
     override def run() = loop(0)
   }
