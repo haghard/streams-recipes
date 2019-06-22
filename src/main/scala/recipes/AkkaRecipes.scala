@@ -8,7 +8,8 @@ import java.util.concurrent.atomic.AtomicInteger
 
 import akka.NotUsed
 import akka.actor._
-import akka.actor.typed.PreRestart
+import akka.actor.typed.{Behavior, PreRestart}
+import akka.actor.typed.scaladsl.Behaviors
 import akka.routing.ConsistentHashingRouter.ConsistentHashMapping
 import akka.stream._
 import akka.stream.actor.ActorPublisherMessage.{Cancel, Request}
@@ -16,7 +17,7 @@ import akka.stream.actor.ActorSubscriberMessage.{OnComplete, OnError, OnNext}
 import akka.stream.actor._
 import akka.stream.scaladsl._
 import akka.stream.stage._
-import akka.stream.typed.scaladsl.ActorSink
+import akka.stream.typed.scaladsl.{ActorSink, ActorSource}
 import akka.util.ByteString
 import com.esri.core.geometry.Point
 import com.typesafe.config.ConfigFactory
@@ -25,7 +26,7 @@ import recipes.BalancerRouter._
 import recipes.BatchProducer.Item
 import recipes.ConsistentHashingRouter.{CHWork, DBObject2}
 import recipes.CustomStages.{DisjunctionStage, InternalBufferStage, SimpleRingBuffer}
-import recipes.DegradingTypedActorSink.{IntValue, RecoverableSinkFailure, TypedProtocol}
+import recipes.DegradingTypedActorSink.{IntValue, Protocol, RecoverableSinkFailure}
 import recipes.Sinks.{DegradingGraphiteSink, GraphiteSink, GraphiteSink3}
 
 import scala.collection.{immutable, mutable}
@@ -117,7 +118,11 @@ object AkkaRecipes extends App {
   implicit val ec       = mat.executionContext
 
   //scenario7_1(mat)
-  scenario7_2(mat)
+  //scenario7_2(mat)
+
+  //typeAsk.runWith(Sink.ignore)(mat).onComplete(_ ⇒ println("done"))
+
+  typeActorSrc(mat)
 
   /**
     * Tumbling windows discretize a stream into non-overlapping windows
@@ -504,18 +509,113 @@ object AkkaRecipes extends App {
     attachNSources(sinkHub, 1)
   }
 
+  /*def aboveAverage: Flow[Double, Double, ] =
+    Flow[Double].statefulMapConcat { () ⇒
+      var sum = 0
+      var n   = 0
+      rating ⇒ {
+        sum += rating
+        n += 1
+        val average = sum / n
+        if (rating >= average) rating :: Nil
+        else Nil
+      }
+    }*/
+
+  case class Persisted(num: Long)
+  case class PersistElement(num: Long, srcSender: akka.actor.typed.ActorRef[Persisted])
+
+  def typeAsk: Source[Persisted, akka.NotUsed] = {
+    import akka.actor.typed.scaladsl.adapter._
+    import akka.actor.typed.scaladsl.Behaviors
+
+    implicit val t = akka.util.Timeout(1.second)
+
+    val dbRef: akka.actor.typed.ActorRef[PersistElement] =
+      sys.spawn(
+        Behaviors.receiveMessage[PersistElement] {
+          case PersistElement(num, srcSender) ⇒
+            println(num)
+            Thread.sleep(500) //write operation
+            //confirm the element
+            srcSender.tell(Persisted(num))
+            Behaviors.same
+        },
+        "actor-in-the-middle"
+      )
+
+    Source
+      .repeat(42L)
+      .via(
+        akka.stream.typed.scaladsl.ActorFlow.ask[Long, PersistElement, Persisted](dbRef)(
+          (elem: Long, srcSender: akka.actor.typed.ActorRef[Persisted]) ⇒ PersistElement(elem, srcSender)
+        )
+      )
+      .take(100)
+  }
+
+  def typeActorSrc(implicit mat: Materializer) = {
+    import akka.actor.typed.scaladsl.adapter._
+
+    val ackTo: akka.actor.typed.ActorRef[DegradingTypedActorSource.Confirm] =
+      sys.spawn(
+        Behaviors.setup[DegradingTypedActorSource.Confirm] { ctx ⇒
+          def awaitConfirmation(
+            i: Int,
+            ref: akka.actor.typed.ActorRef[DegradingTypedActorSource.TypedSrcProtocol]
+          ): Behavior[DegradingTypedActorSource.Confirm] =
+            Behaviors.receiveMessage[DegradingTypedActorSource.Confirm] {
+              case DegradingTypedActorSource.Confirm ⇒
+                println("Confirm: " + i)
+                Thread.sleep(1000)
+                val next = i + 1
+                ref.tell(DegradingTypedActorSource.IntValue(next))
+                awaitConfirmation(next, ref)
+            }
+
+          Behaviors.receiveMessage[DegradingTypedActorSource.Confirm] {
+            case DegradingTypedActorSource.Connect(src) ⇒
+              src.tell(DegradingTypedActorSource.IntValue(0))
+              awaitConfirmation(0, src)
+          }
+
+        },
+        "src-actor"
+      )
+
+    val actorSrc: akka.actor.typed.ActorRef[DegradingTypedActorSource.TypedSrcProtocol] =
+      ActorSource
+        .actorRefWithAck[DegradingTypedActorSource.TypedSrcProtocol, DegradingTypedActorSource.Confirm](
+          ackTo,
+          DegradingTypedActorSource.Confirm,
+          { case DegradingTypedActorSource.Completed         ⇒ CompletionStrategy.immediately },
+          { case DegradingTypedActorSource.StreamFailure(ex) ⇒ ex }
+        )
+        .to(Sink.foreach[DegradingTypedActorSource.TypedSrcProtocol](m ⇒ println("out: " + m)))
+        .run()
+
+    ackTo.tell(DegradingTypedActorSource.Connect(actorSrc))
+  }
+
   def scenario7_2(mat: Materializer): Unit = {
     implicit val ec       = mat.executionContext
     val numOfMsgPerSource = 3000
 
-    def typedActorBasedSink(n: Int): Sink[TypedProtocol, NotUsed] = {
+    //RestartFlow.withBackoff(1.second, 2.second, 0.3)
+
+    //ActorSource without bp
+
+    def typedActorBasedSink(n: Int): Sink[Int, NotUsed] = {
       import akka.actor.typed.scaladsl.adapter._
       import akka.actor.typed.scaladsl.Behaviors
-      val name     = s"akka-sink-7_1-$n"
-      val actorRef = DegradingTypedActorSink(name, GraphiteMetrics(ms), 10, 0)
+      val name = s"akka-sink-7_1-$n"
+
+      //val actorRef = DegradingTypedActorSink(name, GraphiteMetrics(ms), 10, 0)
 
       //https://doc.akka.io/docs/akka/current/typed/fault-tolerance.html#supervision
       //
+
+      /*
       val behaviorWithSpv =
         Behaviors
           .supervise(
@@ -524,10 +624,21 @@ object AkkaRecipes extends App {
           .onFailure[Throwable](akka.actor.typed.SupervisorStrategy.stop)
 
       //this method doesn't support bp so we use a rate limiting stage in front this sink, namely MergeHub.source[TypedProtocol](bufferSize)
-      ActorSink.actorRef[TypedProtocol](
+
+      ActorSink.actorRef[DegradingTypedActorSink.Protocol](
         sys.spawn(behaviorWithSpv, name, akka.actor.typed.DispatcherSelector.fromConfig(FixedDispatcher)),
         DegradingTypedActorSink.OnCompleted,
         DegradingTypedActorSink.StreamFailure(_)
+      )
+       */
+
+      ActorSink.actorRefWithAck[Int, DegradingTypedActorSinkPb.AckProtocol, DegradingTypedActorSinkPb.Ack](
+        sys.spawn(DegradingTypedActorSinkPb(name, GraphiteMetrics(ms), 10, 0), name),
+        DegradingTypedActorSinkPb.Next(_, _),
+        DegradingTypedActorSinkPb.Init(_),
+        DegradingTypedActorSinkPb.Ack,
+        DegradingTypedActorSinkPb.Completed,
+        DegradingTypedActorSinkPb.Failed(_)
       )
     }
 
@@ -540,12 +651,11 @@ object AkkaRecipes extends App {
         onFailureMessage = DegradingActorSink.StreamFailure(_)
       )
 
-    def attachNSources(sink: Sink[TypedProtocol, NotUsed], i: Int, limit: Int = 5): Future[Unit] = {
+    def attachNSources(sink: Sink[Int, NotUsed], i: Int, limit: Int = 5): Future[Unit] = {
       val f = akka.pattern.after(5.second, sys.scheduler)(
         Future {
           val src =
             timedSource(ms, 0.millis, (i * 100).millis, (i * 10000) + numOfMsgPerSource, s"source_7_1-$i", i * 10000)
-              .map(IntValue(_))
 
           println("attached source:" + i)
           src.to(sink).run()(mat)
@@ -559,7 +669,7 @@ object AkkaRecipes extends App {
       f
     }
 
-    def attachNSinks(sourceH: Source[TypedProtocol, NotUsed], i: Int, limit: Int = 5): Future[Unit] = {
+    def attachNSinks(sourceH: Source[Int, NotUsed], i: Int, limit: Int = 5): Future[Unit] = {
       val f = akka.pattern.after(5.second, sys.scheduler)(Future {
         //println("attached sink:" + i)
         //actorBasedSink(i)
@@ -576,8 +686,8 @@ object AkkaRecipes extends App {
     val bufferSize = 1 << 6
     val (sinkHub, sourceHub) =
       MergeHub
-        .source[TypedProtocol](bufferSize)
-        .toMat(BroadcastHub.sink[TypedProtocol](bufferSize))(Keep.both)
+        .source[Int](bufferSize)
+        .toMat(BroadcastHub.sink[Int](bufferSize))(Keep.both)
         .run()(mat)
 
     /*
@@ -1911,22 +2021,104 @@ object DegradingActorSink {
       .withDispatcher("akka.blocking-dispatcher")
 }
 
+object DegradingTypedActorSource {
+
+  sealed trait Confirm
+  case object Confirm                                                                            extends Confirm
+  case class Connect(ref: akka.actor.typed.ActorRef[DegradingTypedActorSource.TypedSrcProtocol]) extends Confirm
+
+  sealed trait TypedSrcProtocol
+  case object Completed                   extends TypedSrcProtocol
+  case class StreamFailure(ex: Throwable) extends TypedSrcProtocol
+  case class IntValue(value: Int)         extends TypedSrcProtocol
+}
+
+object DegradingTypedActorSinkPb {
+
+  import akka.actor.typed.{Behavior, PostStop, Terminated}
+  import akka.actor.typed.scaladsl.Behaviors
+
+  sealed trait Ack
+
+  case object Ack extends Ack
+
+  sealed trait AckProtocol
+
+  case class Init(sender: akka.actor.typed.ActorRef[Ack]) extends AckProtocol
+
+  case class Next(sender: akka.actor.typed.ActorRef[Ack], m: Int) extends AckProtocol
+
+  case object Completed extends AckProtocol
+
+  case class Failed(ex: Throwable) extends AckProtocol
+
+  def apply(name: String, gr: GraphiteMetrics, delayPerMsg: Long, initialDelay: Long): Behavior[AckProtocol] =
+    Behaviors.receive[AckProtocol] {
+      case (ctx, _ @Init(sender)) ⇒
+        ctx.log.info(s"Init $name !!!")
+        sender ! Ack
+        go(name, gr, 0L, delayPerMsg, initialDelay)
+    }
+
+  private def go(
+    name: String,
+    gr: GraphiteMetrics,
+    delay: Long,
+    delayPerMsg: Long,
+    initialDelay: Long
+  ): Behavior[AckProtocol] =
+    Behaviors
+      .receive[AckProtocol] {
+        case (ctx, _ @Next(sender, v)) ⇒
+          val d       = delay + delayPerMsg
+          val latency = initialDelay + (d / 1000)
+          Thread.sleep(latency, (d % 1000).toInt)
+
+          if (java.util.concurrent.ThreadLocalRandom.current.nextDouble > 0.99)
+            ctx.log.info(s"$name got:${v} latency:$latency ms")
+
+          gr.send(s"$name:1|c")
+
+          sender ! Ack
+          go(name, gr, d, delayPerMsg, initialDelay)
+        case (ctx, _ @Failed(ex)) ⇒
+          ctx.log.error(ex, "Failed: ")
+          Behavior.stopped
+        case (ctx, Completed) ⇒
+          ctx.log.error(s"Completed $name !!!")
+          Behavior.stopped
+      }
+      .receiveSignal {
+        case (ctx, PreRestart) ⇒
+          ctx.log.error(s"PreRestart $name !!!!")
+          Behaviors.same
+        case (ctx, PostStop) ⇒
+          ctx.log.error("PostStop !!!!")
+          Behaviors.stopped
+        case (ctx, Terminated(actor)) ⇒
+          ctx.log.error(s"Terminated: $actor !!!!")
+          Behaviors.stopped
+        case (ctx, other) ⇒
+          ctx.log.error(s"Other signal: $other  !!!")
+          Behaviors.stopped
+      }
+}
+
 object DegradingTypedActorSink {
 
   import akka.actor.typed.{Behavior, PostStop, Terminated}
   import akka.actor.typed.scaladsl.Behaviors
 
-  sealed trait TypedProtocol
-  case object OnCompleted extends TypedProtocol
-  //case object Init extends TypedProtocol
-  //case object Ack extends TypedProtocol
-  case class StreamFailure(ex: Throwable) extends TypedProtocol
-  case class IntValue(value: Int)         extends TypedProtocol
+  sealed trait Protocol
 
+  case object OnCompleted extends Protocol
+
+  case class StreamFailure(ex: Throwable)             extends Protocol
+  case class IntValue(value: Int)                     extends Protocol
   case class RecoverableSinkFailure(cause: Throwable) extends Exception(cause) with NoStackTrace
 
-  def apply(name: String, gr: GraphiteMetrics, delayPerMsg: Long, initialDelay: Long): Behavior[TypedProtocol] =
-    Behaviors.setup[TypedProtocol] { ctx ⇒
+  def apply(name: String, gr: GraphiteMetrics, delayPerMsg: Long, initialDelay: Long): Behavior[Protocol] =
+    Behaviors.setup[Protocol] { ctx ⇒
       ctx.log.info(s"Start $name !!!")
       go(name, gr, 0L, delayPerMsg, initialDelay)
     }
@@ -1937,9 +2129,9 @@ object DegradingTypedActorSink {
     delay: Long,
     delayPerMsg: Long,
     initialDelay: Long
-  ): Behavior[TypedProtocol] =
+  ): Behavior[Protocol] =
     Behaviors
-      .receive[TypedProtocol] {
+      .receive[Protocol] {
         case (ctx, elem: IntValue) ⇒
           val d       = delay + delayPerMsg
           val latency = initialDelay + (d / 1000)

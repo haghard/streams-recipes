@@ -412,10 +412,7 @@ object CustomStages {
 
     How to use:
       Source.fromGraph(new ActorSource[ByteString](sourceRef) ...
-
       sourceRef ! message
-
-
    */
   final class ActorBasedSource[T: ClassTag](sourceFeeder: ActorRef) extends GraphStage[SourceShape[T]] {
     val out: Outlet[T]                 = Outlet("out")
