@@ -99,7 +99,7 @@ libraryDependencies ++= Seq(
   "org.apache.commons" % "commons-collections4" % "4.0",
 
   // li haoyi ammonite repl embed
-  ("com.lihaoyi" % "ammonite" % "1.6.8" % "test").cross(CrossVersion.full)
+  ("com.lihaoyi" % "ammonite" % "1.6.9" % "test").cross(CrossVersion.full)
 )
 
 //test:run
@@ -109,7 +109,7 @@ sourceGenerators in Test += Def.task {
   Seq(file)
 }.taskValue
 
-addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.4")
+addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.9")
 addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)
 
 //cancelable in Global := true

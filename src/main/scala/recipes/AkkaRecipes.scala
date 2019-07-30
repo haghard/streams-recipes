@@ -119,6 +119,7 @@ object AkkaRecipes extends App {
 
   //scenario7_1(mat)
   //scenario7_2(mat)
+  //scenario7_3(mat)
 
   //typeAsk.runWith(Sink.ignore)(mat).onComplete(_ ⇒ println("done"))
 
@@ -328,8 +329,10 @@ object AkkaRecipes extends App {
     *
     * Fast publisher and 3 sinks, The first is fast and the last two are degrading with different rates.
     * All sinks are getting messages through buffer with OverflowStrategy.dropTail strategy
+    * We want the first sink to be the primary sink (source of true, containing all elements)
+    * 2th and 3th sinks to be the best effort (some elements)
     *
-    * Result: Sink's rate and the fists sink rates stay the same.
+    * Result: Source and the fists sink operate at the same rate.
     * Degrading sinks rate goes down but doesn't affect the flow because of dropTail.
     */
   def scenario5: Graph[ClosedShape, akka.NotUsed] =
@@ -351,7 +354,7 @@ object AkkaRecipes extends App {
       )*/
 
       val bcast  = b.add(Broadcast[Int](3) /*.addAttributes(Attributes.asyncBoundary)*/ )
-      val buffer = Flow[Int].buffer(1 << 7, OverflowStrategy.dropTail)
+      val buffer = b.add(Flow[Int].buffer(1 << 7, OverflowStrategy.dropTail))
 
       source ~> bcast ~> fastSink
       bcast ~> buffer ~> degradingSink1
@@ -362,9 +365,7 @@ object AkkaRecipes extends App {
   /**
     * Fast source is connected with two sinks through balance stage.
     * We use Balance to achieve parallelism here.
-    * The first sink is fast and the second is degrading.
-    *
-    * Result: Sink's rate to sum approximately equals to source's rate.
+    * The first sink is fast whereas the second is degrading.
     */
   def scenario6: Graph[ClosedShape, akka.NotUsed] =
     GraphDSL.create() { implicit b ⇒
@@ -597,6 +598,7 @@ object AkkaRecipes extends App {
     ackTo.tell(DegradingTypedActorSource.Connect(actorSrc))
   }
 
+  //Many to Many(fan-in fan-out)
   def scenario7_2(mat: Materializer): Unit = {
     implicit val ec       = mat.executionContext
     val numOfMsgPerSource = 3000
@@ -608,7 +610,7 @@ object AkkaRecipes extends App {
     def typedActorBasedSink(n: Int): Sink[Int, NotUsed] = {
       import akka.actor.typed.scaladsl.adapter._
       import akka.actor.typed.scaladsl.Behaviors
-      val name = s"akka-sink-7_1-$n"
+      val name = s"akka-sink-7_2-$n"
 
       //val actorRef = DegradingTypedActorSink(name, GraphiteMetrics(ms), 10, 0)
 
@@ -644,7 +646,7 @@ object AkkaRecipes extends App {
 
     def actorBasedSink(n: Int): Sink[Int, NotUsed] =
       Sink.actorRefWithAck[Int](
-        sys.actorOf(DegradingActorSink.props(s"akka-sink-7_1-$n", ms, 10)),
+        sys.actorOf(DegradingActorSink.props(s"akka-sink-7_2-$n", ms, 10)),
         onInitMessage = DegradingActorSink.Init,
         ackMessage = DegradingActorSink.Ack,
         onCompleteMessage = DegradingActorSink.OnCompleted,
@@ -655,8 +657,7 @@ object AkkaRecipes extends App {
       val f = akka.pattern.after(5.second, sys.scheduler)(
         Future {
           val src =
-            timedSource(ms, 0.millis, (i * 100).millis, (i * 10000) + numOfMsgPerSource, s"source_7_1-$i", i * 10000)
-
+            timedSource(ms, 0.millis, (i * 100).millis, (i * 10000) + numOfMsgPerSource, s"source_7_2-$i", i * 10000)
           println("attached source:" + i)
           src.to(sink).run()(mat)
           ()
@@ -687,6 +688,7 @@ object AkkaRecipes extends App {
     val (sinkHub, sourceHub) =
       MergeHub
         .source[Int](bufferSize)
+        //.toMat(Sink.queue[Int]())(Keep.both)
         .toMat(BroadcastHub.sink[Int](bufferSize))(Keep.both)
         .run()(mat)
 
@@ -700,6 +702,53 @@ object AkkaRecipes extends App {
     //val gr = GraphiteMetrics(ms)
     attachNSources(sinkHub, 1, 3)
     attachNSinks(sourceHub, 1, 3)
+  }
+
+  //Many to  one
+  def scenario7_3(mat: Materializer): Unit = {
+    implicit val ec       = mat.executionContext
+    val numOfMsgPerSource = 500
+
+    val bufferSize = 1 << 6
+
+    //https://doc.akka.io/docs/akka/current/stream/stream-dynamic.html#using-the-mergehub
+
+    //If the consumer cannot keep up then all of the producers are backpressured.
+    val (sinkHub, queue) =
+      MergeHub
+        .source[Int](bufferSize)
+        .toMat(Sink.queue[Int].addAttributes(Attributes.inputBuffer(bufferSize, bufferSize)))(Keep.both)
+        .run()(mat)
+
+    def attachSources(sink: Sink[Int, NotUsed], i: Int, limit: Int = 5): Future[Unit] = {
+      val f = akka.pattern.after(3.second, sys.scheduler)(
+        Future {
+          val src =
+            timedSource(ms, 0.millis, (i * 100).millis, (i * 10000) + numOfMsgPerSource, s"source_7_3-$i", i * 10000)
+          println("attached source:" + i)
+          src.to(sink).run()(mat)
+          ()
+        }
+      )
+      f.onComplete { _ ⇒
+        if (i < limit) attachSources(sink, i + 1, limit)
+        else Future.successful(())
+      }
+      f
+    }
+
+    def drain(q: SinkQueueWithCancel[Int]): Future[Unit] =
+      q.pull.flatMap {
+        case Some(r) ⇒
+          println("sink_7_3 :" + r)
+          drain(q)
+        case None ⇒
+          Future.successful(())
+      }
+
+    attachSources(sinkHub, 1, 3)
+    drain(queue)
+    ()
   }
 
   /**
@@ -927,9 +976,10 @@ object AkkaRecipes extends App {
 
   //Detached flows with expand + conflate
   def scenario12: Graph[ClosedShape, akka.NotUsed] = {
-    val srcFast = timedSource(ms, 1 second, 200 milliseconds, Int.MaxValue, "akka-source12_1").conflate(_ + _)
-    val srcSlow =
-      timedSource(ms, 1 second, 1000 milliseconds, Int.MaxValue, "akka-source12_0").expand(Iterator.continually(_))
+    val srcFast = timedSource(ms, 1 second, 200 milliseconds, Int.MaxValue, "akka-source12_1")
+      .conflate(_ + _)
+    val srcSlow = timedSource(ms, 1 second, 1000 milliseconds, Int.MaxValue, "akka-source12_0")
+      .expand(Iterator.continually(_))
 
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._

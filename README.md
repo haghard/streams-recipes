@@ -15,6 +15,8 @@ Run grafana + graphite docker image
 
 http://allaboutscala.com/scala-frameworks/akka/
 http://blog.akka.io/streams/2016/07/30/mastering-graph-stage-part-1
+https://doc.akka.io/docs/akka/current/stream/stream-graphs.html#bidirectional-flows
+Rethinking Streaming Workloads with Akka Streams: Part II https://blog.colinbreck.com/rethinking-streaming-workloads-with-akka-streams-part-ii/
 
 ### How to set up grafana_graphite ### 
 
