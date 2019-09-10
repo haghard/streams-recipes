@@ -47,9 +47,9 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
       cb(Right(()))
     }
 
-  def evalAsync[F[_]: Async, T: cats.Monoid](chunk: Chunk[Long]): F[Long] =
+  def evalAsync[F[_]: Async, T: cats.Monoid](chunk: Chunk[T]): F[T] =
     Async[F].async { cb ⇒
-      val r = chunk.foldLeft(cats.Monoid[Long].empty)(_ |+| _)
+      val r = chunk.foldLeft(cats.Monoid[T].empty)(_ |+| _)
       Thread.sleep(500)
       println(Thread.currentThread.getName + " > " + r)
       cb(Right(r))
@@ -58,14 +58,12 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
   def pipeAsync[F[_]: Sync: LiftIO]: Stream[F, Long] ⇒ Stream[F, Long] =
     _.evalTap { i ⇒
       (IO.shift *> IO.sleep(100.millis) *> IO(i))
-        .runAsync({ in ⇒
-          in match {
-            case Left(e) ⇒
-              IO.raiseError(e)
-            case Right(r) ⇒
-              IO(println(s"processing by ${Thread.currentThread.getName}")) *> IO(r)
-          }
-        })
+        .runAsync {
+          case Left(e) ⇒
+            IO.raiseError(e)
+          case Right(r) ⇒
+            IO(println(s"[${Thread.currentThread.getName}]: $r"))
+        }
         .to[F]
     //.runAsync(_ ⇒ IO.unit).to[F]
     }
@@ -88,8 +86,7 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
     .drain
     .unsafeRunAsync(_ ⇒ ())
 
-  //fs2.Stream.emits(1l to 100l).covary[IO].through(pipeAsync[IO]).compile.drain.unsafeRunSync
-
+  //fs2.Stream.emits(1L to 100L).covary[IO].through(pipeAsync[IO]).compile.drain.unsafeRunSync
   //fs2.Stream.emits(1l to 100l).through(sumEvery(10)).covary[IO].compile.foldMonoid(cats.Monoid[Long]).unsafeRunSync()
   //fs2.Stream.emits(1l to 100l).through(sumEvery(10)).covary[IO].compile.drain.unsafeRunSync()
   //fs2.Stream.emits(1l to 100l).through(sumEvery(10)).covary[IO].compile.toList.unsafeRunSync()
