@@ -5,7 +5,6 @@ import shapeless.ops.traversable.ToSizedHList
 import util.Try
 import scala.reflect.ClassTag
 import java.util.concurrent.{ExecutorService, ThreadFactory}
-//import recipes.ScalazRecipes.RecipesDaemons
 
 package object cake {
   import scala.concurrent.Future
@@ -42,7 +41,7 @@ package object cake {
 
     def unsafeToScala[A](task: ZTask[A]): SFuture[A] = {
       val p = Promise[A]
-      task.unsafePerformAsync { _ fold (p failure _, p success _) }
+      task.runAsync { _ fold (p failure _, p success _) }
       p.future
     }
 
@@ -475,13 +474,14 @@ package object cake {
     import scalaz.concurrent.Future._
 
     implicit val IOPool = java.util.concurrent.Executors.newFixedThreadPool(3, CakeDaemons("v-tasks"))
-    implicit val M: Monoid[scalaz.concurrent.Future /*Task*/ [Or[Int]]] =
-      monoidOrPar[Int, scalaz.concurrent.Future /*Task*/ ]
+    implicit val M: Monoid[scalaz.concurrent.Future[Or[Int]]] =
+      monoidOrPar[Int, scalaz.concurrent.Future]
 
     //fail fast
     List(2, 2, 8, 16, 22, 68, 4, 5, 6, 7)
-      .foldMap(a ⇒ req[Int, scalaz.concurrent.Future /*Task*/ ](a))(M)
-      .unsafePerformAsync(_ ⇒ ())
+      .foldMap(a ⇒ req[Int, scalaz.concurrent.Future](a))(M)
+      .runAsync(_ ⇒ ())
+    //.unsafePerformAsync(_ ⇒ ())
     //.unsafePerformSyncAttempt
   }
 
@@ -501,7 +501,7 @@ package object cake {
     override implicit lazy val Executor: java.util.concurrent.ExecutorService =
       java.util.concurrent.Executors.newFixedThreadPool(3, CakeDaemons("tasks"))
 
-    override def ND = scalaz.Nondeterminism[Task]
+    override def ND: scalaz.Nondeterminism[Task] = scalaz.Nondeterminism[Task]
   }
 
   object ProgramWithFuture
@@ -583,7 +583,7 @@ package object cake {
     import java.util.concurrent.Executors
 
     override implicit lazy val Executor =
-      Executors.newFixedThreadPool(3, new CakeDaemons("tasks1"))
+      Executors.newFixedThreadPool(3, CakeDaemons("tasks1"))
 
     override lazy val ND = scalaz.Nondeterminism[scalaz.concurrent.Task]
 
@@ -628,8 +628,8 @@ package object cake {
       */
     def gatherS2 =
       for {
-        x ← (twitterApi batch "select page")
-        y ← (dbApi batch "select page")
+        x ← twitterApi batch "select page"
+        y ← dbApi batch "select page"
       } yield ((x |@| y) { case (a, b) ⇒ s"twitter:$a db:$b" })
 
     /**

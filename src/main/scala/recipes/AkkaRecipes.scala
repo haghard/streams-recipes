@@ -4,6 +4,7 @@ import java.io.{File, FileInputStream}
 import java.net.{InetAddress, InetSocketAddress}
 import java.nio.ByteBuffer
 import java.nio.channels.DatagramChannel
+import java.util.concurrent.ThreadLocalRandom
 import java.util.concurrent.atomic.AtomicInteger
 
 import akka.NotUsed
@@ -31,7 +32,6 @@ import recipes.Sinks.{DegradingGraphiteSink, GraphiteSink, GraphiteSink3}
 
 import scala.collection.{immutable, mutable}
 import scala.concurrent.duration.{Deadline, FiniteDuration, _}
-import scala.concurrent.forkjoin.ThreadLocalRandom
 import scala.concurrent.{ExecutionContext, Future}
 import scala.language.postfixOps
 import scala.reflect.ClassTag
@@ -1331,13 +1331,12 @@ object AkkaRecipes extends App {
     * This emits lines according to a time that is derived from the message itself.
     */
   def scenario18(): Graph[ClosedShape, akka.NotUsed] = {
-    val rnd = ThreadLocalRandom.current()
     val logEntries = Source.fromIterator(
       () ⇒
         Iterator.iterate(LogEntry(1000L, Thread.currentThread().getName)) { log ⇒
           println(log.message)
           //ts in logEntry grows monotonically
-          log.copy(ts = log.ts + rnd.nextLong(1000L, 3000L))
+          log.copy(ts = log.ts + ThreadLocalRandom.current.nextLong(1000L, 3000L))
         }
     )
 
@@ -1445,7 +1444,7 @@ object AkkaRecipes extends App {
       ClosedShape
     }
 
-  def scenario22(implicit sys: ActorSystem): Graph[ClosedShape, akka.NotUsed] = {
+  /*def scenario22(implicit sys: ActorSystem): Graph[ClosedShape, akka.NotUsed] = {
     implicit val serializer = org.squbs.pattern.stream.QueueSerializer[Int]()
     //val degradingSink = new DegradingGraphiteSink[org.squbs.pattern.stream.Event[Int]]("sink_22", 2l, ms)
 
@@ -1463,7 +1462,7 @@ object AkkaRecipes extends App {
       It works like the Akka Streams buffer with the difference that the content of the buffer is stored in a series of memory-mapped files
       in the directory given at construction of the PersistentBuffer. This allows the buffer size to be virtually limitless,
       not use the JVM heap for storage, and have extremely good performance in the range of a million messages/second at the same time.
-     */
+   */
 
     //IDEA: to use PersistentBuffer as a commit log
     val file    = new File("/Volumes/dev/github/streams-recipes/pqueue")
@@ -1486,7 +1485,7 @@ object AkkaRecipes extends App {
       .via(dbFlow.async("akka.blocking-dispatcher")) //AtLeastOnce so the writes should be idempotent
       .via(commit)
       .to(Sink.ignore)
-  }
+  }*/
 
   def scenario23(implicit sys: ActorSystem): Graph[ClosedShape, akka.NotUsed] = {
     val src     = timedSource(ms, 1 second, 15 milliseconds, Int.MaxValue, "akka-source_23")
@@ -2491,6 +2490,7 @@ object DelayFlow {
       }
 }
 
+/*
 object Deduplicator {
 
   case class EventEnvelope(sequenceNr: Long)
@@ -2511,7 +2511,7 @@ object Deduplicator {
             e: EventEnvelope ⇒
               // for each consumer key deduplicate the event and provide new threshold version
 
-              val deduplicated = lastVersions.view.force.mapValues { lastVersion ⇒
+              val deduplicated = lastVersions.view.mapValues { lastVersion ⇒
                 val isOriginal = e.sequenceNr > lastVersion
                 if (isOriginal) e.sequenceNr → Deduplicated(e, false)
                 else lastVersion             → Deduplicated(e, true)
@@ -2520,11 +2520,12 @@ object Deduplicator {
               lastVersions = deduplicated.mapValues(_._1)
               // pass deduplicated events further down the stream
               //return a List that shall be emitted
-              scala.collection.immutable.Iterable(deduplicated.view.force.mapValues(_._2))
+              scala.collection.immutable.Iterable(deduplicated.view.mapValues(_._2))
           }
         }
       )
 }
+ */
 
 class Duplicator[A] extends GraphStage[FlowShape[A, A]] {
   val in  = Inlet[A]("Duplicator.in")

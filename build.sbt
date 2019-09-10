@@ -4,7 +4,7 @@ name := "stream-recipes"
 
 version := "0.1"
 
-scalaVersion := "2.12.8"
+scalaVersion := "2.13.0"
 
 resolvers ++= Seq(
   Resolver.defaultLocal,
@@ -18,7 +18,7 @@ resolvers ++= Seq(
   "Local Maven Repository2" at "file:///Volumes/Data/dev_build_tools/apache-maven-3.1.1/repository",
   "Local Maven Repository3" at "file://" + Path.userHome.absolutePath + "/.m2/repository",
   "Scalaz Bintray Repo" at "https://dl.bintray.com/scalaz/releases",
-  "bintray/rossabaker" at "http:s//dl.bintray.com/rossabaker/maven",
+  "Rossabaker bintray" at "https://dl.bintray.com/rossabaker/maven",
   "Awesome Utilities" at "https://dl.bintray.com/davegurnell/maven",
   "Apache Staging" at "https://repository.apache.org/content/repositories/staging/",
   "oncue"             at "https://bintray.com/oncue/releases/quiver/",
@@ -30,8 +30,7 @@ resolvers ++= Seq(
 promptTheme := ScalapenosTheme
 
 val akkaStreamV = "2.5.25"
-val scalazVersion = "7.2.20"
-val ZIOVersion  = "0.6.3"
+val scalazVersion = "7.2.28"
 
 scalafmtOnCompile := true
 
@@ -44,8 +43,9 @@ libraryDependencies ++= Seq(
 
   "com.chuusai"       %% "shapeless"          % "2.3.3",
 
-  "org.http4s"        %% "jawn-streamz"   % "0.10.1", //"org.scalaz.stream" %% "scalaz-stream" %  "0.8.6"
-  "org.spire-math"    %% "jawn-spray"     % "0.11.0",
+  //"org.http4s"        %% "jawn-streamz"   % "0.10.1", //"org.scalaz.stream" %% "scalaz-stream" %  "0.8.6"
+  //"org.http4s"        %% "jawn-fs2"           % "0.14.2",
+  //"org.spire-math"    %% "jawn-spray"         % "0.14.2",
 
   //"org.http4s"        %% "jawn-fs2"     % "0.9.0",
   //"org.http4s"        %%  "jawn-fs2"      % "0.10.1"
@@ -62,12 +62,12 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-stream-typed" % akkaStreamV,
   //"com.typesafe.akka" %% "akka-actor-typed" % akkaStreamV,
 
-  ("org.squbs" %% "squbs-pattern" %  "0.12.0").excludeAll("com.typesafe.akka"),
+  //("org.squbs" %% "squbs-pattern" %  "0.12.0").excludeAll("com.typesafe.akka"),
   "net.openhft" % "chronicle-queue" % "4.16.5",
 
   "org.hdrhistogram"  %  "HdrHistogram"      % "2.1.10",
   "com.esri.geometry" %  "esri-geometry-api" % "1.2.1",
-  "io.spray"          %% "spray-json"        % "1.3.2",
+  "io.spray"          %% "spray-json"        % "1.3.5",
 
   //https://github.com/mikolak-net/travesty
   //"net.mikolak" %% "travesty" % s"0.9_$akkaStreamV",
@@ -109,7 +109,8 @@ sourceGenerators in Test += Def.task {
   Seq(file)
 }.taskValue
 
+ThisBuild / turbo := true
+
 addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.10.3")
-addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)
 
 //cancelable in Global := true

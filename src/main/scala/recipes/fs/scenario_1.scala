@@ -209,7 +209,7 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
       .onComplete(fs2.Stream.eval(IO(println(s"★ ★ ★  $sName completed ★ ★ ★"))))
   }
 
-  def flow2 = {
+  def flow2: Stream[IO, Unit] = {
     val window      = 5000L
     val sourceDelay = 50.millis
     val par         = 4
@@ -242,7 +242,7 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
   }
 
   //static number of workers
-  def oneToManyFlow =
+  def oneToManyFlow: Stream[IO, Unit] =
     (for {
       q ← Stream.eval(fs2.concurrent.Queue.bounded[IO, Option[Long]](1 << 3))
       src = Stream
@@ -290,7 +290,7 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
       }
 
   //Shouldn't lose messages here, as we  bufferSize == countdown(counter) + (delay == 200.millis) which is average latency
-  def flow3 = {
+  def flow3: Stream[IO, Unit] = {
     val bufferSize = 1 << 4
     (for {
       q           ← Stream.eval(fs2.concurrent.Queue.bounded[IO, Event](bufferSize))
@@ -312,7 +312,7 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
   }
 
   //we lose messages when stop  the sink
-  def flow4 =
+  def flow4: Stream[IO, Unit] =
     (for {
       q ← Stream.eval(fs2.concurrent.Queue.bounded[IO, Long](1 << 4))
 

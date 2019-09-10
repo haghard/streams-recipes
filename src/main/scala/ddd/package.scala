@@ -1,6 +1,7 @@
 package object ddd {
 
   import java.util.{Calendar, Date}
+  import scala.language.postfixOps
 
   import scalaz._
   import Scalaz._
@@ -101,7 +102,7 @@ package object ddd {
         }
 
       private def validateAccountAlreadyClosed(a: Account) =
-        if (a.dateOfClose isDefined)
+        if (a.dateOfClose.isDefined)
           s"Account ${a.no} is already closed".failureNel[Account]
         else a.success
 

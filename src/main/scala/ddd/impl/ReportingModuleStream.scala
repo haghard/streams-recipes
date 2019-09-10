@@ -2,14 +2,17 @@ package ddd.impl
 
 import scalaz._
 import Scalaz._
-
+import cats.effect.{ContextShift, IO}
 import ddd.repo.AccountRepo
 import ddd.services.ReportingModule
-import recipes.ScalazRecipes.RecipesDaemons
+
+import cats.effect._
+import cats.implicits._
 
 object ReportingModuleStream {
   //({ type λ[x] = scalaz.stream.Process[scalaz.concurrent.Task, x] })#λ
-  type PTask[X] = scalaz.stream.Process[scalaz.concurrent.Task, X]
+  //type PTask[X] = scalaz.stream.Process[scalaz.concurrent.Task, X]
+  type PTask[X] = fs2.Stream[cats.effect.IO, X] //scalaz.concurrent.Task
 }
 
 //trait ReportingModuleStream extends ReportingModule[({ type λ[x] = scalaz.stream.Process[scalaz.concurrent.Task, x] })#λ] {
@@ -18,22 +21,26 @@ trait ReportingModuleStream extends ReportingModule[ReportingModuleStream.PTask]
 
   override type T = (String, ddd.Amount)
 
+  //implicit val cs: ContextShift[IO] = IO.contextShift(executor)
+
   override def balances: ReportOperation[Seq[T]] =
     scalaz.Kleisli
       .kleisli[ReportingModuleStream.PTask, AccountRepo, ddd.Valid[Seq[T]]] { repo: AccountRepo ⇒
-        scalaz.stream.Process.eval {
-          scalaz.concurrent.Task {
+        fs2.Stream.eval {
+          //scalaz.concurrent.Task
+          //IO.shift *>
+          IO {
             repo.all.fold({ error ⇒
               error.toString().failureNel
             }, { as: Seq[ddd.account.Account] ⇒
               as.map(a ⇒ (a.no, a.balance.amount)).success
             })
-          }(executor)
+          } //(executor)
         }
       }
 }
 
 object ReportingStreamingService extends ReportingModuleTask {
   val executor = java.util.concurrent.Executors
-    .newFixedThreadPool(2, new DddDaemons("reporting-streams"))
+    .newFixedThreadPool(2, DddDaemons("reporting-streams"))
 }

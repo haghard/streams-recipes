@@ -78,7 +78,7 @@ object DDDRecipes extends App {
     c ← balances
   } yield c
 
-  val r = program(AccountRepositoryFromMap).unsafePerformSync
+  val r = program(AccountRepositoryFromMap).run
   r.foreach { seq ⇒
     seq.foreach { v: (String, Amount) ⇒
       println(s"${v._1}: ${v._2}")

@@ -3,7 +3,6 @@ package ddd.impl
 import ddd.account.Account
 import ddd.repo.AccountRepo
 import ddd.services.ReportingModule
-import recipes.ScalazRecipes.RecipesDaemons
 
 import scalaz._
 import Scalaz._
@@ -29,5 +28,5 @@ trait ReportingModuleTask extends ReportingModule[Task] {
 
 object ReportingService extends ReportingModuleTask {
   val executor = java.util.concurrent.Executors
-    .newFixedThreadPool(2, new DddDaemons("reporting"))
+    .newFixedThreadPool(2, DddDaemons("reporting"))
 }

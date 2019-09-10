@@ -430,8 +430,7 @@ object CustomStages {
           out,
           new OutHandler {
             override def onDownstreamFinish(): Unit = {
-              val result = buffer.result
-              if (result.nonEmpty) {
+              if (buffer.nonEmpty) {
                 /*
                 log.debug(
                   "In order to avoid message lost we need to notify the upsteam that " +

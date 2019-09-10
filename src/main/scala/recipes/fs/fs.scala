@@ -46,7 +46,7 @@ package object fs {
       belonging to different partitions can be processed concurrently.
       Partition number = seqNum % parallelism
    */
-  implicit class StreamOps[A](val source: Stream[IO, A]) {
+  implicit class StreamOps[A](val source: Stream[IO, A]) extends AnyRef {
 
     def broadcastN[B](parallelism: Int, bufferSize: Int)(
       f: A ⇒ IO[B]
