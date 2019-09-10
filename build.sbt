@@ -17,8 +17,8 @@ resolvers ++= Seq(
   Resolver.jcenterRepo,
   "Local Maven Repository2" at "file:///Volumes/Data/dev_build_tools/apache-maven-3.1.1/repository",
   "Local Maven Repository3" at "file://" + Path.userHome.absolutePath + "/.m2/repository",
-  "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases",
-  "bintray/rossabaker" at "http://dl.bintray.com/rossabaker/maven",
+  "Scalaz Bintray Repo" at "https://dl.bintray.com/scalaz/releases",
+  "bintray/rossabaker" at "http:s//dl.bintray.com/rossabaker/maven",
   "Awesome Utilities" at "https://dl.bintray.com/davegurnell/maven",
   "Apache Staging" at "https://repository.apache.org/content/repositories/staging/",
   "oncue"             at "https://bintray.com/oncue/releases/quiver/",
@@ -29,7 +29,7 @@ resolvers ++= Seq(
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.5.23"
+val akkaStreamV = "2.5.25"
 val scalazVersion = "7.2.20"
 val ZIOVersion  = "0.6.3"
 
@@ -50,8 +50,8 @@ libraryDependencies ++= Seq(
   //"org.http4s"        %% "jawn-fs2"     % "0.9.0",
   //"org.http4s"        %%  "jawn-fs2"      % "0.10.1"
 
-  "co.fs2"            %% "fs2-core"          %  "1.1.0-M1", //"0.10.5",
-  "co.fs2"            %% "fs2-io"            %  "1.1.0-M1", //"0.10.5",
+  "co.fs2"            %% "fs2-core"          %  "2.0.0", //"1.1.0-M1", //"0.10.5",
+  "co.fs2"            %% "fs2-io"            %  "2.0.0",  //"1.1.0-M1", //"0.10.5",
 
   //"com.spinoco"       %% "fs2-zk"            % "0.1.6",
   //"com.spinoco"       %% "fs2-cassandra"     % "0.2.1",
@@ -72,7 +72,7 @@ libraryDependencies ++= Seq(
   //https://github.com/mikolak-net/travesty
   //"net.mikolak" %% "travesty" % s"0.9_$akkaStreamV",
 
-  "org.scalaz"      %%  "scalaz-zio"      % ZIOVersion,
+  //"org.scalaz"      %%  "scalaz-zio"      % ZIOVersion,
 
   //elastic load balancer, build only for 2.11
   //"akka-http-lb" %% "akka-http-lb" % "0.5.0",
@@ -109,7 +109,7 @@ sourceGenerators in Test += Def.task {
   Seq(file)
 }.taskValue
 
-addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.9")
+addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.10.3")
 addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)
 
 //cancelable in Global := true

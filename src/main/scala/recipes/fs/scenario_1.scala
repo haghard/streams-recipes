@@ -23,6 +23,8 @@ import scala.concurrent.ExecutionContext
 https://fs2.io/concurrency-primitives.html
 https://www.beyondthelines.net/programming/streaming-patterns-with-fs2/
 
+runMain recipes.fs.scenario_1
+
  */
 object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
 

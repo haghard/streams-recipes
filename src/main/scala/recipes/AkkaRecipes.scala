@@ -123,25 +123,25 @@ object AkkaRecipes extends App {
 
   //typeAsk.runWith(Sink.ignore)(mat).onComplete(_ ⇒ println("done"))
 
-  typeActorSrc(mat)
+  typedActorSrc(mat)
 
   /**
     * Tumbling windows discretize a stream into non-overlapping windows
     * Using conflate as rate detached operation
     */
   def tumblingWindow[T](name: String, duration: FiniteDuration): Sink[T, akka.NotUsed] =
-    (Flow[T]
+    Flow[T]
       .conflateWithSeed(_ ⇒ 0L)((counter, _) ⇒ counter + 1L)
-      .zipWith(Source.tick(duration, duration, ()))(Keep.left))
+      .zipWith(Source.tick(duration, duration, ()))(Keep.left)
       .to(Sink.foreach(acc ⇒ println(s"$name count:$acc")))
       .withAttributes(Attributes.inputBuffer(1, 1))
 
   def tumblingWindowWithFilter[T](name: String, duration: FiniteDuration)(
     filter: Long ⇒ Boolean
   ): Sink[T, akka.NotUsed] =
-    (Flow[T]
+    Flow[T]
       .conflateWithSeed(_ ⇒ 0L)((counter, _) ⇒ counter + 1L)
-      .zipWith(Source.tick(duration, duration, ()))(Keep.left))
+      .zipWith(Source.tick(duration, duration, ()))(Keep.left)
       .to(Sink.foreach { acc ⇒
         if (filter(acc)) println(s"$name count:$acc satisfied")
         else println(s"number:$acc unsatisfied")
@@ -154,9 +154,9 @@ object AkkaRecipes extends App {
     */
   def slidingWindow[T](name: String, duration: FiniteDuration, numOfIntervals: Long = 5): Sink[T, akka.NotUsed] = {
     val nano = 1000000000
-    (Flow[T]
+    Flow[T]
       .conflateWithSeed(_ ⇒ 0L)((counter, _) ⇒ counter + 1L)
-      .zipWith(Source.tick(duration, duration, ()))(Keep.left))
+      .zipWith(Source.tick(duration, duration, ()))(Keep.left)
       .scan((0L, 0, System.nanoTime)) {
         case ((acc, iter, lastTs), v) ⇒
           if (iter == numOfIntervals - 1) (v, 0, System.nanoTime)
@@ -170,9 +170,9 @@ object AkkaRecipes extends App {
     *
     */
   def countElementsWindow[T](name: String, duration: FiniteDuration): Sink[T, akka.NotUsed] =
-    (Flow[T]
+    Flow[T]
       .conflateWithSeed(_ ⇒ 0L)((counter, _) ⇒ counter + 1L)
-      .zipWith(Source.tick(duration, duration, ()))(Keep.left))
+      .zipWith(Source.tick(duration, duration, ()))(Keep.left)
       .scan(0L)(_ + _)
       .to(Sink.foreach(acc ⇒ println(s"$name: $acc")))
       .withAttributes(Attributes.inputBuffer(1, 1))
@@ -183,7 +183,7 @@ object AkkaRecipes extends App {
   /**
     * Situation:
     * We have 3 sources with different rates.
-    * We use conflate stage before zip, hence we constantly update last element for every source in the tuple.
+    * We use conflate stage before zip, hence we constantly update the last element for every source in the tuple.
     * When zip stage is getting onNext signal it sends the tuple with latest values inside.
     *
     * Result:
@@ -327,13 +327,13 @@ object AkkaRecipes extends App {
 
   /**
     *
-    * Fast publisher and 3 sinks, The first is fast and the last two are degrading with different rates.
-    * All sinks are getting messages through buffer with OverflowStrategy.dropTail strategy
-    * We want the first sink to be the primary sink (source of true, containing all elements)
-    * 2th and 3th sinks to be the best effort (some elements)
     *
-    * Result: Source and the fists sink operate at the same rate.
-    * Degrading sinks rate goes down but doesn't affect the flow because of dropTail.
+    * We want the first sink to be the primary sink (source of true), whereas 2th and 3th sinks to be the best effort (some elements)
+    *
+    * Fast publisher and 3 sinks. The first sink runs as fast as it can, whereas 2th and 3th degrade over time.
+    * 2th and 3th sinks get messages through buffers with OverflowStrategy.dropTail strategy, therefore the
+    * overall pipeline rate doesn't degrade.
+    *
     */
   def scenario5: Graph[ClosedShape, akka.NotUsed] =
     GraphDSL.create() { implicit b ⇒
@@ -341,8 +341,8 @@ object AkkaRecipes extends App {
       val source = timedSource(ms, 0 second, 10 milliseconds, Int.MaxValue, "source_5")
 
       val fastSink       = new GraphiteSink("sink_5", 0L, ms)
-      val degradingSink1 = new DegradingGraphiteSink[Int]("sink_5_1_deg0", 1L, ms)
-      val degradingSink2 = new DegradingGraphiteSink[Int]("sink_5_1_deg1", 2L, ms)
+      val degradingSink1 = new DegradingGraphiteSink[Int]("sink_5_1_deg_0", 1L, ms)
+      val degradingSink2 = new DegradingGraphiteSink[Int]("sink_5_1_deg_1", 2L, ms)
 
       /*
       source.to(
@@ -555,7 +555,7 @@ object AkkaRecipes extends App {
       .take(100)
   }
 
-  def typeActorSrc(implicit mat: Materializer) = {
+  def typedActorSrc(implicit mat: Materializer) = {
     import akka.actor.typed.scaladsl.adapter._
 
     val ackTo: akka.actor.typed.ActorRef[DegradingTypedActorSource.Confirm] =
@@ -880,7 +880,7 @@ object AkkaRecipes extends App {
   }
 
   case class State(count: Long, sum: Long) {
-    def combine(current: Long) = this.copy(this.count + 1, this.sum + current)
+    def combine(current: Long): State = this.copy(this.count + 1, this.sum + current)
   }
 
   def every[T](interval: FiniteDuration): Flow[T, T, akka.NotUsed] =
@@ -1378,7 +1378,7 @@ object AkkaRecipes extends App {
       this(.0, capacity, new SimpleRingBuffer[T](capacity))
     }
 
-    def feed(element: T): SimpleMAState[T] = {
+    def :+(element: T): SimpleMAState[T] = {
       val leavingElem = buffer.currentHead
       buffer.add(element)
       if (buffer.size < capacity) this
@@ -1431,7 +1431,7 @@ object AkkaRecipes extends App {
         .buffer(lenght, OverflowStrategy.backpressure)
         .map(_.toLong)
         .scan(new SimpleMAState[Long](lenght)) { (state, next) ⇒
-          state.feed(next)
+          state.:+(next)
         }
 
       val slidingWindow = Flow[Int]
@@ -1471,10 +1471,10 @@ object AkkaRecipes extends App {
     val commit  = pBuffer.commit[Int]
     val src     = timedSource(ms, 1 second, 50 milliseconds, Int.MaxValue, "akka-source_22")
 
-    val (queue, publisher) = Source
+    /*val (queue, publisher) = Source
       .queue[Int](1 << 7, OverflowStrategy.backpressure)
       .toMat(Sink.asPublisher[Int](false))(Keep.both)
-      .run()(mat)
+      .run()(mat)*/
 
     //read the latest saved date form DB and fetch the next page
     //queue.offer()
@@ -1492,7 +1492,7 @@ object AkkaRecipes extends App {
     val src     = timedSource(ms, 1 second, 15 milliseconds, Int.MaxValue, "akka-source_23")
     val sinkRef = sys.actorOf(DegradingActorSink.props("akka-sink_23", ms, 10))
 
-    //backpressure: one by one
+    //backpressure with one by one semantic
     val sink = Sink.actorRefWithAck(
       sinkRef,
       onInitMessage = DegradingActorSink.Init,
@@ -2442,7 +2442,6 @@ class TimeStampedLogReader[T](time: T ⇒ Long) extends GraphStage[FlowShape[T, 
 }
 
 /**
-  * Those classes from Akka Documentation
   *
   * val resultFuture = Source(1 to 5)
   * .via(new Filter(_ % 2 == 0))
@@ -2468,6 +2467,63 @@ class Filter[A](p: A ⇒ Boolean) extends GraphStage[FlowShape[A, A]] {
           pull(in)
       })
     }
+}
+
+object DelayFlow {
+
+  type Element = (Double, Double)
+
+  def apply(delay: Int, scaleFactor: Double): Flow[Element, Element, NotUsed] =
+    Flow[Element]
+      .statefulMapConcat { () ⇒
+        // mutable state needs to be kept inside the stage
+        var index               = 0
+        val ring: Array[Double] = Array.ofDim[Double](delay)
+
+        {
+          case (sample, sample1) ⇒
+            val prev = ring(index)
+            ring(index) = sample
+            index = (index + 1) % delay
+            scala.collection.immutable.Iterable((prev, sample1 + prev * scaleFactor))
+        }
+
+      }
+}
+
+object Deduplicator {
+
+  case class EventEnvelope(sequenceNr: Long)
+  case class Deduplicated(event: EventEnvelope, isDuplicate: Boolean)
+
+  //https://pavkin.ru/multiple-faces-of-scala-iterator-trap/
+  // Provides event deduplication, multiplexed over several "consumers".
+  // Each consumer is tagged with a string key, which is used in the versions Map
+  def apply(initialVersions: Map[String, Long]): Flow[EventEnvelope, Map[String, Deduplicated], NotUsed] =
+    Flow[EventEnvelope]
+      .statefulMapConcat(
+        () ⇒ {
+          //safe to keep state here
+          var lastVersions = initialVersions
+
+          //invoked on  every element
+          {
+            e: EventEnvelope ⇒
+              // for each consumer key deduplicate the event and provide new threshold version
+
+              val deduplicated = lastVersions.view.force.mapValues { lastVersion ⇒
+                val isOriginal = e.sequenceNr > lastVersion
+                if (isOriginal) e.sequenceNr → Deduplicated(e, false)
+                else lastVersion             → Deduplicated(e, true)
+              }
+
+              lastVersions = deduplicated.mapValues(_._1)
+              // pass deduplicated events further down the stream
+              //return a List that shall be emitted
+              scala.collection.immutable.Iterable(deduplicated.view.force.mapValues(_._2))
+          }
+        }
+      )
 }
 
 class Duplicator[A] extends GraphStage[FlowShape[A, A]] {

@@ -37,7 +37,7 @@ object Sinks {
       extends GraphStage[SinkShape[(Int, Int, Int)]]
       with GraphiteMetrics {
 
-    val in: Inlet[(Int, Int, Int)]                 = Inlet("GraphiteSink")
+    private val in: Inlet[(Int, Int, Int)]         = Inlet("GraphiteSink")
     override val shape: SinkShape[(Int, Int, Int)] = SinkShape(in)
 
     override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =

@@ -111,7 +111,7 @@ package object fs {
             .evalMap(_.enqueue1(None))
             .onComplete(Stream.eval(IO(println(" ★ ★ ★  Source is done   ★ ★ ★ "))))
 
-        //wait for both exit
+        //wait for both to exit
         sinks merge balancedSrc
       }
     }

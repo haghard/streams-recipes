@@ -124,7 +124,7 @@ object CustomStages {
 
     override protected def initialAttributes: Attributes =
       Attributes
-        .name("ib")
+        .name("buffer")
         //.and(ActorAttributes.dispatcher("akka.blocking-dispatcher"))
         .and(ActorAttributes.dispatcher("akka.flow-dispatcher"))
 
