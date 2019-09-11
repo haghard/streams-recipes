@@ -10,7 +10,7 @@ import fs2.concurrent.{Queue, Signal, SignallingRef}
 import recipes.{GraphiteMetrics, GraphiteSupport, TimeWindows}
 
 import scala.concurrent.duration._
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{Await, ExecutionContext, Future}
 
 /*
   The setup of the scenario is as follows:
@@ -47,11 +47,11 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
       cb(Right(()))
     }
 
-  def evalAsync[F[_]: Async, T: cats.Monoid](chunk: Chunk[T]): F[T] =
+  def evalMapAsync[F[_]: Async, T: cats.Monoid](chunk: Chunk[T]): F[T] =
     Async[F].async { cb ⇒
       val r = chunk.foldLeft(cats.Monoid[T].empty)(_ |+| _)
       Thread.sleep(500)
-      println(Thread.currentThread.getName + " > " + r)
+      println(s"${Thread.currentThread.getName} chunk sum:${r}")
       cb(Right(r))
     }
 
@@ -68,23 +68,25 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
     //.runAsync(_ ⇒ IO.unit).to[F]
     }
 
-  Stream
+  /*Stream
     .emits(1L to 100L)
     .covary[IO]
     .chunkN(10, true)
-    .parEvalMap(4)(evalAsync[IO, Long])
+    .parEvalMap(4)(evalMapAsync[IO, Long])
     .compile
     .foldMonoid(cats.Monoid[Long])
-    .unsafeRunAsync(r ⇒ println("" + r))
+    .unsafeRunAsync(r ⇒ println(s"final sum:${r}"))
+   */
 
-  Stream
+  /*Stream
     .emits(1L to 100L)
     .covary[IO]
     .chunkN(10, true)
-    .parEvalMap(4)(evalAsync[IO, Long])
+    .parEvalMap(4)(evalMapAsync[IO, Long])
     .compile
     .drain
     .unsafeRunAsync(_ ⇒ ())
+   */
 
   //fs2.Stream.emits(1L to 100L).covary[IO].through(pipeAsync[IO]).compile.drain.unsafeRunSync
   //fs2.Stream.emits(1l to 100l).through(sumEvery(10)).covary[IO].compile.foldMonoid(cats.Monoid[Long]).unsafeRunSync()
@@ -227,7 +229,7 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
       i
     })*/
 
-    src.broadcastN3(par, 1 << 4) { ind: Int ⇒ (e) ⇒
+    src.broadcastN3(par, 1 << 4) { ind: Int ⇒ e ⇒
       IO {
         println(s"${Thread.currentThread.getName}: w:$ind starts: $e")
         Thread.sleep(ThreadLocalRandom.current.nextInt(100, 500))
@@ -270,7 +272,7 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
 
   case object PoisonPill extends Event
 
-  def sub[T](num: Int, s: SignallingRef[IO, Int]): Event ⇒ IO[Unit] =
+  def sink[T](num: Int, s: SignallingRef[IO, Int]): Event ⇒ IO[Unit] =
     (in: Event) ⇒
       in match {
         case Task(id) ⇒
@@ -287,6 +289,7 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
       }
 
   //Shouldn't lose messages here, as we  bufferSize == countdown(counter) + (delay == 200.millis) which is average latency
+  //One to many semantic. One queue and static number of sinks.
   def flow3: Stream[IO, Unit] = {
     val bufferSize = 1 << 4
     (for {
@@ -301,14 +304,14 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
         .onComplete(Stream.fixedRate[IO](250.millis).map(_ ⇒ PoisonPill).through(q.enqueue))
         .interruptWhen(interrupter.discrete.map(_ <= 0))
 
-      sinks = q.dequeue.evalMap(sub(0, interrupter)(_)) merge q.dequeue.evalMap(sub(1, interrupter)(_))
+      sinks = q.dequeue.evalMap(sink(0, interrupter)(_)) merge q.dequeue.evalMap(sink(1, interrupter)(_))
 
       flow ← sinks mergeHaltBoth src
     } yield flow)
-      .onComplete(fs2.Stream.eval(IO(println(s"★ ★ ★ Interrupter flow completed ★ ★ ★"))))
+      .onComplete(fs2.Stream.eval(IO(println(s"★ ★ ★ Interrup completed ★ ★ ★"))))
   }
 
-  //we lose messages when stop  the sink
+  //we lose messages when stop the sink
   def flow4: Stream[IO, Unit] =
     (for {
       q ← Stream.eval(fs2.concurrent.Queue.bounded[IO, Long](1 << 4))
@@ -327,7 +330,7 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
 
       flow ← sinks mergeHaltBoth src
     } yield flow)
-      .onComplete(fs2.Stream.eval(IO(println(s"★ ★ ★ Interrupter flow completed ★ ★ ★"))))
+      .onComplete(fs2.Stream.eval(IO(println(s"★ ★ ★ Interrupt completed ★ ★ ★"))))
 
   //src.balanceN[Unit](1 << 5, 4)(mapAsyncUnordered[IO, Long, Unit](4)(testSink(_)))
   def mapAsyncUnordered[F[_], A, B](parallelism: Int)(f: A ⇒ F[B])(implicit F: Concurrent[F]): Pipe[F, A, B] =
@@ -337,5 +340,22 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
     //flow3.compile.drain.as(ExitCode.Success)
     //flow4.compile.drain.as(ExitCode.Success)
     //oneToManyFlow.compile.drain.as(ExitCode.Success)
+
+    /*Await.result(
+      List
+        .range(1, 10)
+        .seqTraverse(
+          i ⇒
+            Future {
+              println(s"${Thread.currentThread.getName}: start $i")
+              Thread.sleep(ThreadLocalRandom.current.nextLong(100L, 200L))
+              println(s"${Thread.currentThread.getName}: stop $i")
+              Option(i)
+            }
+        ),
+      Duration.Inf
+    )
+    IO(ExitCode.Success)
+     */
     flow2.compile.drain.as(ExitCode.Success)
 }

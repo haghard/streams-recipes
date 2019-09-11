@@ -55,3 +55,5 @@ https://underscore.io/blog/posts/2018/03/20/fs2.html
 https://gist.github.com/narench/1bead6045874883fc227026e458333f1
 https://fs2.io/concurrency-primitives.html
 https://www.beyondthelines.net/programming/streaming-patterns-with-fs2/
+
+https://github.com/profunktor/tutorials.git

@@ -39,6 +39,29 @@ package object fs {
     }
   }
 
+  //https://medium.com/anyjunk/how-to-traverse-sequentially-a071afacc84d
+  implicit class TraverseOps[F[_], A](fa: F[A]) {
+
+    def seqTraverse[B, M[_]](f: A ⇒ M[B])(implicit T: cats.Traverse[F], M: cats.Monad[M]): M[F[B]] = {
+      //def lift[B](a: A, f: A ⇒ M[B]): cats.free.Free[LazyEval, B] = cats.free.Free.liftF(LazyEval(a, f))
+      case class LazyFunc[B](a: A, f: A ⇒ M[B]) {
+        def run: M[B] = f(a)
+      }
+
+      /*val transformation: FunctionK[LazyEval, M] = new FunctionK[LazyEval, M] {
+        def apply[A](a: LazyEval[A]): M[A] = a.apply
+      }*/
+
+      //We have built our series of instructions using traverse, and we haven’t yet executed anything.
+      T.traverse(fa)(a ⇒ cats.free.Free.liftF(LazyFunc(a, f)))
+        //The foldMap guarantees that each step of our free monad is only executed once the previous step is finished
+        .foldMap(new cats.arrow.FunctionK[LazyFunc, M] {
+          def apply[A](a: LazyFunc[A]): M[A] = a.run
+        })
+
+    }
+  }
+
   /*
     The use case for `broadcastN` method is as follows:
       You have a queue of incoming payloads, each payload needs to be processed using some user provided function.
