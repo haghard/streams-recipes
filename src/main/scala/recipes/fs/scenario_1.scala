@@ -10,7 +10,8 @@ import fs2.concurrent.{Queue, Signal, SignallingRef}
 import recipes.{GraphiteMetrics, GraphiteSupport, TimeWindows}
 
 import scala.concurrent.duration._
-import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.concurrent.ExecutionContext
+import recipes.fs._
 
 /*
   The setup of the scenario is as follows:
@@ -28,84 +29,28 @@ runMain recipes.fs.scenario_1
  */
 object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
 
-  implicit val ec                   = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(5, FsDaemons("scenario01")))
+  val parallelism                   = 4
+  implicit val ec                   = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(parallelism, FsDaemons("scenario01")))
   implicit val cs: ContextShift[IO] = IO.contextShift(ec)
   implicit val t                    = cats.effect.IO.timer(ec)
+  //val C = Concurrent[IO]
 
-  /*
-    fs2.Stream.emits(1 to 10000)
-      .chunkN(10)
-      .covary[IO]
-      .parEvalMap(10)(writeToDB[IO])
-      .compile
-      .drain
-      .unsafeRunSync
-   */
   def writeToDB[F[_]: Async](chunk: Chunk[Int]): F[Unit] =
     Async[F].async { cb ⇒
       println(s"Writing batch of $chunk to database by ${Thread.currentThread.getName}")
       cb(Right(()))
     }
 
-  def evalMapAsync[F[_]: Async, T: cats.Monoid](chunk: Chunk[T]): F[T] =
-    Async[F].async { cb ⇒
-      val r = chunk.foldLeft(cats.Monoid[T].empty)(_ |+| _)
-      Thread.sleep(500)
-      println(s"${Thread.currentThread.getName} chunk sum:${r}")
-      cb(Right(r))
-    }
+  /*
+  import fs2.interop.reactivestreams._
+  //To convert a Stream into a downstream unicast org.reactivestreams.Publisher:
+  val pub: fs2.interop.reactivestreams.StreamUnicastPublisher[IO, Long] =
+    Stream.emits(1L to 100L).covary[IO].toUnicastPublisher()
+  //To convert an upstream org.reactivestreams.Publisher into a Stream:
+  pub.toStream[IO]
 
-  def pipeAsync[F[_]: Sync: LiftIO]: Stream[F, Long] ⇒ Stream[F, Long] =
-    _.evalTap { i ⇒
-      (IO.shift *> IO.sleep(100.millis) *> IO(i))
-        .runAsync {
-          case Left(e) ⇒
-            IO.raiseError(e)
-          case Right(r) ⇒
-            IO(println(s"[${Thread.currentThread.getName}]: $r"))
-        }
-        .to[F]
-    //.runAsync(_ ⇒ IO.unit).to[F]
-    }
-
-  /*Stream
-    .emits(1L to 100L)
-    .covary[IO]
-    .chunkN(10, true)
-    .parEvalMap(4)(evalMapAsync[IO, Long])
-    .compile
-    .foldMonoid(cats.Monoid[Long])
-    .unsafeRunAsync(r ⇒ println(s"final sum:${r}"))
+  akka.stream.scaladsl.Source.fromPublisher(pub)
    */
-
-  /*Stream
-    .emits(1L to 100L)
-    .covary[IO]
-    .chunkN(10, true)
-    .parEvalMap(4)(evalMapAsync[IO, Long])
-    .compile
-    .drain
-    .unsafeRunAsync(_ ⇒ ())
-   */
-
-  //fs2.Stream.emits(1L to 100L).covary[IO].through(pipeAsync[IO]).compile.drain.unsafeRunSync
-  //fs2.Stream.emits(1l to 100l).through(sumEvery(10)).covary[IO].compile.foldMonoid(cats.Monoid[Long]).unsafeRunSync()
-  //fs2.Stream.emits(1l to 100l).through(sumEvery(10)).covary[IO].compile.drain.unsafeRunSync()
-  //fs2.Stream.emits(1l to 100l).through(sumEvery(10)).covary[IO].compile.toList.unsafeRunSync()
-
-  def sumEvery[F[_], T: cats.Monoid](batchSize: Int): Pipe[F, T, T] = { in ⇒
-    def go(s: Stream[F, T]): Pull[F, T, Unit] =
-      s.pull.unconsN(batchSize, true).flatMap {
-        case Some((chunk, tailStr)) ⇒
-          val chunkResult: T = chunk.foldLeft(cats.Monoid[T].empty)(_ |+| _)
-          println(chunkResult)
-          //Sync[F].delay(println(chunkResult)) *>
-          Pull.output1(chunkResult) >> go(tailStr)
-        case None ⇒
-          Pull.done
-      }
-    go(in).stream
-  }
 
   //type Pipe[F[_], -I, +O] = Stream[F, I] => Stream[F, O]
   def pipe2Graphite[F[_]: Sync, T](
@@ -208,16 +153,15 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
       .onComplete(fs2.Stream.eval(IO(println(s"★ ★ ★  $sName completed ★ ★ ★"))))
   }
 
-  def flow2: Stream[IO, Unit] = {
+  def flow2[B](worker: Long ⇒ IO[B]): Stream[IO, B] = {
     val window      = 5000L
     val sourceDelay = 50.millis
-    val par         = 4
 
     val src = Stream
       .fixedRate[IO](sourceDelay)
       .scan(State[Long](item = 0L))((acc, _) ⇒ tumblingWindow(acc, window))
       .map(_.item)
-      .take(200)
+      .take(100)
 
     //src.broadcastN(par, 1 << 5)(testSink(_))
 
@@ -229,15 +173,9 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
       i
     })*/
 
-    src.broadcastN3(par, 1 << 4) { ind: Int ⇒ e ⇒
-      IO {
-        println(s"${Thread.currentThread.getName}: w:$ind starts: $e")
-        Thread.sleep(ThreadLocalRandom.current.nextInt(100, 500))
-        println(s"${Thread.currentThread.getName}: w:$ind stop: $e")
-        e
-      }
+    src.balanceN3(parallelism, 1 << 3) { i: Int ⇒
+      worker
     }
-
   }
 
   //static number of workers
@@ -308,7 +246,7 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
 
       flow ← sinks mergeHaltBoth src
     } yield flow)
-      .onComplete(fs2.Stream.eval(IO(println(s"★ ★ ★ Interrup completed ★ ★ ★"))))
+      .onComplete(fs2.Stream.eval(IO(println(s"★ ★ ★ Interrupt completed ★ ★ ★"))))
   }
 
   //we lose messages when stop the sink
@@ -332,11 +270,27 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
     } yield flow)
       .onComplete(fs2.Stream.eval(IO(println(s"★ ★ ★ Interrupt completed ★ ★ ★"))))
 
+  //Stream.emits(1L to 200L).covary[IO]
+  def flow5[B](worker: Long ⇒ IO[B]): Stream[IO, B] =
+    Stream
+      .fixedRate[IO](10.millis)
+      .scan(State[Long](item = 0L))((acc, _) ⇒ tumblingWindow(acc, 5000L))
+      .map(_.item)
+      .take(100)
+      .balance(1)
+      .take(parallelism)
+      .map(_.through(_.evalMap(worker)))
+      .parJoinUnbounded
+
   //src.balanceN[Unit](1 << 5, 4)(mapAsyncUnordered[IO, Long, Unit](4)(testSink(_)))
   def mapAsyncUnordered[F[_], A, B](parallelism: Int)(f: A ⇒ F[B])(implicit F: Concurrent[F]): Pipe[F, A, B] =
     (inner: fs2.Stream[F, A]) ⇒ inner.map(a ⇒ fs2.Stream.eval(f(a))).parJoin(parallelism)
 
-  override def run(args: List[String]): IO[ExitCode] =
+  //override protected implicit def contextShift: ContextShift[IO] =
+
+  override def run(args: List[String]): IO[ExitCode] = {
+    println("run")
+
     //flow3.compile.drain.as(ExitCode.Success)
     //flow4.compile.drain.as(ExitCode.Success)
     //oneToManyFlow.compile.drain.as(ExitCode.Success)
@@ -357,5 +311,43 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
     )
     IO(ExitCode.Success)
      */
-    flow2.compile.drain.as(ExitCode.Success)
+
+    /*flow2(
+      i ⇒
+        IO {
+          println(s"${Thread.currentThread.getName}: starts: $i")
+          Thread.sleep(300) //ThreadLocalRandom.current.nextInt(100, 500))
+          println(s"${Thread.currentThread.getName}: stop: $i")
+          i
+        }
+    ).compile
+      .foldMonoid(cats.Monoid[Long])
+      .redeem({ er ⇒
+        println("Error:" + er)
+        ExitCode.Error
+      }, { r ⇒
+        println("res:" + r)
+        ExitCode.Success
+      })*/
+
+    //or
+    flow5(
+      i ⇒
+        IO {
+          println(s"${Thread.currentThread.getName}: $i start")
+          Thread.sleep(500) //ThreadLocalRandom.current.nextInt(1000, 2000)
+          println(s"${Thread.currentThread.getName}: $i stop")
+          i
+        }
+    ).compile
+      .foldMonoid(cats.Monoid[Long])
+      .redeem({ er ⇒
+        println("Error:" + er)
+        ExitCode.Error
+      }, { r ⇒
+        println("res:" + r)
+        ExitCode.Success
+      })
+  }
+
 }

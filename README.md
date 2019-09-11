@@ -49,11 +49,27 @@ https://github.com/svezfaz/akka-backpressure-scala-central-talk.git
 
 netstat -na | grep ${PORT}
 
-## fs2 ##
+## FS2 links ##
 https://lunatech.com/blog/WCl5OikAAIrvQCoc/functional-io-with-fs2-streams
 https://underscore.io/blog/posts/2018/03/20/fs2.html
 https://gist.github.com/narench/1bead6045874883fc227026e458333f1
 https://fs2.io/concurrency-primitives.html
-https://www.beyondthelines.net/programming/streaming-patterns-with-fs2/
-
+https://www.beyondthelines.net/programming/streaming-patterns-with-fs2
+https://medium.freecodecamp.org/a-streaming-library-with-a-superpower-fs2-and-functional-programming-6f602079f70a
+https://github.com/gvolpe/advanced-http4s/blob/master/src/main/scala/com/github/gvolpe/fs2/PubSub.scala
 https://github.com/profunktor/tutorials.git
+
+fs2+scalaJs https://tech.ovoenergy.com/frontend-development-with-scala-js/
+
+## FS2 videos ##
+https://www.youtube.com/watch?v=B1wb4fIdtn4
+https://www.youtube.com/watch?v=x3GLwl1FxcA
+https://www.youtube.com/watch?v=mStYwML3JZk + https://speakerdeck.com/mpilquist/fs3-evolving-a-streaming-platform
+
+Profunktor:
+    https://www.youtube.com/watch?v=FWYXqYQWAc0
+    https://www.youtube.com/watch?v=uuocHqdnoS0
+
+A practical look at fs2 Streams Bracket:
+  https://youtu.be/5TR89KzPaJ4?list=PLbZ2T3O9BuvczX5j03bWMrMFzK5OAs9mZ
+    

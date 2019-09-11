@@ -52,6 +52,7 @@ libraryDependencies ++= Seq(
 
   "co.fs2"            %% "fs2-core"          %  "2.0.0", //"1.1.0-M1", //"0.10.5",
   "co.fs2"            %% "fs2-io"            %  "2.0.0",  //"1.1.0-M1", //"0.10.5",
+  "co.fs2"            %% "fs2-reactive-streams" % "2.0.0",
 
   "org.typelevel"     %% "cats-free"         %  "2.0.0",
 

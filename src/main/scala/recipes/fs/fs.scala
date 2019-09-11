@@ -71,7 +71,17 @@ package object fs {
    */
   implicit class StreamOps[A](val source: Stream[IO, A]) extends AnyRef {
 
-    def broadcastN[B](parallelism: Int, bufferSize: Int)(
+    def throughBuffer[B](bufferSize: Int)(
+      f: A ⇒ IO[B]
+    )(implicit F: Concurrent[IO], T: Timer[IO]): Stream[IO, B] =
+      Stream.eval(Queue.bounded[IO, Option[A]](bufferSize)).flatMap { q ⇒
+        val onClose = Stream.fixedRate[IO](10.millis).map(_ ⇒ None).through(q.enqueue)
+        val p       = source.map(Some(_)).through(q.enqueue).onComplete(onClose).drain
+        val c       = q.dequeue.unNoneTerminate.evalMap(f)
+        c concurrently p
+      }
+
+    def balanceN[B](parallelism: Int, bufferSize: Int)(
       f: A ⇒ IO[B]
     )(implicit F: Concurrent[IO], T: Timer[IO]): Stream[IO, B] =
       Stream.eval(Queue.bounded[IO, Option[A]](bufferSize)).flatMap { q ⇒
@@ -86,7 +96,7 @@ package object fs {
         r
       }
 
-    def broadcastN2[B: HasLongHash: ClassTag](parallelism: Int, bufferSize: Int)(
+    def balanceN2[B: HasLongHash: ClassTag](parallelism: Int, bufferSize: Int)(
       f: A ⇒ IO[B]
     )(implicit F: Concurrent[IO], T: Timer[IO]): Stream[IO, B] =
       Stream.eval(Queue.bounded[IO, Option[A]](bufferSize)).flatMap { q ⇒
@@ -108,34 +118,35 @@ package object fs {
       }
 
     //looks like the most correct implementation
-    def broadcastN3[B](parallelism: Long, bufferSize: Int)(
+    def balanceN3[B](parallelism: Int, bufferSize: Int)(
       f: Int ⇒ A ⇒ IO[B]
-    )(implicit F: Concurrent[IO]): Stream[IO, Unit] = {
+    )(implicit F: Concurrent[IO]): Stream[IO, B] = {
       import cats.implicits._
       val queues: IO[Vector[Queue[IO, Option[A]]]] =
         implicitly[cats.Traverse[Vector]]
           .traverse(Vector.range(0, parallelism))(_ ⇒ Queue.bounded[IO, Option[A]](bufferSize))
 
       Stream.eval(queues).flatMap { qs ⇒
-        val sinks: Stream[IO, Unit] =
+        val sinks: Stream[IO, B] =
           Stream
             .emits(qs.zipWithIndex.map {
               case (q, ind) ⇒
                 q.dequeue.unNoneTerminate.evalMap(f(ind))
             })
-            .parJoin(parallelism.toInt)
-            .drain
+            .parJoin(parallelism)
 
-        val balancedSrc: Stream[IO, Unit] = source
+        val balancedSrc: Stream[IO, Nothing] = source
             .mapAccumulate(-1L)((seqNum, elem) ⇒ (seqNum + 1L, elem))
-            .evalMap { case (seqNum, elem) ⇒ qs((seqNum % parallelism).toInt).enqueue1(Some(elem)) } ++
+            .evalMap { case (seqNum, elem) ⇒ qs((seqNum % parallelism).toInt).enqueue1(Some(elem)) }
+            .drain ++
           Stream
             .emits(qs)
             .evalMap(_.enqueue1(None))
             .onComplete(Stream.eval(IO(println(" ★ ★ ★  Source is done   ★ ★ ★ "))))
+            .drain
 
         //wait for both to exit
-        sinks merge balancedSrc
+        balancedSrc merge sinks
       }
     }
   }
