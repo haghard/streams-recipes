@@ -5,9 +5,9 @@ import Scalaz._
 import cats.effect.{ContextShift, IO}
 import ddd.repo.AccountRepo
 import ddd.services.ReportingModule
-
-import cats.effect._
 import cats.implicits._
+
+import scala.concurrent.ExecutionContext
 
 object ReportingModuleStream {
   //({ type λ[x] = scalaz.stream.Process[scalaz.concurrent.Task, x] })#λ
@@ -21,21 +21,20 @@ trait ReportingModuleStream extends ReportingModule[ReportingModuleStream.PTask]
 
   override type T = (String, ddd.Amount)
 
-  //implicit val cs: ContextShift[IO] = IO.contextShift(executor)
+  implicit lazy val cs: ContextShift[IO] =
+    IO.contextShift(ExecutionContext.fromExecutor(executor))
 
   override def balances: ReportOperation[Seq[T]] =
     scalaz.Kleisli
       .kleisli[ReportingModuleStream.PTask, AccountRepo, ddd.Valid[Seq[T]]] { repo: AccountRepo ⇒
         fs2.Stream.eval {
-          //scalaz.concurrent.Task
-          //IO.shift *>
-          IO {
+          IO.shift *> IO {
             repo.all.fold({ error ⇒
               error.toString().failureNel
             }, { as: Seq[ddd.account.Account] ⇒
               as.map(a ⇒ (a.no, a.balance.amount)).success
             })
-          } //(executor)
+          }
         }
       }
 }
