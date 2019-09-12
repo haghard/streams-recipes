@@ -1,5 +1,6 @@
 package recipes.fs
 
+import java.nio.file.{Files, Paths}
 import java.util.concurrent.{Executors, ThreadLocalRandom}
 
 import cats.effect.{Async, Concurrent, ContextShift, ExitCode, IO, IOApp, LiftIO, Sync}
@@ -92,48 +93,39 @@ object scenario_2 extends IOApp with TimeWindows with GraphiteSupport {
 
     //Stream.emits(1L to 200L).covary[IO].prefetchN()
 
-    //Stream.emits(1L to 40L).covary[IO]
+    /*Stream.resource(cats.effect.Blocker[IO]).flatMap { blocker ⇒
+      fs2.io.file
+        .readAll[IO](Paths.get("data/src.txt"), blocker, 1024)
+        .through(fs2.text.utf8Decode)
+        .filter(s ⇒ !s.trim.isEmpty && !s.startsWith("//"))
+        .through(fs2.text.utf8Encode)
+        .through(fs2.io.file.writeAll(Paths.get("data/sink.txt"), blocker))
+    }*/
 
-    //val io =
-    /*fs2.Stream
-      .repeatEval(IO {
-        Thread.sleep(50)
-        ThreadLocalRandom.current.nextLong(2000L)
-      }) //.metered(50.millis)
-      .take(50)
-      .throughBuffer(1 << 3) { i ⇒
-        IO {
-          println(s"${Thread.currentThread.getName}: $i start")
-          Thread.sleep(500) //ThreadLocalRandom.current.nextInt(1000, 2000)
-          println(s"${Thread.currentThread.getName}: $i stop")
-          i / 2
-        }
+    /*Stream
+      .bracket(IO(Files.createTempFile("/tmp", "aaa"))) { path ⇒
+        IO(println(s"release: $path")) *> IO(path.toFile.delete)
       }
-      .compile
-      .foldMonoid(cats.Monoid[Long])*/
-
-    //Stream.emits(1L to 100L).covary[IO].prefetchN(10)
+      .flatMap { path ⇒
+        //fs2.io.file.readAll[IO](path, cats.effect.Blocker[IO], 1024)
+        ???
+      }*/
 
     val io =
-      Stream
-        .emits(1L to 100L)
-        .covary[IO]
-        .balance(1)
-        .take(parallelism)
-        .map(
-          _.through(
-            _.evalMap(
-              i ⇒
-                IO {
-                  println(s"${Thread.currentThread.getName}: $i start")
-                  Thread.sleep(500) //ThreadLocalRandom.current.nextInt(1000, 2000)
-                  println(s"${Thread.currentThread.getName}: $i stop")
-                  i / 2
-                }
-            )
-          )
-        )
-        .parJoinUnbounded
+      fs2.Stream
+        .repeatEval(IO(ThreadLocalRandom.current.nextLong(2000L)))
+        .metered(50.millis)
+        //.buffer()
+        .interruptAfter(10.second)
+        //.take(50)
+        .throughBuffer(1 << 3) { i ⇒
+          IO {
+            println(s"${Thread.currentThread.getName}: $i start")
+            Thread.sleep(ThreadLocalRandom.current.nextInt(100, 200))
+            println(s"${Thread.currentThread.getName}: $i stop")
+            i
+          }
+        }
         .compile
         .foldMonoid(cats.Monoid[Long])
 

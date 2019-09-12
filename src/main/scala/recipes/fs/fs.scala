@@ -71,13 +71,31 @@ package object fs {
    */
   implicit class StreamOps[A](val source: Stream[IO, A]) extends AnyRef {
 
+    /**
+      * Decouples producer from consumer enabling them to operate at its own rate up to `bufferSize`.
+      * If we hit `bufferSize`, then `enqueue` operation semantically blocks until there is a free space in the queue.
+      */
     def throughBuffer[B](bufferSize: Int)(
       f: A ⇒ IO[B]
     )(implicit F: Concurrent[IO], T: Timer[IO]): Stream[IO, B] =
       Stream.eval(Queue.bounded[IO, Option[A]](bufferSize)).flatMap { q ⇒
-        val onClose = Stream.fixedRate[IO](10.millis).map(_ ⇒ None).through(q.enqueue)
-        val p       = source.map(Some(_)).through(q.enqueue).onComplete(onClose).drain
-        val c       = q.dequeue.unNoneTerminate.evalMap(f)
+        val p = source
+          .map(Some(_))
+          .through(q.enqueue)
+          .onComplete(Stream.fixedRate[IO](10.millis).map(_ ⇒ None).through(q.enqueue))
+          .drain
+        val c = q.dequeue.unNoneTerminate.evalMap(f)
+
+        /*
+        val delayPerMsg = 10L
+        q.dequeue.unNoneTerminate.scan(100L) { (latency, _) ⇒
+          val updated = latency + delayPerMsg
+          Thread.sleep(0 + (updated / 1000), (updated % 1000).toInt)
+          updated
+        }
+         */
+
+        //runs p in background
         c concurrently p
       }
 
@@ -117,7 +135,10 @@ package object fs {
         r
       }
 
-    //looks like the most correct implementation
+    //looks like the most correct implementation from balanceN, balanceN2
+    /**
+      *
+      */
     def balanceN3[B](parallelism: Int, bufferSize: Int)(
       f: Int ⇒ A ⇒ IO[B]
     )(implicit F: Concurrent[IO]): Stream[IO, B] = {

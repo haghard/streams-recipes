@@ -123,7 +123,9 @@ object AkkaRecipes extends App {
 
   //typeAsk.runWith(Sink.ignore)(mat).onComplete(_ ⇒ println("done"))
 
-  typedActorSrc(mat)
+  //typedActorSrc(mat)
+
+  RunnableGraph.fromGraph(scenario24).run()(ActorMaterializer(Settings)(sys))
 
   /**
     * Tumbling windows discretize a stream into non-overlapping windows
@@ -234,7 +236,7 @@ object AkkaRecipes extends App {
     GraphDSL.create() { implicit builder ⇒
       import GraphDSL.Implicits._
       val source = timedSource(ms, 1 second, 20 milliseconds, Int.MaxValue, "source_1")
-      val sink   = new GraphiteSink("sink_1", 0, ms)
+      val sink   = new GraphiteSink[Int]("sink_1", 0, ms)
 
       (source alsoTo tumblingWindowWithFilter("akka-scenario1", 2 seconds)(_ >= 97L)) ~> sink
       ClosedShape
@@ -315,7 +317,7 @@ object AkkaRecipes extends App {
       import GraphDSL.Implicits._
 
       val source   = timedSource(ms, 1 second, 10 milliseconds, Int.MaxValue, "source_4")
-      val fastSink = new GraphiteSink("sink_4", 0, ms)
+      val fastSink = new GraphiteSink[Int]("sink_4", 0, ms)
       val slowSink = new DegradingGraphiteSink[Int]("sink_4_deg", 1L, ms)
 
       val bcast = b.add(akka.stream.scaladsl.Broadcast[Int](2)) //.addAttributes(Attributes.asyncBoundary)
@@ -340,7 +342,7 @@ object AkkaRecipes extends App {
       import GraphDSL.Implicits._
       val source = timedSource(ms, 0 second, 10 milliseconds, Int.MaxValue, "source_5")
 
-      val fastSink       = new GraphiteSink("sink_5", 0L, ms)
+      val fastSink       = new GraphiteSink[Int]("sink_5", 0L, ms)
       val degradingSink1 = new DegradingGraphiteSink[Int]("sink_5_1_deg_0", 1L, ms)
       val degradingSink2 = new DegradingGraphiteSink[Int]("sink_5_1_deg_1", 2L, ms)
 
@@ -372,7 +374,7 @@ object AkkaRecipes extends App {
       import GraphDSL.Implicits._
       val source = timedSource(ms, 0 milliseconds, 10 milliseconds, Int.MaxValue, "source_6")
 
-      val fastSink = new GraphiteSink("sink_6_0", 0L, ms)
+      val fastSink = new GraphiteSink[Int]("sink_6_0", 0L, ms)
       val slowSink = new DegradingGraphiteSink[Int]("sink_6_1", 2L, ms)
 
       val balancer = b.add(Balance[Int](2))
@@ -1509,6 +1511,19 @@ object AkkaRecipes extends App {
       .to(sink)
   }
 
+  def scenario24: Graph[ClosedShape, akka.NotUsed] = {
+    val window = 5
+    val src    = timedSource(ms, 1.second, 1.seconds, Int.MaxValue, "akka-source_24")
+    src
+      .map { i ⇒
+        (i.toDouble, .0)
+      //println("in " + r)
+      }
+      .via(DelayFlow(window, .1).filter(_._1 > 0)) //ignore first window
+      //.via(DelayFlow(window, .5).filter(_._1 > 0))
+      .to(new GraphiteSink[(Double, Double)]("sink_24", 0, ms))
+  }
+
   //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
   def trailingDifference(offset: Int) =
     GraphDSL.create() { implicit b ⇒
@@ -2468,10 +2483,19 @@ class Filter[A](p: A ⇒ Boolean) extends GraphStage[FlowShape[A, A]] {
     }
 }
 
+//Reactive_streams_principles_applied_in_akka_streams_by Eric Loots
 object DelayFlow {
 
   type Element = (Double, Double)
 
+  /**
+    * Allows you to delay elements. It returns a tuple
+    * Example:
+    * given `delay` = 5 and `scaleFactor` = 0.5 and the input
+    * `(1,0),(2,0),(3,0),(4,0),(5,0),(6,0),  (7,0),  (8,0) ...` results in the pairs
+    * `(0,1),(0,2),...              ,(1,3.5),(2,4.5),(3, 5.5) ... `
+    *
+    */
   def apply(delay: Int, scaleFactor: Double): Flow[Element, Element, NotUsed] =
     Flow[Element]
       .statefulMapConcat { () ⇒
@@ -2486,7 +2510,6 @@ object DelayFlow {
             index = (index + 1) % delay
             scala.collection.immutable.Iterable((prev, sample1 + prev * scaleFactor))
         }
-
       }
 }
 

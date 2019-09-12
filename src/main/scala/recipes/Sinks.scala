@@ -8,28 +8,33 @@ import akka.stream.stage.{GraphStage, GraphStageLogic, InHandler}
 object Sinks {
 
   //Constant delay
-  final class GraphiteSink(name: String, delay: Long, override val address: InetSocketAddress)
-      extends GraphStage[SinkShape[Int]]
+  final class GraphiteSink[T](name: String, delay: Long, override val address: InetSocketAddress)
+      extends GraphStage[SinkShape[T]]
       with GraphiteMetrics {
 
-    val in: Inlet[Int]                 = Inlet("GraphiteSink")
-    override val shape: SinkShape[Int] = SinkShape(in)
+    val in: Inlet[T]                 = Inlet("GraphiteSink")
+    override val shape: SinkShape[T] = SinkShape(in)
 
     override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
       new GraphStageLogic(shape) {
         override def preStart(): Unit =
           pull(in)
 
-        setHandler(in, new InHandler {
-          override def onPush(): Unit = {
-            if (delay > 0)
-              Thread.sleep(delay) //
+        setHandler(
+          in,
+          new InHandler {
+            override def onPush(): Unit = {
+              if (delay > 0)
+                Thread.sleep(delay) //
 
-            val _ = grab(in)
-            send(s"$name:1|c")
-            pull(in)
+              val _ = grab(in)
+              send(s"$name:1|c")
+              //val e = grab(in)
+              //println("out:" + e.toString)
+              pull(in)
+            }
           }
-        })
+        )
       }
   }
 

@@ -14,12 +14,6 @@ import scala.concurrent.ExecutionContext
 import recipes.fs._
 
 /*
-  The setup of the scenario is as follows:
-    The source and sink run at the same rate at the beginning.
-    The sink slows down over time, increasing latency on every message.
-    I use the bounded queue between the source and the sink.
-    This leads to blocking "enqueue" operation for the source in case no space in the queue.
-    Result: The source's rate is going to decrease proportionally to the sink's rate.
 
 https://fs2.io/concurrency-primitives.html
 https://www.beyondthelines.net/programming/streaming-patterns-with-fs2/
@@ -111,7 +105,7 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
     i
   }
 
-  def worker[T](i: Int): Long ⇒ IO[Unit] =
+  def worker(i: Int): Long ⇒ IO[Unit] =
     (out: Long) ⇒
       IO[Unit] {
         println(s"${Thread.currentThread.getName}: w:$i start $out")
@@ -119,6 +113,23 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
         println(s"${Thread.currentThread.getName}: w:$i stop $out")
       }
 
+  def worker[T](i: T): IO[T] =
+    IO[T] {
+      println(s"${Thread.currentThread.getName}: start $i")
+      Thread.sleep(500)
+      //Thread.sleep(ThreadLocalRandom.current().nextLong(100L, 300L))
+      println(s"${Thread.currentThread.getName}: stop $i")
+      i
+    }
+
+  /*
+    The setup of the scenario is as follows:
+      The source and sink run at the same rate at the beginning.
+      The sink slows down over time, increasing latency on every message.
+      I use the bounded queue between the source and the sink.
+      This leads to blocking "enqueue" operation for the source in case no space in the queue.
+      Result: The source's rate is going to decrease proportionally to the sink's rate.
+   */
   def flow: Stream[IO, Unit] = {
     val sName       = "scenario1"
     val delayPerMsg = 1L
@@ -153,6 +164,17 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
       .onComplete(fs2.Stream.eval(IO(println(s"★ ★ ★  $sName completed ★ ★ ★"))))
   }
 
+  /*
+    The setup of the scenario is as follows:
+      We have one source and `parallelism` number of sinks. It runs in fan-in fashion using `parallelism` number of queues
+      upfront every sink. The sinks run concurrently.
+
+      The source and sink run at the same rate at the beginning.
+      The sink slows down over time, increasing latency on every message.
+      I use the bounded queue between the source and the sink.
+      This leads to blocking "enqueue" operation for the source in case no space in the queue.
+      Result: The source's rate is going to decrease proportionally to the sink's rate.
+   */
   def flow2[B](worker: Long ⇒ IO[B]): Stream[IO, B] = {
     val window      = 5000L
     val sourceDelay = 50.millis
@@ -161,6 +183,7 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
       .fixedRate[IO](sourceDelay)
       .scan(State[Long](item = 0L))((acc, _) ⇒ tumblingWindow(acc, window))
       .map(_.item)
+      //.prefetchN(16)
       .take(100)
 
     //src.broadcastN(par, 1 << 5)(testSink(_))
@@ -184,6 +207,7 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
       q ← Stream.eval(fs2.concurrent.Queue.bounded[IO, Option[Long]](1 << 3))
       src = Stream
         .fixedRate[IO](50.millis)
+        //.balance()
         .scan[Option[Long]](Some(0L))((a, _) ⇒ a.map(_ + 1L))
         .take(200)
         .through(q.enqueue)
@@ -312,34 +336,9 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
     IO(ExitCode.Success)
      */
 
-    /*flow2(
-      i ⇒
-        IO {
-          println(s"${Thread.currentThread.getName}: starts: $i")
-          Thread.sleep(300) //ThreadLocalRandom.current.nextInt(100, 500))
-          println(s"${Thread.currentThread.getName}: stop: $i")
-          i
-        }
-    ).compile
-      .foldMonoid(cats.Monoid[Long])
-      .redeem({ er ⇒
-        println("Error:" + er)
-        ExitCode.Error
-      }, { r ⇒
-        println("res:" + r)
-        ExitCode.Success
-      })*/
+    //fs2.Stream.range(1, 100)
 
-    //or
-    flow5(
-      i ⇒
-        IO {
-          println(s"${Thread.currentThread.getName}: $i start")
-          Thread.sleep(500) //ThreadLocalRandom.current.nextInt(1000, 2000)
-          println(s"${Thread.currentThread.getName}: $i stop")
-          i
-        }
-    ).compile
+    flow2(worker(_)).compile
       .foldMonoid(cats.Monoid[Long])
       .redeem({ er ⇒
         println("Error:" + er)
@@ -348,6 +347,18 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
         println("res:" + r)
         ExitCode.Success
       })
+
+    //or
+    /*
+    flow5(worker(_)).compile
+      .foldMonoid(cats.Monoid[Long])
+      .redeem({ er ⇒
+        println("Error:" + er)
+        ExitCode.Error
+      }, { r ⇒
+        println("res:" + r)
+        ExitCode.Success
+      })*/
   }
 
 }

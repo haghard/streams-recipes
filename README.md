@@ -50,6 +50,7 @@ https://github.com/svezfaz/akka-backpressure-scala-central-talk.git
 netstat -na | grep ${PORT}
 
 ## FS2 links ##
+https://github.com/functional-streams-for-scala/fs2
 https://lunatech.com/blog/WCl5OikAAIrvQCoc/functional-io-with-fs2-streams
 https://underscore.io/blog/posts/2018/03/20/fs2.html
 https://gist.github.com/narench/1bead6045874883fc227026e458333f1
@@ -72,4 +73,6 @@ Profunktor:
 
 A practical look at fs2 Streams Bracket:
   https://youtu.be/5TR89KzPaJ4?list=PLbZ2T3O9BuvczX5j03bWMrMFzK5OAs9mZ
-    
+
+CRASH COURSE FS2 - Łukasz Byczyński | Scalar 2019 
+https://www.youtube.com/watch?v=tbShO8eIXbI    

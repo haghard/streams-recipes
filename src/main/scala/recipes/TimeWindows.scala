@@ -20,7 +20,7 @@ trait TimeWindows {
     Thread.sleep(sleepMillis, sleepNanos)
 
     if (ThreadLocalRandom.current.nextDouble > 0.9995)
-      println(s"${Thread.currentThread.getName} Sleep:${sleepMillis} millis and ${sleepNanos} nanos")
+      println(s"${Thread.currentThread.getName} Sleep:$sleepMillis millis and $sleepNanos nanos")
 
     latency
   }

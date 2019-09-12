@@ -4,7 +4,10 @@ name := "stream-recipes"
 
 version := "0.1"
 
-scalaVersion := "2.13.0"
+scalaVersion := "2.12.8" //"2.13.0"
+
+//for cats on 2.12. No need when on 2.13
+scalacOptions += "-Ypartial-unification"
 
 resolvers ++= Seq(
   Resolver.defaultLocal,
@@ -44,7 +47,7 @@ libraryDependencies ++= Seq(
   "com.chuusai"       %% "shapeless"          % "2.3.3",
 
   //"org.http4s"        %% "jawn-streamz"   % "0.10.1", //"org.scalaz.stream" %% "scalaz-stream" %  "0.8.6"
-  //"org.http4s"        %% "jawn-fs2"           % "0.14.2",
+  "org.http4s"        %% "jawn-fs2"           % "0.15.0",
   //"org.spire-math"    %% "jawn-spray"         % "0.14.2",
 
   //"org.http4s"        %% "jawn-fs2"     % "0.9.0",
@@ -67,6 +70,8 @@ libraryDependencies ++= Seq(
 
   //("org.squbs" %% "squbs-pattern" %  "0.12.0").excludeAll("com.typesafe.akka"),
   "net.openhft" % "chronicle-queue" % "4.16.5",
+
+  "com.twitter"   %% "algebird-core" % "0.13.5", //prevents me from jumping on 2.13
 
   "org.hdrhistogram"  %  "HdrHistogram"      % "2.1.10",
   "com.esri.geometry" %  "esri-geometry-api" % "1.2.1",
