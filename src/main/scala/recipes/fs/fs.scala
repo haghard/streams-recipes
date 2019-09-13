@@ -62,19 +62,37 @@ package object fs {
     }
   }
 
-  /*
-    The use case for `broadcastN` method is as follows:
-      You have a queue of incoming payloads, each payload needs to be processed using some user provided function.
-      The processing must be done sequentially for all payloads that belong to the same partition, but two payloads
-      belonging to different partitions can be processed concurrently.
-      Partition number = seqNum % parallelism
-   */
   implicit class StreamOps[A](val source: Stream[IO, A]) extends AnyRef {
+    //import cats.implicits._
 
     /**
-      * Decouples producer from consumer enabling them to operate at its own rate up to `bufferSize`.
+      * Decouples producer from consumer using a non-blocking queue for backpressure, enabling them to operate at its own rates.
+      * Allows `bufferSize` elements to be consumed ahead of time and put into the queue while the downstream consumer processes
+      * the previous chunk of elements. Outputs chunks of size `bufferSize` or less for the last chunk.
       * If we hit `bufferSize`, then `enqueue` operation semantically blocks until there is a free space in the queue.
+      *
+      * Useful for uses cases when you want to enable batching in order to increase throughput.
+      *
+      * Similar to existing operator `prefetchN`. The only difference is that `bufferedChunks` emits a chunk at once,
+      * whereas `prefetchN` emits an element.
       */
+    def bufferedChunks[B](bufferSize: Int)(
+      f: fs2.Chunk[A] ⇒ IO[B]
+    )(implicit F: Concurrent[IO], T: Timer[IO]): Stream[IO, B] =
+      Stream.eval(Queue.bounded[IO, Option[A]](bufferSize)).flatMap { q ⇒
+        val p = source
+          .map(Some(_))
+          .through(q.enqueue)
+          .onComplete(Stream.eval(q.enqueue1(None)))
+          //Stream.fixedRate[IO](10.millis).map(_ ⇒ None).through(q.enqueue))
+          .drain
+
+        val c = q.dequeue.unNoneTerminate.chunkN(bufferSize).evalMap(f)
+
+        //runs p in background
+        c concurrently p
+      }
+
     def throughBuffer[B](bufferSize: Int)(
       f: A ⇒ IO[B]
     )(implicit F: Concurrent[IO], T: Timer[IO]): Stream[IO, B] =
@@ -82,17 +100,18 @@ package object fs {
         val p = source
           .map(Some(_))
           .through(q.enqueue)
-          .onComplete(Stream.fixedRate[IO](10.millis).map(_ ⇒ None).through(q.enqueue))
+          .onComplete(Stream.eval(q.enqueue1(None))) //<* IO(println("close src"))
           .drain
+
         val c = q.dequeue.unNoneTerminate.evalMap(f)
 
         /*
-        val delayPerMsg = 10L
-        q.dequeue.unNoneTerminate.scan(100L) { (latency, _) ⇒
-          val updated = latency + delayPerMsg
-          Thread.sleep(0 + (updated / 1000), (updated % 1000).toInt)
-          updated
-        }
+          val delayPerMsg = 10L
+          q.dequeue.unNoneTerminate.scan(100L) { (latency, _) ⇒
+            val updated = latency + delayPerMsg
+            Thread.sleep(0 + (updated / 1000), (updated % 1000).toInt)
+            updated
+          }
          */
 
         //runs p in background
@@ -137,7 +156,11 @@ package object fs {
 
     //looks like the most correct implementation from balanceN, balanceN2
     /**
-      *
+      * The use case for `broadcastN3` method is as follows:
+      * You have a queue of incoming elements, each element needs to be processed using some user provided function.
+      * The processing must be done sequentially for all elements that belong to the same partition, but two elements
+      * belonging to different partitions can be processed concurrently.
+      * Partition number = seqNum % parallelism
       */
     def balanceN3[B](parallelism: Int, bufferSize: Int)(
       f: Int ⇒ A ⇒ IO[B]

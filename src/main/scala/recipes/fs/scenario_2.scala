@@ -111,19 +111,37 @@ object scenario_2 extends IOApp with TimeWindows with GraphiteSupport {
         ???
       }*/
 
+    /* val io =
+      fs2.Stream
+        .range(1, 10) //Int.MaxValue
+        .covary[IO]
+        //.fixedRate[IO](50.millis)
+        //.repeatEval(IO(ThreadLocalRandom.current.nextLong(2000L)))
+        .metered(50.millis)
+        //.interruptAfter(10.second)
+        .prefetchN(1 << 5)
+        .scan(0L) { (latency, el) ⇒
+          val updated = latency + 10L
+          Thread.sleep(0 + (updated / 1000), (updated % 1000).toInt)
+          println(s"${Thread.currentThread.getName}: $el - $updated")
+          updated
+        }
+        .compile
+        .drain
+     */
+
     val io =
       fs2.Stream
-        .repeatEval(IO(ThreadLocalRandom.current.nextLong(2000L)))
+        .repeatEval(IO(ThreadLocalRandom.current.nextLong(20L)))
         .metered(50.millis)
-        //.buffer()
         .interruptAfter(10.second)
-        //.take(50)
-        .throughBuffer(1 << 3) { i ⇒
+        //.prefetchN(1 << 3)
+        .bufferedChunks(1 << 3) { i ⇒
           IO {
-            println(s"${Thread.currentThread.getName}: $i start")
-            Thread.sleep(ThreadLocalRandom.current.nextInt(100, 200))
-            println(s"${Thread.currentThread.getName}: $i stop")
-            i
+            Thread.sleep(ThreadLocalRandom.current.nextInt(500, 700))
+            val sum = i.foldLeft(cats.Monoid[Long].empty)(_ |+| _)
+            println(s"chunk size:${i.size} - sum: $sum")
+            sum
           }
         }
         .compile

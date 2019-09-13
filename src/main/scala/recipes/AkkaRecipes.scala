@@ -93,7 +93,8 @@ object AkkaRecipes extends App {
 
   val decider: akka.stream.Supervision.Decider = {
     case ex: Throwable ⇒
-      println(ex.getMessage)
+      ex.printStackTrace()
+      println(s"Streaming error: ${ex.getMessage}")
       akka.stream.Supervision.Stop
   }
 
@@ -125,7 +126,8 @@ object AkkaRecipes extends App {
 
   //typedActorSrc(mat)
 
-  RunnableGraph.fromGraph(scenario24).run()(ActorMaterializer(Settings)(sys))
+  //RunnableGraph.fromGraph(scenario24).run()(ActorMaterializer(Settings)(sys))
+  RunnableGraph.fromGraph(scenario25).run()(ActorMaterializer(Settings)(sys))
 
   /**
     * Tumbling windows discretize a stream into non-overlapping windows
@@ -1524,8 +1526,21 @@ object AkkaRecipes extends App {
       .to(new GraphiteSink[(Double, Double)]("sink_24", 0, ms))
   }
 
+  def scenario25: Graph[ClosedShape, akka.NotUsed] = {
+    val src = timedSource(ms, 1.second, 1.seconds, Int.MaxValue, "akka-source_25")
+    src
+      .map { i ⇒
+        //val r = i.toDouble
+        //println("in " + i)
+        i.toDouble
+      }
+      .via(TrailingDifference[Double](5).drop(5)) //ignore first window
+      //.via(DelayFlow(window, .5).filter(_._1 > 0))
+      .to(new GraphiteSink[Double]("sink_25", 0, ms))
+  }
+
   //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
-  def trailingDifference(offset: Int) =
+  def trailingDifference(offset: Int): Graph[FlowShape[Int, Int], akka.NotUsed] =
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
       val broadcast = b.add(Broadcast[Int](2))
@@ -2500,17 +2515,47 @@ object DelayFlow {
     Flow[Element]
       .statefulMapConcat { () ⇒
         // mutable state needs to be kept inside the stage
-        var index               = 0
-        val ring: Array[Double] = Array.ofDim[Double](delay)
+        var index                     = 0
+        val ringBuffer: Array[Double] = Array.ofDim[Double](delay)
 
         {
           case (sample, sample1) ⇒
-            val prev = ring(index)
-            ring(index) = sample
+            val prev = ringBuffer(index)
+            ringBuffer(index) = sample
             index = (index + 1) % delay
             scala.collection.immutable.Iterable((prev, sample1 + prev * scaleFactor))
         }
       }
+}
+
+/**
+  * Another way to implement TrailingDifference with `statefulMapConcat`
+  *
+  * http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
+  */
+object TrailingDifference {
+
+  def apply[T: Numeric: ClassTag](slidingWindowSize: Int): Flow[T, T, NotUsed] =
+    Flow[T].statefulMapConcat { () ⇒
+      var seqNum: Long            = 0L //(Int.MaxValue - 2).toLong
+      val slidingWindow: Array[T] = Array.ofDim[T](slidingWindowSize)
+
+      { element ⇒
+        val i    = (seqNum % slidingWindowSize).toInt
+        val prev = slidingWindow(i)
+        slidingWindow(i) = element
+
+        val it = if (seqNum > slidingWindowSize) {
+          //println(s"$seqNum - $i : $element - $prev")
+          scala.collection.immutable.Iterable(implicitly[Numeric[T]].minus(element, prev))
+        } else
+          scala.collection.immutable.Iterable(implicitly[Numeric[T]].zero)
+
+        seqNum += 1L
+
+        it
+      }
+    }
 }
 
 /*
