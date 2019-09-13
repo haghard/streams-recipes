@@ -2529,9 +2529,14 @@ object DelayFlow {
 }
 
 /**
-  * Another way to implement TrailingDifference with `statefulMapConcat`
+  * Another way to implement TrailingDifference using `statefulMapConcat`.
+  * As an alternative to http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
   *
-  * http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
+  * Example:
+  * given `delay` = 5 the input
+  * `0, 1, 2, 3, 4, 5   ,6    ,7    ,8     ...` results in the pairs
+  * `0,...        ,(5-0),(6-1),(7-2),(8-3) ... `
+  *
   */
 object TrailingDifference {
 
@@ -2545,7 +2550,7 @@ object TrailingDifference {
         val prev = slidingWindow(i)
         slidingWindow(i) = element
 
-        val it = if (seqNum > slidingWindowSize) {
+        val it = if (seqNum >= slidingWindowSize) {
           //println(s"$seqNum - $i : $element - $prev")
           scala.collection.immutable.Iterable(implicitly[Numeric[T]].minus(element, prev))
         } else
