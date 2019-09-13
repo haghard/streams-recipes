@@ -27,12 +27,13 @@ object CustomStages {
 
   //https://en.wikipedia.org/wiki/Moving_average
   //https://blog.scalac.io/2017/05/25/scala-specialization.html
-  class SimpleRingBuffer[@specialized(Double, Long, Int) T: SourceType: ClassTag: Numeric] private (
+  class SimpleRingBuffer[@specialized(Double, Long, Int) T: SourceElement: ClassTag: Numeric] private (
     capacity: Int,
     buffer: Array[T]
   ) {
     private var tail: Long = 0L
     private var head: Long = 0L
+    private val d          = implicitly[SourceElement[T]]
 
     def this(capacity: Int) =
       this(capacity, Array.ofDim[T](capacity))
@@ -53,13 +54,12 @@ object CustomStages {
       buffer(ind)
     }
 
-    def sum: Double =
-      implicitly[SourceType[T]].apply(buffer.sum)
+    def sum: Double = d(buffer.sum)
 
     def size(): Int = (tail - head).toInt
 
     override def toString =
-      s"head: [$head] tail:$tail buffer: ${buffer.mkString(",")}"
+      s"[head:$head tail:$tail]: [${buffer.mkString(",")}]"
   }
 
   class RingBuffer[T: scala.reflect.ClassTag] private (capacity: Int, mask: Int, buffer: Array[T]) {

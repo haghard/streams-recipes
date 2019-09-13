@@ -127,7 +127,8 @@ object AkkaRecipes extends App {
   //typedActorSrc(mat)
 
   //RunnableGraph.fromGraph(scenario24).run()(ActorMaterializer(Settings)(sys))
-  RunnableGraph.fromGraph(scenario25).run()(ActorMaterializer(Settings)(sys))
+  //RunnableGraph.fromGraph(scenario25).run()(ActorMaterializer(Settings)(sys))
+  RunnableGraph.fromGraph(scenario26).run()(ActorMaterializer(Settings)(sys))
 
   /**
     * Tumbling windows discretize a stream into non-overlapping windows
@@ -1366,7 +1367,7 @@ object AkkaRecipes extends App {
       ClosedShape
     }
 
-  case class SimpleMAState[T: SourceType: ClassTag: Numeric] private (
+  case class SimpleMAState[T: SourceElement: ClassTag: Numeric] private (
     ma: Double,
     capacity: Int,
     buffer: SimpleRingBuffer[T]
@@ -1375,7 +1376,7 @@ object AkkaRecipes extends App {
     //import scala.collection.JavaConverters._
     //new CircularFifo[Int](lenght)
 
-    val d = implicitly[SourceType[T]]
+    val d = implicitly[SourceElement[T]]
 
     def this(capacity: Int) = {
       this(.0, capacity, new SimpleRingBuffer[T](capacity))
@@ -1527,16 +1528,18 @@ object AkkaRecipes extends App {
   }
 
   def scenario25: Graph[ClosedShape, akka.NotUsed] = {
-    val src = timedSource(ms, 1.second, 1.seconds, Int.MaxValue, "akka-source_25")
+    val src = timedSource(ms, 1.second, 1.seconds, Int.MaxValue, "akka-source_25", start = 1)
     src
-      .map { i ⇒
-        //val r = i.toDouble
-        //println("in " + i)
-        i.toDouble
-      }
+      .map(_.toDouble)
       .via(TrailingDifference[Double](5).drop(5)) //ignore first window
-      //.via(DelayFlow(window, .5).filter(_._1 > 0))
       .to(new GraphiteSink[Double]("sink_25", 0, ms))
+  }
+
+  def scenario26: Graph[ClosedShape, akka.NotUsed] = {
+    val src = timedSource(ms, 1.second, 1.seconds, Int.MaxValue, "akka-source_26", start = 1)
+    src
+      .via(MovingAvg[Int](8))
+      .to(new GraphiteSink[Double]("sink_26", 0, ms))
   }
 
   //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
@@ -2528,29 +2531,59 @@ object DelayFlow {
       }
 }
 
+object MovingAvg {
+
+  def apply[T: SourceElement: Numeric: ClassTag](capacity: Int): Flow[T, Double, NotUsed] =
+    Flow[T].statefulMapConcat[Double] { () ⇒
+      var ma: Option[Double]  = None
+      val d: SourceElement[T] = implicitly[SourceElement[T]]
+
+      var index                = 0
+      val rb: Array[T] = Array.ofDim[T](capacity)
+
+      //HyperLogLog
+
+      { element ⇒
+        val prev = rb(index)
+        rb(index) = element
+        index = (index + 1) % capacity
+
+        if (ma.isDefined)
+          ma = ma.map(_ + ((d(element) - d(prev)) / capacity))
+
+        if (index + 1 == capacity && ma.isEmpty) //one shot action
+          ma = Some(d(rb.sum) / capacity)
+
+        ma.fold(scala.collection.immutable.Iterable(0.0)) {
+          scala.collection.immutable.Iterable(_)
+        }
+      }
+    }
+}
+
 /**
   * Another way to implement TrailingDifference using `statefulMapConcat`.
   * As an alternative to http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
   *
   * Example:
   * given `delay` = 5 the input
-  * `0, 1, 2, 3, 4, 5   ,6    ,7    ,8     ...` results in the pairs
+  * `0, 1, 2, 3, 4, 5   , 6   , 7   , 8     ...` results in the pairs
   * `0,...        ,(5-0),(6-1),(7-2),(8-3) ... `
   *
   */
 object TrailingDifference {
 
-  def apply[T: Numeric: ClassTag](slidingWindowSize: Int): Flow[T, T, NotUsed] =
-    Flow[T].statefulMapConcat { () ⇒
+  def apply[T: Numeric: ClassTag](capacity: Int): Flow[T, T, NotUsed] =
+    Flow[T].statefulMapConcat[T] { () ⇒
       var seqNum: Long            = 0L //(Int.MaxValue - 2).toLong
-      val slidingWindow: Array[T] = Array.ofDim[T](slidingWindowSize)
+      val slidingWindow: Array[T] = Array.ofDim[T](capacity)
 
       { element ⇒
-        val i    = (seqNum % slidingWindowSize).toInt
+        val i    = (seqNum % capacity).toInt
         val prev = slidingWindow(i)
         slidingWindow(i) = element
 
-        val it = if (seqNum >= slidingWindowSize) {
+        val it = if (seqNum >= capacity) {
           //println(s"$seqNum - $i : $element - $prev")
           scala.collection.immutable.Iterable(implicitly[Numeric[T]].minus(element, prev))
         } else
