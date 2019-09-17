@@ -82,3 +82,14 @@ A practical look at fs2 Streams Bracket:
 
 CRASH COURSE FS2 - Łukasz Byczyński | Scalar 2019 
 https://www.youtube.com/watch?v=tbShO8eIXbI    
+
+
+Type-Level DSLs // Typeclass induction
+https://youtu.be/Nm4OIhjjA2o
+https://gist.github.com/aaronlevin/d3911ba50d8f5253c85d2c726c63947b
+
+
+Validations - https://blog.softwaremill.com/38-lines-of-code-towards-better-data-validation-in-scala-c933e5a88f76
+Traverse HList - 
+    https://blog.free2move.com/shapeless-hlists-and-how-to-traverse-them/
+    https://olegpy.com/traversing-hlists/

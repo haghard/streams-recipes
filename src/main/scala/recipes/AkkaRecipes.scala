@@ -2538,7 +2538,7 @@ object MovingAvg {
       var ma: Option[Double]  = None
       val d: SourceElement[T] = implicitly[SourceElement[T]]
 
-      var index                = 0
+      var index        = 0
       val rb: Array[T] = Array.ofDim[T](capacity)
 
       //HyperLogLog
