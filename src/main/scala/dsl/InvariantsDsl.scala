@@ -17,6 +17,11 @@ object InvariantsDsl {
   type Errors = NonEmptyList[String]
   type R[T]   = cats.data.Validated[Errors, T]
 
+  /**
+    * All operations supported by this dsl.
+    *
+    * @tparam F
+    */
   trait PredicateOps[F[_]] {
     def inSet[T](in: T, state: Set[T], msg: String): F[R[T]]
 
