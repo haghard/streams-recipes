@@ -11,7 +11,7 @@ runMain recipes.fs.scenario_3
  */
 object scenario_3 extends IOApp with TimeWindows with GraphiteSupport {
 
-  object Preconditions extends BasicDsl with CheckProdDsl with CheckSpecDsl
+  object Preconditions extends BasicDsl with ProdDsl with SpecDsl
 
   override def run(args: List[String]): IO[ExitCode] = {
     import Preconditions._

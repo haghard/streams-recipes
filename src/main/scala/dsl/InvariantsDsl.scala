@@ -18,8 +18,7 @@ object InvariantsDsl {
   type R[T]   = cats.data.Validated[Errors, T]
 
   /**
-    * This trait is generic in the type of data structure being used to represent
-    * an instance of this trait.
+    * This trait is generic in the type of data structure being used to represent this dsl.
     *
     * All operations supported by this dsl.
     *
@@ -50,7 +49,7 @@ object InvariantsDsl {
     def apply[F[_]](implicit F: PredicateDsl[F]): F[T]
   }
 
-  trait CheckProdDsl {
+  trait ProdDsl {
 
     def uniqueProd[T](in: T, state: Set[T]): DslElement[R[T]] = new DslElement[R[T]] {
       override def apply[F[_]](implicit C: PredicateDsl[F]): F[R[T]] = C.notInSet[T](in, state, "uniqueProductName")
@@ -69,7 +68,7 @@ object InvariantsDsl {
     }
   }
 
-  trait CheckSpecDsl {
+  trait SpecDsl {
 
     def knownSpec[T](in: T, state: Set[T]): DslElement[R[T]] = new DslElement[R[T]] {
       override def apply[F[_]](implicit C: PredicateDsl[F]): F[R[T]] = C.inSet[T](in, state, "knownSpecSet")
@@ -270,7 +269,7 @@ object InvariantsDsl {
 
 /*
 
-  object Preconditions extends BasicDsl with CheckProdDsl with CheckSpecDsl
+  object Preconditions extends BasicDsl with ProdDsl with SpecDsl
 
   import Preconditions._
 
