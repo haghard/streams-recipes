@@ -18,20 +18,23 @@ object InvariantsDsl {
   type R[T]   = cats.data.Validated[Errors, T]
 
   /**
+    * This trait is generic in the type of data structure being used to represent
+    * an instance of this trait.
+    *
     * All operations supported by this dsl.
     *
-    * @tparam F
     */
   trait PredicateOps[F[_]] {
+
     def inSet[T](in: T, state: Set[T], msg: String): F[R[T]]
 
     def notInSet[T](in: T, state: Set[T], msg: String): F[R[T]]
 
-    def maybeInSet[T](in: Option[T], state: Set[T], msg: String): F[R[T]]
+    def opInSet[T](in: Option[T], state: Set[T], msg: String): F[R[T]]
 
     def inMap[T](in: T, state: Map[T, _], msg: String): F[R[T]]
 
-    def maybeInMap[T](in: Option[T], state: Map[T, _], msg: String): F[R[T]]
+    def opInMap[T](in: Option[T], state: Map[T, _], msg: String): F[R[T]]
 
     def and[A, B](l: F[R[A]], r: F[R[B]]): F[R[List[Any]]] //F[R[(A,B)]]
 
@@ -62,7 +65,7 @@ object InvariantsDsl {
     }
 
     def knownProd[T](in: Option[T], state: Map[T, _]): DslElement[R[T]] = new DslElement[R[T]] {
-      override def apply[F[_]](implicit C: PredicateOps[F]): F[R[T]] = C.maybeInMap[T](in, state, "knownProductOpt")
+      override def apply[F[_]](implicit C: PredicateOps[F]): F[R[T]] = C.opInMap[T](in, state, "knownProductOpt")
     }
   }
 
@@ -81,7 +84,7 @@ object InvariantsDsl {
     }
 
     def knownSpec[T](in: Option[T], state: Map[T, _]): DslElement[R[T]] = new DslElement[R[T]] {
-      override def apply[F[_]](implicit C: PredicateOps[F]): F[R[T]] = C.maybeInMap[T](in, state, "knownSpecOptMap")
+      override def apply[F[_]](implicit C: PredicateOps[F]): F[R[T]] = C.opInMap[T](in, state, "knownSpecOptMap")
     }
   }
 
@@ -100,7 +103,7 @@ object InvariantsDsl {
     implicit class DslOpts[A, B](dslL: DslElement[R[A]]) {
       def &&(dslR: DslElement[R[B]]): DslElement[R[List[Any]]] = self.and(dslL, dslR)
 
-      def or(dslR: DslElement[R[B]]): DslElement[R[List[Any]]] = self.or(dslL, dslR)
+      def ||(dslR: DslElement[R[B]]): DslElement[R[List[Any]]] = self.or(dslL, dslR)
     }
 
   }
@@ -126,7 +129,7 @@ object InvariantsDsl {
         }
       }
 
-    override def maybeInSet[T](in: Option[T], state: Set[T], name: String): IO[R[T]] =
+    override def opInSet[T](in: Option[T], state: Set[T], name: String): IO[R[T]] =
       IO {
         in.fold[R[T]](validNel(in.asInstanceOf[T])) { el ⇒
           if (state.contains(el)) validNel(el)
@@ -134,7 +137,7 @@ object InvariantsDsl {
         }
       }
 
-    override def maybeInMap[T](in: Option[T], state: Map[T, _], name: String): IO[R[T]] =
+    override def opInMap[T](in: Option[T], state: Map[T, _], name: String): IO[R[T]] =
       IO {
         in.fold[R[T]](validNel(in.asInstanceOf[T])) { el ⇒
           if (state.get(el).isDefined) validNel(el)
@@ -177,7 +180,7 @@ object InvariantsDsl {
             b match {
               case Valid(right) ⇒
                 Valid(toList[A](left) ::: toList[B](right))
-              case Invalid(invR) ⇒
+              case Invalid(_) ⇒
                 Valid(toList[A](left))
             }
           case Invalid(left) ⇒
@@ -206,10 +209,10 @@ object InvariantsDsl {
         validNel(in)
       }
 
-    override def maybeInMap[T](in: Option[T], state: Map[T, _], name: String): Id[R[T]] =
+    override def opInMap[T](in: Option[T], state: Map[T, _], name: String): Id[R[T]] =
       in.fold[R[T]](validNel(in.asInstanceOf[T]))(inMap(_, state, name))
 
-    override def maybeInSet[T](in: Option[T], state: Set[T], name: String): R[T] =
+    override def opInSet[T](in: Option[T], state: Set[T], name: String): R[T] =
       in.fold[R[T]](validNel(in.asInstanceOf[T]))(inSet(_, state, name))
 
     //HList instead of Any
@@ -251,7 +254,7 @@ object InvariantsDsl {
           r match {
             case Valid(right) ⇒
               Valid(toList[A](left) ::: toList[B](right))
-            case Invalid(invR) ⇒
+            case Invalid(_) ⇒
               Valid(toList[A](left))
           }
         case Invalid(left) ⇒
@@ -265,7 +268,8 @@ object InvariantsDsl {
     }
   }
 
-  /*
+/*
+
   object Preconditions extends BasicDsl with CheckProdDsl with CheckSpecDsl
 
   import Preconditions._
@@ -282,7 +286,7 @@ object InvariantsDsl {
     uniqueProd("b", Set("b", "c"))
   )
 
-  uniqueProd("b", Set("b", "c")) or knownSpec(Some(21L), Map(21L → "a", 3L → "b")) && uniqueSpec(1, Set(2, 3, 4, 6))
+  uniqueProd("b", Set("b", "c")) || knownSpec(Some(21L), Map(21L → "a", 3L → "b")) && uniqueSpec(1, Set(2, 3, 4, 6))
 
   //with brackets
   and(
@@ -293,11 +297,11 @@ object InvariantsDsl {
     uniqueSpec(1, Set(2, 3, 4, 6))
   )
 
-  val expOr = (uniqueProd("b", Set("b", "c")) or knownSpec(Some(21L), Map(21L → "a", 3L → "b")))
+  val expOr = (uniqueProd("b", Set("b", "c")) || knownSpec(Some(21L), Map(21L → "a", 3L → "b")))
     .&&(uniqueSpec(1, Set(2, 3, 4, 6)))
 
   expOr(ops)
-   */
-  //println("> " + expOr(interp))
+*/
 
+  //println("> " + expOr(interp))
 }

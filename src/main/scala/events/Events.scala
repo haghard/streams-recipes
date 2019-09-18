@@ -124,7 +124,7 @@ object Events {
         }
       } else {
         tailHandles.handleEvent(eventName, payload) match {
-          case Left(e) ⇒ Left(e)
+          case Left(e)  ⇒ Left(e)
           case Right(e) ⇒ Right(Left(e))
         }
       }
