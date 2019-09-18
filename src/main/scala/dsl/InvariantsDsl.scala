@@ -24,7 +24,7 @@ object InvariantsDsl {
     * All operations supported by this dsl.
     *
     */
-  trait PredicateOps[F[_]] {
+  trait PredicateDsl[F[_]] {
 
     def inSet[T](in: T, state: Set[T], msg: String): F[R[T]]
 
@@ -47,56 +47,56 @@ object InvariantsDsl {
   }
 
   trait DslElement[T] {
-    def apply[F[_]](implicit F: PredicateOps[F]): F[T]
+    def apply[F[_]](implicit F: PredicateDsl[F]): F[T]
   }
 
   trait CheckProdDsl {
 
     def uniqueProd[T](in: T, state: Set[T]): DslElement[R[T]] = new DslElement[R[T]] {
-      override def apply[F[_]](implicit C: PredicateOps[F]): F[R[T]] = C.notInSet[T](in, state, "uniqueProductName")
+      override def apply[F[_]](implicit C: PredicateDsl[F]): F[R[T]] = C.notInSet[T](in, state, "uniqueProductName")
     }
 
     def knownProd[T](in: T, state: Set[T]): DslElement[R[T]] = new DslElement[R[T]] {
-      override def apply[F[_]](implicit C: PredicateOps[F]): F[R[T]] = C.notInSet[T](in, state, "knownProductName")
+      override def apply[F[_]](implicit C: PredicateDsl[F]): F[R[T]] = C.notInSet[T](in, state, "knownProductName")
     }
 
     def knownProd[T](in: T, state: Map[T, _]): DslElement[R[T]] = new DslElement[R[T]] {
-      override def apply[F[_]](implicit C: PredicateOps[F]): F[R[T]] = C.inMap[T](in, state, "knownProductMap")
+      override def apply[F[_]](implicit C: PredicateDsl[F]): F[R[T]] = C.inMap[T](in, state, "knownProductMap")
     }
 
     def knownProd[T](in: Option[T], state: Map[T, _]): DslElement[R[T]] = new DslElement[R[T]] {
-      override def apply[F[_]](implicit C: PredicateOps[F]): F[R[T]] = C.opInMap[T](in, state, "knownProductOpt")
+      override def apply[F[_]](implicit C: PredicateDsl[F]): F[R[T]] = C.opInMap[T](in, state, "knownProductOpt")
     }
   }
 
   trait CheckSpecDsl {
 
     def knownSpec[T](in: T, state: Set[T]): DslElement[R[T]] = new DslElement[R[T]] {
-      override def apply[F[_]](implicit C: PredicateOps[F]): F[R[T]] = C.inSet[T](in, state, "knownSpecSet")
+      override def apply[F[_]](implicit C: PredicateDsl[F]): F[R[T]] = C.inSet[T](in, state, "knownSpecSet")
     }
 
     def uniqueSpec[T](in: T, state: Set[T]): DslElement[R[T]] = new DslElement[R[T]] {
-      override def apply[F[_]](implicit C: PredicateOps[F]): F[R[T]] = C.notInSet[T](in, state, "uniqueSpec")
+      override def apply[F[_]](implicit C: PredicateDsl[F]): F[R[T]] = C.notInSet[T](in, state, "uniqueSpec")
     }
 
     def knownSpec[T](in: T, state: Map[T, _]): DslElement[R[T]] = new DslElement[R[T]] {
-      override def apply[F[_]](implicit C: PredicateOps[F]): F[R[T]] = C.inMap[T](in, state, "knownSpecMap")
+      override def apply[F[_]](implicit C: PredicateDsl[F]): F[R[T]] = C.inMap[T](in, state, "knownSpecMap")
     }
 
     def knownSpec[T](in: Option[T], state: Map[T, _]): DslElement[R[T]] = new DslElement[R[T]] {
-      override def apply[F[_]](implicit C: PredicateOps[F]): F[R[T]] = C.opInMap[T](in, state, "knownSpecOptMap")
+      override def apply[F[_]](implicit C: PredicateDsl[F]): F[R[T]] = C.opInMap[T](in, state, "knownSpecOptMap")
     }
   }
 
   trait BasicDsl { self ⇒
 
     def and[A, B](l: DslElement[R[A]], r: DslElement[R[B]]): DslElement[R[List[Any]]] = new DslElement[R[List[Any]]] {
-      override def apply[F[_]](implicit C: PredicateOps[F]): F[R[List[Any]]] =
+      override def apply[F[_]](implicit C: PredicateDsl[F]): F[R[List[Any]]] =
         C.and[A, B](l.apply[F], r.apply[F])
     }
 
     def or[A, B](l: DslElement[R[A]], r: DslElement[R[B]]): DslElement[R[List[Any]]] = new DslElement[R[List[Any]]] {
-      override def apply[F[_]](implicit O: PredicateOps[F]): F[R[List[Any]]] =
+      override def apply[F[_]](implicit O: PredicateDsl[F]): F[R[List[Any]]] =
         O.or[A, B](l.apply[F], r.apply[F])
     }
 
@@ -108,7 +108,7 @@ object InvariantsDsl {
 
   }
 
-  val catsIOops = new PredicateOps[cats.effect.IO] {
+  val catsIOops = new PredicateDsl[cats.effect.IO] {
 
     override def inSet[T](in: T, state: Set[T], name: String): cats.effect.IO[R[T]] =
       cats.effect.IO {
@@ -194,7 +194,7 @@ object InvariantsDsl {
       }
   }
 
-  val ops = new PredicateOps[cats.Id] {
+  val ops = new PredicateDsl[cats.Id] {
 
     override def inSet[T](in: T, state: Set[T], name: String): Id[R[T]] =
       if (state.contains(in)) validNel(in)
