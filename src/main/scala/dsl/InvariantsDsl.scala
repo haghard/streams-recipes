@@ -45,8 +45,12 @@ object InvariantsDsl {
     }
   }
 
+  /**
+    * Given any type class PredicateDsl a DslElement[T] is going to be able to produces an F[T] in PredicateDsl[T]
+    *
+    */
   trait DslElement[T] {
-    def apply[F[_]](implicit F: PredicateDsl[F]): F[T]
+    def apply[F[_]](implicit P: PredicateDsl[F]): F[T]
   }
 
   trait ProdDsl {
@@ -267,7 +271,7 @@ object InvariantsDsl {
     }
   }
 
-/*
+  /*
 
   object Preconditions extends BasicDsl with ProdDsl with SpecDsl
 
@@ -300,7 +304,7 @@ object InvariantsDsl {
     .&&(uniqueSpec(1, Set(2, 3, 4, 6)))
 
   expOr(ops)
-*/
+   */
 
   //println("> " + expOr(interp))
 }

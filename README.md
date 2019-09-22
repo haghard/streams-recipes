@@ -93,3 +93,6 @@ Validations - https://blog.softwaremill.com/38-lines-of-code-towards-better-data
 Traverse HList - 
     https://blog.free2move.com/shapeless-hlists-and-how-to-traverse-them/
     https://olegpy.com/traversing-hlists/
+        
+
+  

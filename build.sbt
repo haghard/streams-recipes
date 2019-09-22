@@ -1,13 +1,36 @@
 import SbtPrompt.autoImport._
+import scala.sys.process.Process
 
 name := "stream-recipes"
 
 version := "0.1"
 
-scalaVersion := "2.12.8" //"2.13.0"
+scalaVersion := "2.13.0" //"2.12.8"
 
 //for cats on 2.12. No need when on 2.13
-scalacOptions += "-Ypartial-unification"
+//scalacOptions += "-Ypartial-unification"
+
+scalacOptions ++= Seq(
+  //"-Xfatal-warnings",
+    //"-deprecation",
+    "-encoding",
+    "UTF-8",
+    "-feature",
+    "-language:experimental.macros",
+    "-language:higherKinds",
+    "-language:implicitConversions",
+    "-unchecked",
+    "-Xlint",
+    "-Yno-adapted-args",
+    "-Ywarn-dead-code",
+    "-Ywarn-numeric-widen",
+    "-Ywarn-value-discard",
+    "-Ywarn-unused",
+    "-Ypartial-unification"
+  ).filter {
+    case ("-Yno-adapted-args" | "-Ypartial-unification") if scalaVersion.value.startsWith("2.13") => false
+    case _ => true
+  }
 
 resolvers ++= Seq(
   Resolver.defaultLocal,
@@ -33,6 +56,7 @@ resolvers ++= Seq(
 promptTheme := ScalapenosTheme
 
 val akkaStreamV = "2.5.25"
+val fs2V = "2.0.1"
 val scalazVersion = "7.2.28"
 
 scalafmtOnCompile := true
@@ -53,9 +77,9 @@ libraryDependencies ++= Seq(
   //"org.http4s"        %% "jawn-fs2"     % "0.9.0",
   //"org.http4s"        %%  "jawn-fs2"      % "0.10.1"
 
-  "co.fs2"            %% "fs2-core"          %  "2.0.0", //"1.1.0-M1", //"0.10.5",
-  "co.fs2"            %% "fs2-io"            %  "2.0.0",  //"1.1.0-M1", //"0.10.5",
-  "co.fs2"            %% "fs2-reactive-streams" % "2.0.0",
+  "co.fs2"            %% "fs2-core"          %  fs2V, //"1.1.0-M1", //"0.10.5",
+  "co.fs2"            %% "fs2-io"            %  fs2V,  //"1.1.0-M1", //"0.10.5",
+  "co.fs2"            %% "fs2-reactive-streams" % fs2V,
 
   "org.typelevel"     %% "cats-free"         %  "2.0.0",
 
@@ -71,7 +95,10 @@ libraryDependencies ++= Seq(
   //("org.squbs" %% "squbs-pattern" %  "0.12.0").excludeAll("com.typesafe.akka"),
   "net.openhft" % "chronicle-queue" % "4.16.5",
 
-  "com.twitter"   %% "algebird-core" % "0.13.5", //prevents me from jumping on 2.13
+  "org.apache.avro" % "avro" % "1.9.1",
+  "commons-codec" % "commons-codec" % "1.11",
+
+  //"com.twitter"   %% "algebird-core" % "0.13.5", //prevents me from jumping on 2.13
 
   "org.hdrhistogram"  %  "HdrHistogram"      % "2.1.10",
   "com.esri.geometry" %  "esri-geometry-api" % "1.2.1",
@@ -107,8 +134,29 @@ libraryDependencies ++= Seq(
   "org.apache.commons" % "commons-collections4" % "4.0",
 
   // li haoyi ammonite repl embed
-  ("com.lihaoyi" % "ammonite" % "1.6.9" % "test").cross(CrossVersion.full)
+  ("com.lihaoyi" % "ammonite" % "1.7.1" % "test").cross(CrossVersion.full)
 )
+
+compile in Compile := (compile in Compile).dependsOn(compileAvro).value
+
+def compileAvro = baseDirectory map { dir =>
+  
+  def execute: Int = {
+    //rm -rf ./src/main/java/recipes/chat/domain && java -jar ./avro/avro-tools-1.9.1.jar compile schema ./src/main/resources/UsersEnvelopeV1.avsc ./src/main/java
+    val schema = IO.listFiles(new File(s"$dir/src/main/resources/avro")).head.getAbsolutePath
+    Process(s"rm -rf $dir/src/main/java/recipes/chat/domain").!
+      Process(s"java -jar ./avro/avro-tools-1.9.1.jar compile schema $schema $dir/src/main/java") .!
+
+    //Process("pwd").! & Process(s"ls -la $dir/src/main/resources/avro").!
+  }
+
+  println("compile avro resources ...")
+  haltOnCmdResultError(execute)
+}
+
+def haltOnCmdResultError(result: Int) {
+  if (result != 0) throw new Exception("Build failed")
+}
 
 //test:run
 sourceGenerators in Test += Def.task {
