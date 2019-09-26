@@ -95,9 +95,6 @@ libraryDependencies ++= Seq(
   //("org.squbs" %% "squbs-pattern" %  "0.12.0").excludeAll("com.typesafe.akka"),
   "net.openhft" % "chronicle-queue" % "4.16.5",
 
-  "org.apache.avro" % "avro" % "1.9.1",
-  "commons-codec" % "commons-codec" % "1.11",
-
   //"com.twitter"   %% "algebird-core" % "0.13.5", //prevents me from jumping on 2.13
 
   "org.hdrhistogram"  %  "HdrHistogram"      % "2.1.10",
@@ -137,7 +134,7 @@ libraryDependencies ++= Seq(
   ("com.lihaoyi" % "ammonite" % "1.7.1" % "test").cross(CrossVersion.full)
 )
 
-compile in Compile := (compile in Compile).dependsOn(compileAvro).value
+//compile in Compile := (compile in Compile).dependsOn(compileAvro).value
 
 def compileAvro = baseDirectory map { dir =>
   
