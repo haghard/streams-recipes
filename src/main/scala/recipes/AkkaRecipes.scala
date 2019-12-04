@@ -205,7 +205,7 @@ object AkkaRecipes extends App {
         GraphDSL.create() { implicit b ⇒
           import GraphDSL.Implicits._
 
-          def conflate =
+          def conflate: FlowShape[T, T] =
             b.add(
               Flow[T]
                 .withAttributes(Attributes.inputBuffer(1, 1))
@@ -467,7 +467,7 @@ object AkkaRecipes extends App {
   }
 
   /*
-    Many to one with dynamically growing number of sources
+    Many to one with a dynamically growing number of sources
     MergeHub creates a source that emits elements merged from a dynamic set of producers
    */
   def scenario7_1(mat: Materializer): Unit = {
@@ -493,6 +493,7 @@ object AkkaRecipes extends App {
             s"source_7_1-$iterNum",
             iterNum * 10000
           )
+          //src.runWith(sink)(mat)
           src.to(sink).run()(mat)
           ()
         }
@@ -504,13 +505,52 @@ object AkkaRecipes extends App {
       f
     }
 
-    //This sink can be  materialized (ie. run)  arbitrary many  times
+    //StreamRefs
+
+    //1. You have a source you'd like to
+    /*val src = Source.fromIterator(() => Iterator.range(0, 10))
+    src.runWith(StreamRefs.sourceRef())(mat).map { srcRef =>
+      //here we should send srcRef to the remote side so that the remote side could do the following
+      srcRef.source.to(Sink.foreach { el => }).run()(mat)
+      //srcRef.source.runWith(Sink.foreach { el =>  })(mat)
+      ()
+    }*/
+
+    //2.
+/*
+    val sink = Sink.foreach[Int] { el: Int => }
+    /*StreamRefs.sinkRef[Int]().to(sink).run().map { sinkRef =>
+      val src = Source.fromIterator(() => Iterator.range(0, 10))
+      src.to(sinkRef.sink).run()(mat)
+    }*/
+
+    sink.runWith(StreamRefs.sinkRef[Int]())(mat).map { sinkRef =>
+      //
+      val src = Source.fromIterator(() => Iterator.range(0, 10))
+      src.to(sinkRef.sink).run()(mat)
+    }*/
+
+
+    //This sink can be materialized (ie. run) arbitrary times
     val sinkHub: Sink[Int, NotUsed] =
       MergeHub
         .source[Int](1 << 6)
         //.to(new GraphiteSink("sink_0", 0, ms))
         .to(manyToOneSink)
         .run()(mat)
+
+    sinkHub.runWith(StreamRefs.sinkRef[Int]())(mat).map { sinkRef =>
+      //send it to the remote side
+      //replyTo ! sinkRef
+      val src = Source.fromIterator(() => Iterator.range(0, 10))
+      src.to(sinkRef.sink).run()(mat)
+    }
+
+    StreamRefs.sinkRef[Int]().to(sinkHub).run()(mat).map { sinkRef =>
+      //on the remote side
+      val src = Source.fromIterator(() => Iterator.range(0, 10))
+      src.to(sinkRef.sink).run()(mat)
+    }
 
     attachNSources(sinkHub, 1)
   }
@@ -709,7 +749,7 @@ object AkkaRecipes extends App {
     attachNSinks(sourceHub, 1, 3)
   }
 
-  //Many to  one
+  //Many-to-one
   def scenario7_3(mat: Materializer): Unit = {
     implicit val ec       = mat.executionContext
     val numOfMsgPerSource = 500
@@ -718,7 +758,7 @@ object AkkaRecipes extends App {
 
     //https://doc.akka.io/docs/akka/current/stream/stream-dynamic.html#using-the-mergehub
 
-    //If the consumer cannot keep up then all of the producers are backpressured.
+    //If the consumer cannot keep up with the rate, all producers will be backpressured.
     val (sinkHub, queue) =
       MergeHub
         .source[Int](bufferSize)
@@ -1518,10 +1558,7 @@ object AkkaRecipes extends App {
     val window = 5
     val src    = timedSource(ms, 1.second, 1.seconds, Int.MaxValue, "akka-source_24")
     src
-      .map { i ⇒
-        (i.toDouble, .0)
-      //println("in " + r)
-      }
+      .map { i ⇒  (i.toDouble, .0) }
       .via(DelayFlow(window, .1).filter(_._1 > 0)) //ignore first window
       //.via(DelayFlow(window, .5).filter(_._1 > 0))
       .to(new GraphiteSink[(Double, Double)]("sink_24", 0, ms))
@@ -2507,7 +2544,7 @@ object DelayFlow {
   type Element = (Double, Double)
 
   /**
-    * Allows you to delay elements. It returns a tuple
+    * Allows you to delay elements.
     * Example:
     * given `delay` = 5 and `scaleFactor` = 0.5 and the input
     * `(1,0),(2,0),(3,0),(4,0),(5,0),(6,0),  (7,0),  (8,0) ...` results in the pairs

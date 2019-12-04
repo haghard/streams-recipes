@@ -17,6 +17,7 @@ http://allaboutscala.com/scala-frameworks/akka/
 http://blog.akka.io/streams/2016/07/30/mastering-graph-stage-part-1
 https://doc.akka.io/docs/akka/current/stream/stream-graphs.html#bidirectional-flows
 Rethinking Streaming Workloads with Akka Streams: Part II https://blog.colinbreck.com/rethinking-streaming-workloads-with-akka-streams-part-ii/
+https://engineering.prezi.com/prox-part-2-akka-streams-with-cats-effect-f63c28199cad
 
 ### How to set up grafana_graphite ### 
 
@@ -47,6 +48,7 @@ https://github.com/efekahraman/akka-streams-session-window
 
 ## Akka streams links ##
 http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
+https://blog.softwaremill.com/painlessly-passing-message-context-through-akka-streams-1615b11efc2c
 
 
 https://github.com/svezfaz/akka-backpressure-scala-central-talk.git
