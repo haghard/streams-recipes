@@ -5,9 +5,7 @@ import recipes.{GraphiteSupport, TimeWindows}
 import dsl.InvariantsDsl._
 
 /*
-
 runMain recipes.fs.scenario_3
-
  */
 object scenario_3 extends IOApp with TimeWindows with GraphiteSupport {
 

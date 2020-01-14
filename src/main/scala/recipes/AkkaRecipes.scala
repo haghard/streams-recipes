@@ -32,11 +32,11 @@ import recipes.Sinks.{DegradingGraphiteSink, GraphiteSink, GraphiteSink3}
 
 import scala.collection.{immutable, mutable}
 import scala.concurrent.duration.{Deadline, FiniteDuration, _}
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, Future, Promise}
 import scala.language.postfixOps
 import scala.reflect.ClassTag
 import scala.util.control.NoStackTrace
-import scala.util.{Failure, Success}
+import scala.util.{Failure, Success, Try}
 
 //runMain recipes.AkkaRecipes
 object AkkaRecipes extends App {
@@ -100,7 +100,8 @@ object AkkaRecipes extends App {
 
   val Settings = ActorMaterializerSettings
     .create(system = sys)
-    .withInputBuffer(32, 32)
+    //.withInputBuffer(32, 32)
+    .withInputBuffer(16, 16)
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher")
 
@@ -128,7 +129,54 @@ object AkkaRecipes extends App {
 
   //RunnableGraph.fromGraph(scenario24).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario25).run()(ActorMaterializer(Settings)(sys))
-  RunnableGraph.fromGraph(scenario26).run()(ActorMaterializer(Settings)(sys))
+  //RunnableGraph.fromGraph(scenario26).run()(ActorMaterializer(Settings)(sys))
+
+  case object CurrentThreadExecutionContext extends ExecutionContextExecutor {
+    def execute(runnable: Runnable): Unit     = runnable.run()
+    def reportFailure(cause: Throwable): Unit = throw cause
+  }
+
+  val graph = scenario27().run()(ActorMaterializer(Settings)(sys))
+
+  val enqueue = (elem: Int) ⇒ {
+    //println(s"${Thread.currentThread.getName}: $elem")
+    /*{
+      implicit val ec = akka.dispatch.ExecutionContexts.sameThreadExecutionContext // CurrentThreadExecutionContext
+      elem.handler.map { x => SignalAndHandler(elem.signal, Success(x)) }
+        .recover { case x => SignalAndHandler(elem.signal, Failure(x)) }
+    }*/
+
+    val future: Future[Handler[Int]] =
+      /*Future {
+        Thread.sleep(100)
+        println(s"${Thread.currentThread.getName}: remote call0:$elem")
+        elem
+      }(CurrentThreadExecutionContext)*/
+      Future
+        .successful(elem)
+        .map { e ⇒
+          println(s"${Thread.currentThread.getName}: remote call: $e")
+          Thread.sleep(200)
+          Handler(Success(e))
+        }(CurrentThreadExecutionContext)
+
+    graph.offer(future).onComplete {
+      case Success(r /*QueueOfferResult.Enqueued*/ ) ⇒
+        println(s"${Thread.currentThread.getName}: $r: $elem")
+      //case Success(QueueOfferResult.Dropped) ⇒ println("Dropped")
+      case Failure(error) ⇒
+        println(s"Error: $error")
+    }
+    //Thread.sleep(200)
+  }
+
+  (0 to 50).foreach(enqueue)
+
+  Thread.sleep(5000)
+  graph.complete
+  graph.watchCompletion().onComplete { _ ⇒
+    println("Completion !!!!")
+  }
 
   /**
     * Tumbling windows discretize a stream into non-overlapping windows
@@ -517,7 +565,7 @@ object AkkaRecipes extends App {
     }*/
 
     //2.
-/*
+    /*
     val sink = Sink.foreach[Int] { el: Int => }
     /*StreamRefs.sinkRef[Int]().to(sink).run().map { sinkRef =>
       val src = Source.fromIterator(() => Iterator.range(0, 10))
@@ -530,7 +578,6 @@ object AkkaRecipes extends App {
       src.to(sinkRef.sink).run()(mat)
     }*/
 
-
     //This sink can be materialized (ie. run) arbitrary times
     val sinkHub: Sink[Int, NotUsed] =
       MergeHub
@@ -539,18 +586,19 @@ object AkkaRecipes extends App {
         .to(manyToOneSink)
         .run()(mat)
 
-    sinkHub.runWith(StreamRefs.sinkRef[Int]())(mat).map { sinkRef =>
+    sinkHub.runWith(StreamRefs.sinkRef[Int]())(mat).map { sinkRef ⇒
       //send it to the remote side
       //replyTo ! sinkRef
-      val src = Source.fromIterator(() => Iterator.range(0, 10))
+      val src = Source.fromIterator(() ⇒ Iterator.range(0, 10))
       src.to(sinkRef.sink).run()(mat)
     }
 
-    StreamRefs.sinkRef[Int]().to(sinkHub).run()(mat).map { sinkRef =>
+    StreamRefs.sinkRef[Int]().to(sinkHub).run()(mat).map { sinkRef ⇒
       //on the remote side
-      val src = Source.fromIterator(() => Iterator.range(0, 10))
+      val src = Source.fromIterator(() ⇒ Iterator.range(0, 10))
       src.to(sinkRef.sink).run()(mat)
     }
+
 
     attachNSources(sinkHub, 1)
   }
@@ -608,15 +656,15 @@ object AkkaRecipes extends App {
         Behaviors.setup[DegradingTypedActorSource.Confirm] { ctx ⇒
           def awaitConfirmation(
             i: Int,
-            ref: akka.actor.typed.ActorRef[DegradingTypedActorSource.TypedSrcProtocol]
+            src: akka.actor.typed.ActorRef[DegradingTypedActorSource.TypedSrcProtocol]
           ): Behavior[DegradingTypedActorSource.Confirm] =
             Behaviors.receiveMessage[DegradingTypedActorSource.Confirm] {
               case DegradingTypedActorSource.Confirm ⇒
                 println("Confirm: " + i)
                 Thread.sleep(1000)
                 val next = i + 1
-                ref.tell(DegradingTypedActorSource.IntValue(next))
-                awaitConfirmation(next, ref)
+                src.tell(DegradingTypedActorSource.IntValue(next))
+                awaitConfirmation(next, src)
             }
 
           Behaviors.receiveMessage[DegradingTypedActorSource.Confirm] {
@@ -629,13 +677,18 @@ object AkkaRecipes extends App {
         "src-actor"
       )
 
+    //or
+    //ActorSource.actorRef()
+
+    //actor -> src -> flow -> sink
+
     val actorSrc: akka.actor.typed.ActorRef[DegradingTypedActorSource.TypedSrcProtocol] =
       ActorSource
         .actorRefWithAck[DegradingTypedActorSource.TypedSrcProtocol, DegradingTypedActorSource.Confirm](
-          ackTo,
-          DegradingTypedActorSource.Confirm,
-          { case DegradingTypedActorSource.Completed         ⇒ CompletionStrategy.immediately },
-          { case DegradingTypedActorSource.StreamFailure(ex) ⇒ ex }
+          ackTo = ackTo,
+          ackMessage = DegradingTypedActorSource.Confirm,
+          completionMatcher = { case DegradingTypedActorSource.Completed      ⇒ CompletionStrategy.immediately },
+          failureMatcher = { case DegradingTypedActorSource.StreamFailure(ex) ⇒ ex }
         )
         .to(Sink.foreach[DegradingTypedActorSource.TypedSrcProtocol](m ⇒ println("out: " + m)))
         .run()
@@ -643,7 +696,7 @@ object AkkaRecipes extends App {
     ackTo.tell(DegradingTypedActorSource.Connect(actorSrc))
   }
 
-  //Many to Many(fan-in fan-out)
+  //Dynamic Many to Many(fan-in fan-out)
   def scenario7_2(mat: Materializer): Unit = {
     implicit val ec       = mat.executionContext
     val numOfMsgPerSource = 3000
@@ -729,12 +782,11 @@ object AkkaRecipes extends App {
       f
     }
 
-    val bufferSize = 1 << 6
+    val bufferSize = 1 << 4
     val (sinkHub, sourceHub) =
-      MergeHub
-        .source[Int](bufferSize)
+      MergeHub.source[Int](bufferSize) //If the consumer cannot keep up then all of the producers are back pressured.
         //.toMat(Sink.queue[Int]())(Keep.both)
-        .toMat(BroadcastHub.sink[Int](bufferSize))(Keep.both)
+        .toMat(BroadcastHub.sink[Int](bufferSize))(Keep.both) //The rate of the producers will be automatically set to the slowest consumer.
         .run()(mat)
 
     /*
@@ -745,8 +797,8 @@ object AkkaRecipes extends App {
     //sourceHub.runWith(Sink.ignore)(mat)
 
     //val gr = GraphiteMetrics(ms)
-    attachNSources(sinkHub, 1, 3)
-    attachNSinks(sourceHub, 1, 3)
+    attachNSources(sinkHub, 1, 3) //We can add new producers on the fly
+    attachNSinks(sourceHub, 1, 3) //We can add new consumers on the fly
   }
 
   //Many-to-one
@@ -1558,7 +1610,9 @@ object AkkaRecipes extends App {
     val window = 5
     val src    = timedSource(ms, 1.second, 1.seconds, Int.MaxValue, "akka-source_24")
     src
-      .map { i ⇒  (i.toDouble, .0) }
+      .map { i ⇒
+        (i.toDouble, .0)
+      }
       .via(DelayFlow(window, .1).filter(_._1 > 0)) //ignore first window
       //.via(DelayFlow(window, .5).filter(_._1 > 0))
       .to(new GraphiteSink[(Double, Double)]("sink_24", 0, ms))
@@ -1577,6 +1631,39 @@ object AkkaRecipes extends App {
     src
       .via(MovingAvg[Int](8))
       .to(new GraphiteSink[Double]("sink_26", 0, ms))
+  }
+
+  case class Handler[T](handler: Try[T])
+
+  def scenario27(): RunnableGraph[SourceQueueWithComplete[Future[Handler[Int]]]] = {
+    def queueGraph[T](
+      onBatch: List[Handler[T]] ⇒ Future[Unit],
+      parallelism: Int = 3
+    ): RunnableGraph[SourceQueueWithComplete[Future[Handler[T]]]] =
+      Source
+        .queue[Future[Handler[T]]](1 << 6, OverflowStrategy.backpressure)
+        .mapAsync(parallelism)(identity)
+        .batch[List[Handler[T]]](1 << 3, x ⇒ List(x)) { (xs, x) ⇒
+          x :: xs
+        }
+        .to(Sink.foreachAsync(parallelism)(xs ⇒ onBatch(xs.reverse)))
+    //or
+    //.mapAsync(parallelism)(xs ⇒ onBatch(xs.reverse)).to(Sink.ignore)
+
+    def onBatch[T](batch: List[Handler[T]]): Future[Unit] = {
+      //tell self
+      val promise = Promise[Unit]
+
+      val max = FiniteDuration(ThreadLocalRandom.current.nextInt(2000), MILLISECONDS)
+      sys.scheduler.scheduleOnce(max) { promise.success(()) }
+
+      val f = promise.future
+      f.onComplete(_ ⇒ println(s"${Thread.currentThread.getName}: onBatchComplete - ${batch.mkString(",")} "))
+      f
+    }
+
+    queueGraph[Int](onBatch[Int])
+
   }
 
   //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
