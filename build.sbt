@@ -90,6 +90,9 @@ libraryDependencies ++= Seq(
 
   "com.typesafe.akka" %% "akka-stream" % akkaStreamV,
   "com.typesafe.akka" %% "akka-stream-typed" % akkaStreamV,
+
+  "com.typesafe.akka" %% "akka-http" % "10.1.10",
+
   //"com.typesafe.akka" %% "akka-actor-typed" % akkaStreamV,
 
   //("org.squbs" %% "squbs-pattern" %  "0.12.0").excludeAll("com.typesafe.akka"),

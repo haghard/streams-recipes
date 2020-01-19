@@ -11,6 +11,8 @@ import akka.NotUsed
 import akka.actor._
 import akka.actor.typed.{Behavior, PreRestart}
 import akka.actor.typed.scaladsl.Behaviors
+import akka.http.scaladsl.Http
+import akka.http.scaladsl.model.{HttpRequest, HttpResponse}
 import akka.routing.ConsistentHashingRouter.ConsistentHashMapping
 import akka.stream._
 import akka.stream.actor.ActorPublisherMessage.{Cancel, Request}
@@ -599,7 +601,6 @@ object AkkaRecipes extends App {
       src.to(sinkRef.sink).run()(mat)
     }
 
-
     attachNSources(sinkHub, 1)
   }
 
@@ -784,7 +785,8 @@ object AkkaRecipes extends App {
 
     val bufferSize = 1 << 4
     val (sinkHub, sourceHub) =
-      MergeHub.source[Int](bufferSize) //If the consumer cannot keep up then all of the producers are back pressured.
+      MergeHub
+        .source[Int](bufferSize) //If the consumer cannot keep up then all of the producers are back pressured.
         //.toMat(Sink.queue[Int]())(Keep.both)
         .toMat(BroadcastHub.sink[Int](bufferSize))(Keep.both) //The rate of the producers will be automatically set to the slowest consumer.
         .run()(mat)
@@ -1663,8 +1665,31 @@ object AkkaRecipes extends App {
     }
 
     queueGraph[Int](onBatch[Int])
-
   }
+
+  //global rate limit
+  def scenario28() = {
+    //val process: Flow[(HttpRequest, Promise[HttpResponse]), (Try[HttpResponse], Promise[HttpResponse]), Http.HostConnectionPool]
+
+    def process: FlowWithContext[HttpRequest, Promise[HttpResponse], HttpResponse, Promise[HttpResponse], Any] =
+      FlowWithContext[HttpRequest, Promise[HttpResponse]]
+      .withAttributes(Attributes.inputBuffer(1,1))
+      //.mapAsync(2) { req: HttpRequest =>  Future { null.asInstanceOf[HttpResponse] }  }
+      .map { req: HttpRequest =>  null.asInstanceOf[HttpResponse] }
+
+    val queue = Source.queue[(HttpRequest, Promise[HttpResponse])](1 << 5, OverflowStrategy.dropNew)
+      .via(process) //CachedHttpClient(context.system)
+      .withAttributes(ActorAttributes.supervisionStrategy(akka.stream.Supervision.resumingDecider))
+      .toMat(Sink.foreach {
+        case (resp, p) => p.success(resp)
+        //case (Success(resp), p) => p.success(resp)
+        //case (Failure(e), p) => p.failure(e)
+      })(Keep.left)
+      .run()
+
+    //queue.offer(null.asInstanceOf[HttpRequest])
+  }
+
 
   //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
   def trailingDifference(offset: Int): Graph[FlowShape[Int, Int], akka.NotUsed] =
