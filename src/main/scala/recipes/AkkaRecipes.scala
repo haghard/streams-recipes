@@ -1704,10 +1704,16 @@ object AkkaRecipes extends App {
         SourceShape(flow.out)
       }
 
-
+    /**
+     * https://doc.akka.io/docs/akka-http/current/client-side/host-level.html#using-the-host-level-api-with-a-queue
+     */
     val client: CachedClient = ???
 
-    //Queue for our internal http client that is used before opening new web socket connection
+    /**
+     * Queue for our internal http client that is used before opening new web socket connection
+     * If too many requests flow will fail,
+     * If too many open connections then it will start to reject incoming connections.
+      */
     val queue =
       Source.queue[P](queueSize, OverflowStrategy.fail)
         .via(client)
