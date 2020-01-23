@@ -18,14 +18,13 @@ object WindTurbineSimulator {
   final case object Terminated
   final case class ConnectionFailure(ex: Throwable)
   final case class FailedUpgrade(statusCode: StatusCode)
-
-  case class WindTurbineSimulatorException(id: String) extends Exception(s"Turbine:$id error")
+  final case class WindTurbineSimulatorException(id: String) extends Exception(s"Turbine:$id error")
 
 }
 
 class WindTurbineSimulator(id: String, endpoint: String)(implicit mat: ActorMaterializer) extends Actor
     with ActorLogging {
-  implicit val system           = context.system
+  implicit val system = context.system
   implicit val ec = system.dispatcher
 
   //creates a WebSocket connection

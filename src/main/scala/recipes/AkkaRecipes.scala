@@ -1674,8 +1674,8 @@ object AkkaRecipes extends App {
     def process: FlowWithContext[HttpRequest, Promise[HttpResponse], HttpResponse, Promise[HttpResponse], Any] =
       FlowWithContext[HttpRequest, Promise[HttpResponse]]
       .withAttributes(Attributes.inputBuffer(1,1))
-      //.mapAsync(2) { req: HttpRequest =>  Future { null.asInstanceOf[HttpResponse] }  }
-      .map { req: HttpRequest =>  null.asInstanceOf[HttpResponse] }
+      .mapAsync(2) { req: HttpRequest => Future { null.asInstanceOf[HttpResponse] } }
+      //.map { req: HttpRequest =>  null.asInstanceOf[HttpResponse] }
 
     val queue = Source.queue[(HttpRequest, Promise[HttpResponse])](1 << 5, OverflowStrategy.dropNew)
       .via(process) //CachedHttpClient(context.system)
@@ -1690,6 +1690,48 @@ object AkkaRecipes extends App {
     //queue.offer(null.asInstanceOf[HttpRequest])
   }
 
+  def scenario29() = {
+    type P = (HttpRequest, Promise[HttpResponse])
+    type CachedClient = Flow[P, (Try[HttpResponse], Promise[HttpResponse]), Http.HostConnectionPool]
+
+    val queueSize = 1 << 5
+
+    val fallback: Graph[SourceShape[(Try[HttpResponse], Promise[HttpResponse])], akka.NotUsed] =
+      GraphDSL.create() { implicit b ⇒
+        import scala.concurrent.duration._
+        val data: (Try[HttpResponse], Promise[HttpResponse]) = ???
+        val flow = b.add(Source.tick(1.seconds, 1.seconds, data))
+        SourceShape(flow.out)
+      }
+
+
+    val client: CachedClient = ???
+
+    //Queue for our internal http client that is used before opening new web socket connection
+    val queue =
+      Source.queue[P](queueSize, OverflowStrategy.fail)
+        .via(client)
+        .recoverWithRetries(3, { case ex: Throwable => fallback })
+        .toMat(Sink.foreach {
+          case (Success(resp), p) => p.success(resp)
+          case (Failure(e), p)    => p.failure(e)
+        })(Keep.left)
+        .run()(???)
+
+    def enqueueRequest(request: HttpRequest): Future[HttpResponse] = {
+      val responsePromise = Promise[HttpResponse]
+      queue.offer(request -> responsePromise).flatMap {
+        case QueueOfferResult.Enqueued =>
+          responsePromise.future
+        case QueueOfferResult.Dropped =>
+          throw new Exception("Internal http client overflowed")
+        case QueueOfferResult.Failure(ex) =>
+          throw ex
+        case QueueOfferResult.QueueClosed =>
+          throw new Exception("Internal http client pool shutted down")
+      }
+    }
+  }
 
   //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
   def trailingDifference(offset: Int): Graph[FlowShape[Int, Int], akka.NotUsed] =

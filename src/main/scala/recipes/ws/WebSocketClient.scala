@@ -60,7 +60,7 @@ class WebSocketClient(id: String, endpoint: String, supervisor: ActorRef)(
 
   val webSocket: Flow[Message, Message, Future[WebSocketUpgradeResponse]] = {
     val websocketUri = s"$endpoint/$id"
-    Http().cachedHostConnectionPool()
+    //Http().cachedHostConnectionPool()
     Http().webSocketClientFlow(WebSocketRequest(websocketUri))
   }
 
