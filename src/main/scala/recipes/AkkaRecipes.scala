@@ -1691,8 +1691,11 @@ object AkkaRecipes extends App {
   }
 
   def scenario29() = {
-    type P = (HttpRequest, Promise[HttpResponse])
-    type CachedClient = Flow[P, (Try[HttpResponse], Promise[HttpResponse]), Http.HostConnectionPool]
+    type IN = (HttpRequest, Promise[HttpResponse])
+    type CachedClient =
+      Flow[IN, (Try[HttpResponse], Promise[HttpResponse]), Http.HostConnectionPool]
+      //FlowWithContext[HttpRequest, Promise[HttpResponse], HttpResponse, Promise[HttpResponse], Any]
+      //Flow[P, (Try[HttpResponse], Promise[HttpResponse]), Http.HostConnectionPool]
 
     val queueSize = 1 << 5
 
@@ -1715,7 +1718,7 @@ object AkkaRecipes extends App {
      * If too many open connections then it will start to reject incoming connections.
       */
     val queue =
-      Source.queue[P](queueSize, OverflowStrategy.fail)
+      Source.queue[IN](queueSize, OverflowStrategy.fail)
         .via(client)
         .recoverWithRetries(3, { case ex: Throwable => fallback })
         .toMat(Sink.foreach {

@@ -58,6 +58,7 @@ netstat -na | grep ${PORT}
 ## FS2 links ##
 FS2 is pull based streaming. Basically it means that downstream decides when to pull from upstream.    
 
+https://fs2.io/documentation.html
 https://github.com/functional-streams-for-scala/fs2
 https://lunatech.com/blog/WCl5OikAAIrvQCoc/functional-io-with-fs2-streams
 https://underscore.io/blog/posts/2018/03/20/fs2.html
