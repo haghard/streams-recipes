@@ -22,10 +22,11 @@ object WindTurbineSimulator {
 
 }
 
-class WindTurbineSimulator(id: String, endpoint: String)(implicit mat: ActorMaterializer) extends Actor
+class WindTurbineSimulator(id: String, endpoint: String)(implicit mat: ActorMaterializer)
+    extends Actor
     with ActorLogging {
   implicit val system = context.system
-  implicit val ec = system.dispatcher
+  implicit val ec     = system.dispatcher
 
   //creates a WebSocket connection
   val webSocket = WebSocketClient(id, endpoint, self)

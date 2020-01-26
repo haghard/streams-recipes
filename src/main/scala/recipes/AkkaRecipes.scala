@@ -1673,19 +1673,22 @@ object AkkaRecipes extends App {
 
     def process: FlowWithContext[HttpRequest, Promise[HttpResponse], HttpResponse, Promise[HttpResponse], Any] =
       FlowWithContext[HttpRequest, Promise[HttpResponse]]
-      .withAttributes(Attributes.inputBuffer(1,1))
-      .mapAsync(2) { req: HttpRequest => Future { null.asInstanceOf[HttpResponse] } }
-      //.map { req: HttpRequest =>  null.asInstanceOf[HttpResponse] }
+        .withAttributes(Attributes.inputBuffer(1, 1))
+        .mapAsync(2) { req: HttpRequest ⇒
+          Future { null.asInstanceOf[HttpResponse] }
+        }
+    //.map { req: HttpRequest =>  null.asInstanceOf[HttpResponse] }
 
-    val queue = Source.queue[(HttpRequest, Promise[HttpResponse])](1 << 5, OverflowStrategy.dropNew)
+    Source
+      .queue[(HttpRequest, Promise[HttpResponse])](1 << 5, OverflowStrategy.dropNew)
       .via(process) //CachedHttpClient(context.system)
       .withAttributes(ActorAttributes.supervisionStrategy(akka.stream.Supervision.resumingDecider))
       .toMat(Sink.foreach {
-        case (resp, p) => p.success(resp)
+        case (resp, p) ⇒ p.success(resp)
         //case (Success(resp), p) => p.success(resp)
         //case (Failure(e), p) => p.failure(e)
       })(Keep.left)
-      .run()
+    //.run()
 
     //queue.offer(null.asInstanceOf[HttpRequest])
   }
@@ -1694,8 +1697,8 @@ object AkkaRecipes extends App {
     type IN = (HttpRequest, Promise[HttpResponse])
     type CachedClient =
       Flow[IN, (Try[HttpResponse], Promise[HttpResponse]), Http.HostConnectionPool]
-      //FlowWithContext[HttpRequest, Promise[HttpResponse], HttpResponse, Promise[HttpResponse], Any]
-      //Flow[P, (Try[HttpResponse], Promise[HttpResponse]), Http.HostConnectionPool]
+    //FlowWithContext[HttpRequest, Promise[HttpResponse], HttpResponse, Promise[HttpResponse], Any]
+    //Flow[P, (Try[HttpResponse], Promise[HttpResponse]), Http.HostConnectionPool]
 
     val queueSize = 1 << 5
 
@@ -1703,40 +1706,41 @@ object AkkaRecipes extends App {
       GraphDSL.create() { implicit b ⇒
         import scala.concurrent.duration._
         val data: (Try[HttpResponse], Promise[HttpResponse]) = ???
-        val flow = b.add(Source.tick(1.seconds, 1.seconds, data))
+        val flow                                             = b.add(Source.tick(1.seconds, 1.seconds, data))
         SourceShape(flow.out)
       }
 
     /**
-     * https://doc.akka.io/docs/akka-http/current/client-side/host-level.html#using-the-host-level-api-with-a-queue
-     */
+      * https://doc.akka.io/docs/akka-http/current/client-side/host-level.html#using-the-host-level-api-with-a-queue
+      */
     val client: CachedClient = ???
 
     /**
-     * Queue for our internal http client that is used before opening new web socket connection
-     * If too many requests flow will fail,
-     * If too many open connections then it will start to reject incoming connections.
+      * Queue for our internal http client that is used before opening new web socket connection
+      * If too many requests flow will fail,
+      * If too many open connections then it will start to reject incoming connections.
       */
     val queue =
-      Source.queue[IN](queueSize, OverflowStrategy.fail)
+      Source
+        .queue[IN](queueSize, OverflowStrategy.fail)
         .via(client)
-        .recoverWithRetries(3, { case ex: Throwable => fallback })
+        .recoverWithRetries(3, { case ex: Throwable ⇒ fallback })
         .toMat(Sink.foreach {
-          case (Success(resp), p) => p.success(resp)
-          case (Failure(e), p)    => p.failure(e)
+          case (Success(resp), p) ⇒ p.success(resp)
+          case (Failure(e), p)    ⇒ p.failure(e)
         })(Keep.left)
         .run()(???)
 
     def enqueueRequest(request: HttpRequest): Future[HttpResponse] = {
       val responsePromise = Promise[HttpResponse]
-      queue.offer(request -> responsePromise).flatMap {
-        case QueueOfferResult.Enqueued =>
+      queue.offer(request → responsePromise).flatMap {
+        case QueueOfferResult.Enqueued ⇒
           responsePromise.future
-        case QueueOfferResult.Dropped =>
+        case QueueOfferResult.Dropped ⇒
           throw new Exception("Internal http client overflowed")
-        case QueueOfferResult.Failure(ex) =>
+        case QueueOfferResult.Failure(ex) ⇒
           throw ex
-        case QueueOfferResult.QueueClosed =>
+        case QueueOfferResult.QueueClosed ⇒
           throw new Exception("Internal http client pool shutted down")
       }
     }

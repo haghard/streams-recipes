@@ -131,10 +131,14 @@ libraryDependencies ++= Seq(
   //Future to Task and Task to Future conversions
   //"io.verizon.delorean" %% "core"       % "1.1.37",
 
+
+  //https://github.com/moia-dev/streamee
+  //"io.moia" %% "streamee" % "5.0.0",
+
   "org.apache.commons" % "commons-collections4" % "4.0",
 
   // li haoyi ammonite repl embed
-  ("com.lihaoyi" % "ammonite" % "1.7.1" % "test").cross(CrossVersion.full)
+  ("com.lihaoyi" % "ammonite" % "1.9.2" % "test").cross(CrossVersion.full)
 )
 
 //compile in Compile := (compile in Compile).dependsOn(compileAvro).value

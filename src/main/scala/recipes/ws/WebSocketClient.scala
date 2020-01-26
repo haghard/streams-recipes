@@ -22,7 +22,6 @@ object WindTurbineData {
 class WindTurbineData(id: String) {
   val random = Random
 
-
   def getNext: String = {
     val timestamp  = System.currentTimeMillis / 1000
     val power      = f"${ThreadLocalRandom.current.nextDouble * 10}%.2f"
@@ -56,7 +55,8 @@ class WebSocketClient(id: String, endpoint: String, supervisor: ActorRef)(
   implicit
   system: ActorSystem,
   materializer: ActorMaterializer,
-  executionContext: ExecutionContext) {
+  executionContext: ExecutionContext
+) {
 
   val webSocket: Flow[Message, Message, Future[WebSocketUpgradeResponse]] = {
     val websocketUri = s"$endpoint/$id"
