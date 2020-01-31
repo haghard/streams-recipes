@@ -5,7 +5,7 @@ name := "stream-recipes"
 
 version := "0.1"
 
-scalaVersion := "2.13.0" //"2.12.8"
+scalaVersion := "2.13.1" //"2.12.8"
 
 //for cats on 2.12. No need when on 2.13
 //scalacOptions += "-Ypartial-unification"
@@ -55,7 +55,7 @@ resolvers ++= Seq(
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.5.25"
+val akkaStreamV = "2.5.26"
 val fs2V = "2.0.1"
 val scalazVersion = "7.2.28"
 

@@ -2,7 +2,7 @@ package recipes.ws
 
 import java.util.concurrent.ThreadLocalRandom
 
-import akka.stream.{ActorMaterializer, FlowShape, Graph, KillSwitches, SinkShape, SourceShape}
+import akka.stream.{ActorMaterializer, FlowShape, Graph, KillSwitches, SourceShape}
 import akka.actor.{ActorRef, ActorSystem}
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.StatusCodes
@@ -12,7 +12,7 @@ import recipes.ws.WindTurbineSimulator.{FailedUpgrade, Upgraded}
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration._
-import scala.util.{Failure, Random, Success}
+import scala.util.{Failure, Success}
 
 object WindTurbineData {
 
@@ -20,7 +20,6 @@ object WindTurbineData {
 }
 
 class WindTurbineData(id: String) {
-  val random = Random
 
   def getNext: String = {
     val timestamp  = System.currentTimeMillis / 1000
