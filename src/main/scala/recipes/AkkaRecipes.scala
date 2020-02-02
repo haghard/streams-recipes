@@ -24,6 +24,7 @@ import akka.stream.typed.scaladsl.{ActorSink, ActorSource}
 import akka.util.ByteString
 import com.esri.core.geometry.Point
 import com.typesafe.config.ConfigFactory
+import org.reactivestreams.Publisher
 import recipes.AkkaRecipes.{CircularFifo, LogEntry, SimpleMAState}
 import recipes.BalancerRouter._
 import recipes.BatchProducer.Item
@@ -121,6 +122,8 @@ object AkkaRecipes extends App {
   val mat: Materializer = ActorMaterializer(Settings)(sys)
   implicit val ec       = mat.executionContext
 
+  scenario31
+
   //scenario7_1(mat)
   //scenario7_2(mat)
   //scenario7_3(mat)
@@ -137,9 +140,8 @@ object AkkaRecipes extends App {
     def execute(runnable: Runnable): Unit     = runnable.run()
     def reportFailure(cause: Throwable): Unit = throw cause
   }
-
+  /*
   val graph = scenario27().run()(ActorMaterializer(Settings)(sys))
-
   val enqueue = (elem: Int) ⇒ {
     //println(s"${Thread.currentThread.getName}: $elem")
     /*{
@@ -178,7 +180,7 @@ object AkkaRecipes extends App {
   graph.complete
   graph.watchCompletion().onComplete { _ ⇒
     println("Completion !!!!")
-  }
+  }*/
 
   /**
     * Tumbling windows discretize a stream into non-overlapping windows
@@ -1693,8 +1695,10 @@ object AkkaRecipes extends App {
     //queue.offer(null.asInstanceOf[HttpRequest])
   }
 
+  type IN = (HttpRequest, Promise[HttpResponse])
+
   def scenario29() = {
-    type IN = (HttpRequest, Promise[HttpResponse])
+
     type CachedClient =
       Flow[IN, (Try[HttpResponse], Promise[HttpResponse]), Http.HostConnectionPool]
     //FlowWithContext[HttpRequest, Promise[HttpResponse], HttpResponse, Promise[HttpResponse], Any]
@@ -1744,6 +1748,86 @@ object AkkaRecipes extends App {
           throw new Exception("Internal http client pool shutted down")
       }
     }
+  }
+
+  def scenario30 = {
+    type P = (Int, Promise[Int])
+
+    def out(
+      queue: SinkQueueWithCancel[P]
+    ): Source[P, akka.NotUsed] =
+      Source.unfoldAsync[SinkQueueWithCancel[P], P](queue) { q: SinkQueueWithCancel[P] ⇒
+        q.pull()
+          .map(_.map(el ⇒ (q, el)))
+      }
+
+    def process(
+      sink: Sink[(Int, Promise[Int]), akka.NotUsed]
+    ): FlowWithContext[Int, Promise[Int], Int, Promise[Int], Any] =
+      FlowWithContext[Int, Promise[Int]]
+        .withAttributes(Attributes.inputBuffer(1, 4))
+        .mapAsync(2) { in: Int ⇒
+          //Feed stuff into remotable stream
+          Source
+            .single(in)
+            .map { i ⇒
+              (i, Promise[Int])
+            }
+            .alsoTo(Flow[(Int, Promise[Int])].to(sink))
+            .mapAsync(1) { _._2.future }
+            .runWith(Sink.head)(mat)
+        }
+        .map(identity)
+
+    val ((sink, killSwitch), src) =
+      MergeHub
+        .source[(Int, Promise[Int])](perProducerBufferSize = 4)
+        .viaMat(KillSwitches.single)(Keep.both)
+        .toMat(Sink.queue[(Int, Promise[Int])])(Keep.both)
+        //.addAttributes(Attributes.inputBuffer(bufSize.initial, bufSize.max)))(Keep.both)
+        //.toMat(BroadcastHub.sink[(E, CtxOut)])(Keep.both)
+        .run()(mat)
+
+    val flow = process(sink).asFlow
+      .alsoTo(
+        Flow[Any]
+          .to(Sink.onComplete {
+            case Success(_)     ⇒ killSwitch.shutdown()
+            case Failure(cause) ⇒ killSwitch.abort(cause)
+          })
+      )
+      .merge(out(src))
+
+    FlowWithContext.fromTuples(flow)
+    ???
+  }
+
+  def scenario31 = {
+
+    def qOut[P](queue: SinkQueueWithCancel[P]): Source[P, akka.NotUsed] =
+      Source.unfoldAsync[SinkQueueWithCancel[P], P](queue)(q=>q.pull.map(_.map(el ⇒ (q, el))))
+
+    def qPublisher[T](queue: SinkQueueWithCancel[T]): Publisher[T] =
+      Source
+        .repeat(0)
+        .mapAsync(1)(_ ⇒ queue.pull)
+        .takeWhile(_.nonEmpty)
+        .map(_.get)
+        .runWith(Sink.asPublisher(false))(mat)
+
+    //val ((sink, killSwitch), src) =
+    val (sink, src) =
+      MergeHub
+        .source[Int](perProducerBufferSize = 4)
+        .toMat(Sink.queue[Int])(Keep.both)
+        .run()(mat)
+
+    timedSource(ms, 1.second, 1.seconds, Int.MaxValue, "akka-source_31_0", start = 1).to(sink).run()(mat)
+    timedSource(ms, 1.second, 1.seconds, Int.MaxValue, "akka-source_31_1", start = 1).to(sink).run()(mat)
+    timedSource(ms, 1.second, 1.seconds, Int.MaxValue, "akka-source_31_2", start = 1).to(sink).run()(mat)
+
+    //Source.fromPublisher(qPublisher(src)).runWith(Sink.foreach(println(_)))(mat)
+    qOut(src).runWith(Sink.foreach(println(_)))(mat)
   }
 
   //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
