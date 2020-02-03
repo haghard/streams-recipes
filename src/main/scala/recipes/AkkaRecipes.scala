@@ -29,7 +29,7 @@ import recipes.AkkaRecipes.{CircularFifo, LogEntry, SimpleMAState}
 import recipes.BalancerRouter._
 import recipes.BatchProducer.Item
 import recipes.ConsistentHashingRouter.{CHWork, DBObject2}
-import recipes.CustomStages.{DisjunctionStage, InternalBufferStage, SimpleRingBuffer}
+import recipes.CustomStages.{DisjunctionStage, InternalBufferStage, QueueSrc, SimpleRingBuffer}
 import recipes.DegradingTypedActorSink.{IntValue, Protocol, RecoverableSinkFailure}
 import recipes.Sinks.{DegradingGraphiteSink, GraphiteSink, GraphiteSink3}
 
@@ -122,7 +122,7 @@ object AkkaRecipes extends App {
   val mat: Materializer = ActorMaterializer(Settings)(sys)
   implicit val ec       = mat.executionContext
 
-  scenario31
+  //scenario31
 
   //scenario7_1(mat)
   //scenario7_2(mat)
@@ -135,6 +135,7 @@ object AkkaRecipes extends App {
   //RunnableGraph.fromGraph(scenario24).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario25).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario26).run()(ActorMaterializer(Settings)(sys))
+  RunnableGraph.fromGraph(scenario31).run()(ActorMaterializer(Settings)(sys))
 
   case object CurrentThreadExecutionContext extends ExecutionContextExecutor {
     def execute(runnable: Runnable): Unit     = runnable.run()
@@ -1815,26 +1816,48 @@ object AkkaRecipes extends App {
         .map(_.get)
         .runWith(Sink.asPublisher(false))(mat)
 
-    //val ((sink, killSwitch), src) =
-    /*
-      A MergeHub is a special streaming hub that is able to collect streamed elements from a dynamic set of producers.
-      It consists of two parts, a Source and a Sink. The Source streams the element to a consumer from its merged inputs.
-      Once the consumer has been materialized, the Source returns a materialized value which  is the corresponding Sink.
-      This Sink can then be materialized arbitrary many times, where each of the new materializations will feed its consumed elements to the  original Source.
-     */
-    val (sink, src) =
-      MergeHub
-        .source[Int](perProducerBufferSize = 2)
-        .toMat(Sink.queue[Int])(Keep.both)
-        .run()(mat)
-
-    //materialize this sink 3 times and each of the new materializations will feed its consumed elements to the original Source.
-    timedSource(ms, 1.second, 1.seconds, Int.MaxValue, "akka-source_31_0", start = 100).to(sink).run()(mat)
-    timedSource(ms, 1.second, 2.seconds, Int.MaxValue, "akka-source_31_1", start = 200).to(sink).run()(mat)
-    timedSource(ms, 1.second, 3.seconds, Int.MaxValue, "akka-source_31_2", start = 300).to(sink).run()(mat)
+    //timedSource(ms, 1.second, 1.seconds, Int.MaxValue, "akka-source_31_0", start = 100).to(sink).run()(mat)
+    //timedSource(ms, 1.second, 2.seconds, Int.MaxValue, "akka-source_31_1", start = 200).to(sink).run()(mat)
+    //timedSource(ms, 1.second, 3.seconds, Int.MaxValue, "akka-source_31_2", start = 300).to(sink).run()(mat)
 
     //Source.fromPublisher(qPublisher(src)).runWith(Sink.foreach(println(_)))(mat)
-    qOut(src).runWith(Sink.foreach(println(_)))(mat)
+    //qOut(src).runWith(Sink.foreach(println(_)))(mat)
+
+    GraphDSL.create() { implicit b ⇒
+      import GraphDSL.Implicits._
+
+      //val ((sink, killSwitch), src) =
+      /*
+        A MergeHub is a special streaming hub that is able to collect streamed elements from a dynamic set of producers.
+        It consists of two parts, a Source and a Sink. The Source streams the element to a consumer from its merged inputs.
+        Once the consumer has been materialized, the Source returns a materialized value which  is the corresponding Sink.
+        This Sink can then be materialized arbitrary many times, where each of the new materializations will feed its consumed elements to the  original Source.
+       */
+      val (sink, src) =
+        MergeHub
+          .source[Int](perProducerBufferSize = 1 << 4)
+          .toMat(Sink.queue[Int])(Keep.both)
+          .run()(mat)
+
+      //materialize this sink 3 times and each of the new materializations will feed its consumed elements to the original Source.
+      timedSource(ms, 1.second, 100.millis, Int.MaxValue, "akka-source_31_0", start = 1000) ~> sink
+      timedSource(ms, 1.second, 200.millis, Int.MaxValue, "akka-source_31_1", start = 2000) ~> sink
+      timedSource(ms, 1.second, 300.millis, Int.MaxValue, "akka-source_31_2", start = 3000) ~> sink
+
+      Source.fromGraph(new QueueSrc(src)) ~> Sink.foreach { i: Int ⇒
+        println(s"out: $i")
+      }
+
+      /*qOut(src) ~> Sink.foreach { i: Int ⇒
+        println(s"out: $i")
+      }*/
+
+      /*Source.fromPublisher(qPublisher(src)) ~> Sink.foreach { i: Int ⇒
+        println("out:" + i)
+      }*/
+
+      ClosedShape
+    }
   }
 
   //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/

@@ -5,6 +5,7 @@ import java.io.{File, FileOutputStream}
 import akka.actor.ActorRef
 import akka.stream.ActorAttributes.SupervisionStrategy
 import akka.stream._
+import akka.stream.scaladsl.SinkQueueWithCancel
 import akka.stream.stage.GraphStageLogic.StageActor
 
 import scala.collection.{immutable, mutable}
@@ -13,6 +14,7 @@ import akka.util.ByteString
 
 import scala.concurrent.duration.{Duration, FiniteDuration}
 import scala.reflect.ClassTag
+import scala.util.{Failure, Success, Try}
 
 object CustomStages {
 
@@ -690,4 +692,51 @@ object CustomStages {
     }
   }
 
+  class QueueSrc[T](q: SinkQueueWithCancel[T]) extends GraphStage[SourceShape[T]] {
+    val out: Outlet[T]                 = Outlet("queue-out")
+    override val shape: SourceShape[T] = SourceShape(out)
+
+    override protected def initialAttributes: Attributes =
+      Attributes.name("queue-src") //.and(ActorAttributes.dispatcher(""))
+
+    override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
+      new GraphStageLogic(shape) with StageLogging {
+        val buffer                                  = mutable.Queue[T]()
+        var callback: AsyncCallback[Try[Option[T]]] = _
+        var pending: Boolean                        = false
+
+        override def preStart(): Unit = {
+          callback = getAsyncCallback[Try[Option[T]]](onPullCompleted)
+          q.pull().onComplete(callback.invoke)(materializer.executionContext)
+        }
+
+        def onPullCompleted(pullResult: Try[Option[T]]): Unit =
+          pullResult match {
+            case Success(Some(r)) ⇒
+              buffer enqueue r
+              if (pending) {
+                val element = buffer.dequeue
+                push(out, element)
+                pending = false
+              }
+              q.pull().onComplete(callback.invoke)(materializer.executionContext)
+            case Success(None) ⇒
+              completeStage()
+            case Failure(failure) ⇒
+              failStage(failure)
+          }
+
+        def tryPush(): Unit =
+          if (isAvailable(out) && buffer.nonEmpty) {
+            val element = buffer.dequeue
+            push(out, element)
+          } else {
+            pending = true
+          }
+
+        setHandler(out, new OutHandler {
+          override def onPull(): Unit = tryPush()
+        })
+      }
+  }
 }
