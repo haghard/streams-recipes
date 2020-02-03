@@ -692,6 +692,7 @@ object CustomStages {
     }
   }
 
+  //More interesting example here:  https://github.com/calvinlfer/Akka-Streams-custom-stream-processing-examples/blob/master/src/main/scala/com/calvin/streamy/SideChannelSource.scala
   class QueueSrc[T](q: SinkQueueWithCancel[T]) extends GraphStage[SourceShape[T]] {
     val out: Outlet[T]                 = Outlet("queue-out")
     override val shape: SourceShape[T] = SourceShape(out)
@@ -701,9 +702,9 @@ object CustomStages {
 
     override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
       new GraphStageLogic(shape) with StageLogging {
-        val buffer                                  = mutable.Queue[T]()
         var callback: AsyncCallback[Try[Option[T]]] = _
         var pending: Boolean                        = false
+        val pendingBuffer                                  = mutable.Queue[T]()
 
         override def preStart(): Unit = {
           callback = getAsyncCallback[Try[Option[T]]](onPullCompleted)
@@ -713,9 +714,9 @@ object CustomStages {
         def onPullCompleted(pullResult: Try[Option[T]]): Unit =
           pullResult match {
             case Success(Some(r)) ⇒
-              buffer enqueue r
+              pendingBuffer enqueue r
               if (pending) {
-                val element = buffer.dequeue
+                val element = pendingBuffer.dequeue
                 push(out, element)
                 pending = false
               }
@@ -727,8 +728,8 @@ object CustomStages {
           }
 
         def tryPush(): Unit =
-          if (isAvailable(out) && buffer.nonEmpty) {
-            val element = buffer.dequeue
+          if (isAvailable(out) && pendingBuffer.nonEmpty) {
+            val element = pendingBuffer.dequeue
             push(out, element)
           } else {
             pending = true
