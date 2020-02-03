@@ -1805,7 +1805,7 @@ object AkkaRecipes extends App {
   def scenario31 = {
 
     def qOut[P](queue: SinkQueueWithCancel[P]): Source[P, akka.NotUsed] =
-      Source.unfoldAsync[SinkQueueWithCancel[P], P](queue)(q=>q.pull.map(_.map(el ⇒ (q, el))))
+      Source.unfoldAsync[SinkQueueWithCancel[P], P](queue)(q ⇒ q.pull.map(_.map(el ⇒ (q, el))))
 
     def qPublisher[T](queue: SinkQueueWithCancel[T]): Publisher[T] =
       Source
@@ -1816,15 +1816,22 @@ object AkkaRecipes extends App {
         .runWith(Sink.asPublisher(false))(mat)
 
     //val ((sink, killSwitch), src) =
+    /*
+      A MergeHub is a special streaming hub that is able to collect streamed elements from a dynamic set of producers.
+      It consists of two parts, a Source and a Sink. The Source streams the element to a consumer from its merged inputs.
+      Once the consumer has been materialized, the Source returns a materialized value which  is the corresponding Sink.
+      This Sink can then be materialized arbitrary many times, where each of the new materializations will feed its consumed elements to the  original Source.
+     */
     val (sink, src) =
       MergeHub
-        .source[Int](perProducerBufferSize = 4)
+        .source[Int](perProducerBufferSize = 2)
         .toMat(Sink.queue[Int])(Keep.both)
         .run()(mat)
 
-    timedSource(ms, 1.second, 1.seconds, Int.MaxValue, "akka-source_31_0", start = 1).to(sink).run()(mat)
-    timedSource(ms, 1.second, 1.seconds, Int.MaxValue, "akka-source_31_1", start = 1).to(sink).run()(mat)
-    timedSource(ms, 1.second, 1.seconds, Int.MaxValue, "akka-source_31_2", start = 1).to(sink).run()(mat)
+    //materialize this sink 3 times and each of the new materializations will feed its consumed elements to the original Source.
+    timedSource(ms, 1.second, 1.seconds, Int.MaxValue, "akka-source_31_0", start = 100).to(sink).run()(mat)
+    timedSource(ms, 1.second, 2.seconds, Int.MaxValue, "akka-source_31_1", start = 200).to(sink).run()(mat)
+    timedSource(ms, 1.second, 3.seconds, Int.MaxValue, "akka-source_31_2", start = 300).to(sink).run()(mat)
 
     //Source.fromPublisher(qPublisher(src)).runWith(Sink.foreach(println(_)))(mat)
     qOut(src).runWith(Sink.foreach(println(_)))(mat)
