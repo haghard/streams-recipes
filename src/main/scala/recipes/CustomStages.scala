@@ -12,6 +12,7 @@ import scala.collection.{immutable, mutable}
 import akka.stream.stage._
 import akka.util.ByteString
 
+import scala.concurrent.{Future, Promise}
 import scala.concurrent.duration.{Duration, FiniteDuration}
 import scala.reflect.ClassTag
 import scala.util.{Failure, Success, Try}
@@ -704,7 +705,7 @@ object CustomStages {
       new GraphStageLogic(shape) with StageLogging {
         var callback: AsyncCallback[Try[Option[T]]] = _
         var pending: Boolean                        = false
-        val pendingBuffer                                  = mutable.Queue[T]()
+        val pendingBuffer                           = mutable.Queue[T]()
 
         override def preStart(): Unit = {
           callback = getAsyncCallback[Try[Option[T]]](onPullCompleted)
@@ -739,5 +740,57 @@ object CustomStages {
           override def onPull(): Unit = tryPush()
         })
       }
+  }
+
+  /*
+  Source.fromGraph(new PsJournal(...))  //in akka-pq
+    .map(???)
+    .viaMat(new LastSeen)(Keep.right)
+   */
+  class LastSeen[T] extends GraphStageWithMaterializedValue[FlowShape[T, T], Future[Option[T]]] {
+    override val shape = FlowShape(Inlet[T]("in"), Outlet[T]("out"))
+
+    override def createLogicAndMaterializedValue(
+      inheritedAttributes: Attributes
+    ): (GraphStageLogic, Future[Option[T]]) = {
+      val matVal = Promise[Option[T]]
+      val logic = new GraphStageLogic(shape) with StageLogging {
+
+        import shape._
+
+        private var current = Option.empty[T]
+
+        setHandler(
+          in,
+          new InHandler {
+            override def onPush(): Unit = {
+              val element = grab(in)
+              current = Some(element)
+              push(out, element)
+            }
+
+            override def onUpstreamFinish(): Unit = {
+              log.info("upstream finish")
+              matVal.success(current)
+              super.onUpstreamFinish()
+            }
+
+            override def onUpstreamFailure(ex: Throwable): Unit = {
+              log.info("upstream failure")
+              matVal.success(current)
+
+              //don't fail here intentionally
+              //super.onUpstreamFailure(LastSeenException(ex, current))
+              super.onUpstreamFinish()
+            }
+          }
+        )
+
+        setHandler(out, new OutHandler {
+          override def onPull(): Unit = pull(in)
+        })
+      }
+      (logic, matVal.future)
+    }
   }
 }

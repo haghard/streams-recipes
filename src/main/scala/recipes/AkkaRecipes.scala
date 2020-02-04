@@ -1433,14 +1433,12 @@ object AkkaRecipes extends App {
     * This emits lines according to a time that is derived from the message itself.
     */
   def scenario18(): Graph[ClosedShape, akka.NotUsed] = {
-    val logEntries = Source.fromIterator(
-      () ⇒
-        Iterator.iterate(LogEntry(1000L, Thread.currentThread().getName)) { log ⇒
-          println(log.message)
-          //ts in logEntry grows monotonically
-          log.copy(ts = log.ts + ThreadLocalRandom.current.nextLong(1000L, 3000L))
-        }
-    )
+    val iter = Iterator.iterate(LogEntry(1000L, Thread.currentThread.getName)) { log ⇒
+      println(log.message)
+      //ts in logEntry grows monotonically
+      log.copy(ts = log.ts + ThreadLocalRandom.current.nextLong(1000L, 3000L))
+    }
+    val logEntries = Source.fromIterator(() ⇒ iter)
 
     val ratedSource = new TimeStampedLogReader[LogEntry](_.ts)
     val sink        = Sink.actorSubscriber[LogEntry](SyncActor.props2("akka-sink_18", ms))

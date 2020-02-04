@@ -547,10 +547,8 @@ package object cake {
       val tasks = (twitterApi batch "reduce page") :: (dbApi batch "select page") :: (twitterApi batch "reduce page") :: shapeless.HNil
       parallelHList(tasks).map {
         hList: shapeless.::[ValidTweet, shapeless.::[ValidRecord, shapeless.::[ValidTweet, shapeless.HNil]]] ⇒
-          {
-            (hList.head |@| hList.tail.head |@| hList.tail.tail.head) {
-              case (a, b, c) ⇒ s"A:$a - B:$b - C:$c"
-            }
+          (hList.head |@| hList.tail.head |@| hList.tail.tail.head) {
+            case (a, b, c) ⇒ s"A:$a - B:$b - C:$c"
           }
       }
     }

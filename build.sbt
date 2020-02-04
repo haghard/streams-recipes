@@ -104,6 +104,8 @@ libraryDependencies ++= Seq(
   "com.esri.geometry" %  "esri-geometry-api" % "1.2.1",
   "io.spray"          %% "spray-json"        % "1.3.5",
 
+  "com.datastax.cassandra" % "cassandra-driver-extras" % "3.7.2",
+
   //https://github.com/mikolak-net/travesty
   //"net.mikolak" %% "travesty" % s"0.9_$akkaStreamV",
 
