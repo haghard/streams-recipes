@@ -29,7 +29,7 @@ import recipes.AkkaRecipes.{CircularFifo, LogEntry, SimpleMAState}
 import recipes.BalancerRouter._
 import recipes.BatchProducer.Item
 import recipes.ConsistentHashingRouter.{CHWork, DBObject2}
-import recipes.CustomStages.{BackPressuredStage, DisjunctionStage, DropHeadStage, DropTailStage, QueueSrc, SimpleRingBuffer}
+import recipes.CustomStages.{BackPressuredStage, BackpressureMeasurementStage, DisjunctionStage, DropHeadStage, DropTailStage, QueueSrc, SimpleRingBuffer}
 import recipes.DegradingTypedActorSink.{IntValue, Protocol, RecoverableSinkFailure}
 import recipes.Sinks.{DegradingGraphiteSink, GraphiteSink, GraphiteSink3}
 
@@ -1846,12 +1846,13 @@ object AkkaRecipes extends App {
 
       val (sink, publisher) =
         MergeHub
-          .source[Int](perProducerBufferSize = 1)
+          .source[Int](perProducerBufferSize = 4)
           //insert a buffer stage to decouple the downstream from the MergeHub. If/when the buffer fulls up and a new element arrives, it drops the new element.
           //.via(Flow[Int].buffer(bufferSize, OverflowStrategy.dropNew).async(FixedDispatcher))
           //.via(new BackPressuredStage[Int](bufferSize).async(FixedDispatcher))
-          //.via(new DropTailStage[Int](bufferSize).async(FixedDispatcher))
-          .via(new DropHeadStage[Int](bufferSize).async(FixedDispatcher))
+          .via(new DropTailStage[Int](bufferSize).async(FixedDispatcher))
+          //.via(new DropHeadStage[Int](bufferSize).async(FixedDispatcher))
+          .via(new BackpressureMeasurementStage)
           /*.via(
             Flow[Int]
               .map { i ⇒
@@ -1868,11 +1869,11 @@ object AkkaRecipes extends App {
           .run()(mat)
 
       //materialize this sink 3 times and each of the new materializations will feed its consumed elements to the original Source.
-      timedSource(ms, 1.second, 5.millis, Int.MaxValue, "akka-source_31_0", start = 1000000) ~> sink
-      timedSource(ms, 1.second, 8.millis, Int.MaxValue, "akka-source_31_1", start = 2000000) ~> sink
-      timedSource(ms, 1.second, 10.millis, Int.MaxValue, "akka-source_31_2", start = 3000000) ~> sink
+      timedSource(ms, 1.second, 10.millis, Int.MaxValue, "akka-source_31_0", start = 1000000) ~> sink
+      timedSource(ms, 1.second, 12.millis, Int.MaxValue, "akka-source_31_1", start = 2000000) ~> sink
+      //timedSource(ms, 1.second, 10.millis, Int.MaxValue, "akka-source_31_2", start = 3000000) ~> sink
 
-      Source.fromPublisher(publisher) ~> new DegradingGraphiteSink[Int]("akka-sink_31", 2L, ms)
+      Source.fromPublisher(publisher) ~> new DegradingGraphiteSink[Int]("akka-sink_31", 1L, ms)
 
       /*Sink.foreach { i: Int ⇒
         println(s"${Thread.currentThread.getName}: Out:$i")

@@ -1,6 +1,7 @@
 package recipes
 
 import java.io.{File, FileOutputStream}
+import java.util.concurrent.ThreadLocalRandom
 
 import akka.actor.ActorRef
 import akka.stream.ActorAttributes.SupervisionStrategy
@@ -156,10 +157,8 @@ object CustomStages {
               val elem = grab(in)
               fifo enqueue elem //O(1)
 
-              //FOR DEBUG
-              if (fifo.size > 1)
-                //Can't keep up with req rate!
-                log.debug("{} Buffering: {}", Thread.currentThread.getName, fifo.size)
+              //Can't keep up with req rate!
+              //if (fifo.size > 1) log.debug("{} Buffering: {}", Thread.currentThread.getName, fifo.size)
 
               if (isDownstreamRequested) {
                 isDownstreamRequested = false
@@ -168,9 +167,8 @@ object CustomStages {
               }
 
               if (enoughSpace) pull(in)
-              else
-                //wait for demand from downstream
-                log.debug("{} Buffer is filled up. Wait for demand from the downstream", Thread.currentThread.getName)
+              //wait for demand from downstream
+              //else log.debug("{} Buffer is filled up. Wait for demand from the downstream", Thread.currentThread.getName)
             }
 
             override def onUpstreamFinish(): Unit = {
@@ -245,7 +243,7 @@ object CustomStages {
                   push(out, outElem)
                 }
               } else {
-                log.debug("{} Ignoring: {}", Thread.currentThread.getName, inElem)
+                //log.debug("{} Ignoring: {}", Thread.currentThread.getName, inElem)
               }
               pull(in)
               //if (fifo.size > 1) log.debug("{} Can't keep up with req rate! Buffering: {}", Thread.currentThread.getName, fifo.size)
@@ -308,9 +306,7 @@ object CustomStages {
               val elem = grab(in)
               fifo enqueue elem //O(1)
 
-              //FOR DEBUG
-              if (fifo.size > 1)
-                log.debug("{} Can't keep up with req rate! Buffering: {}", Thread.currentThread.getName, fifo.size)
+              //if (fifo.size > 1) log.debug("{} Can't keep up with req rate! Buffering: {}", Thread.currentThread.getName, fifo.size)
 
               if (isDownstreamRequested) {
                 isDownstreamRequested = false
@@ -321,7 +317,7 @@ object CustomStages {
               if (enoughSpace) pull(in)
               else {
                 val e = fifo.dequeue
-                log.debug("{} Dropping: {}", Thread.currentThread.getName, e)
+                //log.debug("{} Dropping: {}", Thread.currentThread.getName, e)
                 pull(in)
               }
             }
@@ -758,42 +754,52 @@ object CustomStages {
 
   // Stage to measure backpressure
   //https://youtu.be/4s1YzgrRR2A?list=PLbZ2T3O9BuvczX5j03bWMrMFzK5OAs9mZ
-  final class BackpressureMeasurementStage[In, Out](f: In ⇒ Out) extends GraphStage[FlowShape[In, Out]] {
-    val in  = Inlet[In]("map.in")
-    val out = Outlet[Out]("map.out")
+  //https://github.com/naferx/akka-stream-checkpoint/blob/master/core/src/main/scala/akka/stream/checkpoint/CheckpointStage.scala
+  final class BackpressureMeasurementStage[T] extends GraphStage[FlowShape[T, T]] {
+    val in  = Inlet[T]("mes.in")
+    val out = Outlet[T]("mes.out")
 
-    override val shape: FlowShape[In, Out] = FlowShape(in, out)
+    override val shape: FlowShape[T, T] = FlowShape.of(in, out)
 
     override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
-      new GraphStageLogic(shape) with InHandler with OutHandler {
-        val histogram = new org.HdrHistogram.Histogram(3600000000000L, 3)
-
+      new GraphStageLogic(shape) /*with InHandler with OutHandler*/ with StageLogging {
+        //val histogram        = new org.HdrHistogram.Histogram(3600000000000L, 3)
         var lastPulled: Long = System.nanoTime
         var lastPushed: Long = lastPulled
 
-        //
+        setHandler(out, new OutHandler {
+          override def onPull(): Unit = {
+            pull(in)
+            lastPulled = System.nanoTime
+          }
+        })
 
-        override def onPush(): Unit = {
-          push(out, f(grab(in)))
-          val now = System.nanoTime
-          //ratio between time spent for the pull and time spent for the push (percentage)
-          // 0 percent means -- never backpressured
-          // 100 percent means -- always backpressured
-          val v = (lastPulled - lastPulled) * 100 / now - lastPushed
-          histogram.recordValue(v)
-          lastPushed = now
-        }
+        setHandler(
+          in,
+          new InHandler {
+            override def onPush(): Unit = {
+              push(out, grab(in))
+              val now            = System.nanoTime
+              val lastPushedSpan = now - lastPushed
 
-        override def onPull(): Unit = {
-          pull(in)
-          lastPulled = System.nanoTime
-        }
+              val backpressureRatio =
+                if (lastPushedSpan > 0) Some((lastPulled - lastPushed) * 100 / lastPushedSpan) else None
 
-        override def postStop(): Unit = {
+              //ratio between time spent for the pull and time spent for the push (percentage)
+              // 0 percent means -- never backpressured
+              // 100 percent means -- always backpressured
+              //backpressureRatio.foreach(histogram.recordValue(_))
+              lastPushed = now
+              if (ThreadLocalRandom.current.nextDouble > .95)
+                log.debug("{} BackpressureRatio: {}", Thread.currentThread.getName, backpressureRatio)
+            }
+          }
+        )
+        /*override def postStop(): Unit = {
           val out = new FileOutputStream(new File("./histograms/" + System.currentTimeMillis + ".txt"))
           val d   = (1000000.0).asInstanceOf[java.lang.Double]
           histogram.outputPercentileDistribution(new java.io.PrintStream(out), d) //in millis
-        }
+        }*/
       }
   }
 
