@@ -9,8 +9,9 @@ import akka.stream.scaladsl.SinkQueueWithCancel
 import akka.stream.stage.GraphStageLogic.StageActor
 
 import scala.collection.{immutable, mutable}
-import akka.stream.stage._
+import akka.stream.stage.{StageLogging, _}
 import akka.util.ByteString
+import recipes.AkkaRecipes.FixedDispatcher
 
 import scala.concurrent.{Future, Promise}
 import scala.concurrent.duration.{Duration, FiniteDuration}
@@ -114,25 +115,25 @@ object CustomStages {
   /*
     Related links:
       https://doc.akka.io/docs/akka/current/stream/stream-customize.html
+      https://doc.akka.io/docs/akka/current/stream/stream-customize.html#rate-decoupled-operators
       https://github.com/mkubala/akka-stream-contrib/blob/feature/101-mkubala-interval-based-rate-limiter/contrib/src/main/scala/akka/stream/contrib/IntervalBasedRateLimiter.scala
 
       Rate decoupled graph stages.
       The main point being is that an onPush call does not always lead to calling push and
         an onPull call does not always lead to calling pull.
    */
-  class InternalBufferStage[A](maxSize: Int) extends GraphStage[FlowShape[A, A]] {
+  final class BackPressuredStage[A](watermark: Int) extends GraphStage[FlowShape[A, A]] {
     val in    = Inlet[A]("ib.in")
     val out   = Outlet[A]("ib.out")
     val shape = FlowShape.of(in, out)
 
     override protected def initialAttributes: Attributes =
-      Attributes
-        .name("buffer")
-        //.and(ActorAttributes.dispatcher("akka.blocking-dispatcher"))
-        .and(ActorAttributes.dispatcher("akka.flow-dispatcher"))
+      Attributes.name("back-pressured-buffer")
+    //.and(ActorAttributes.dispatcher(FixedDispatcher))
+    //.and(ActorAttributes.dispatcher("akka.flow-dispatcher"))
 
     override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
-      new GraphStageLogic(shape) {
+      new GraphStageLogic(shape) with StageLogging {
         //this if how we can access internal decider
         val decider = inheritedAttributes
           .get[akka.stream.ActorAttributes.SupervisionStrategy]
@@ -142,12 +143,11 @@ object CustomStages {
         var isDownstreamRequested = false
         val fifo                  = mutable.Queue[A]()
 
-        def watermarkIsNotReached: Boolean =
-          fifo.size < maxSize
+        def enoughSpace: Boolean =
+          fifo.size < watermark
 
         // a detached stage needs to start upstream demand itself as it's not triggered by downstream demand
-        override def preStart(): Unit =
-          pull(in)
+        override def preStart(): Unit = pull(in)
 
         setHandler(
           in,
@@ -156,27 +156,27 @@ object CustomStages {
               val elem = grab(in)
               fifo enqueue elem //O(1)
 
-              /*
-            FOR DEBUG
-            if (buffer.size > 1)
-              println(s"buffer-size ${buffer.size}")
-               */
+              //FOR DEBUG
+              if (fifo.size > 1)
+                //Can't keep up with req rate!
+                log.debug("{} Buffering: {}", Thread.currentThread.getName, fifo.size)
 
               if (isDownstreamRequested) {
                 isDownstreamRequested = false
-                val bufferedElem = fifo.dequeue
-                push(out, bufferedElem)
+                val elem = fifo.dequeue
+                push(out, elem)
               }
 
-              if (watermarkIsNotReached)
-                pull(in)
-
+              if (enoughSpace) pull(in)
+              else
+                //wait for demand from downstream
+                log.debug("{} Buffer is filled up. Wait for demand from the downstream", Thread.currentThread.getName)
             }
 
             override def onUpstreamFinish(): Unit = {
               if (fifo.nonEmpty) {
                 // emit the rest if possible
-                emitMultiple(out, fifo.toIterator)
+                emitMultiple(out, fifo.iterator)
               }
               completeStage()
             }
@@ -191,12 +191,161 @@ object CustomStages {
                 isDownstreamRequested = true
               } else {
                 val elem = fifo.dequeue //O(1)
+                //emitMultiple()
                 push(out, elem)
               }
-              if (!watermarkIsNotReached && !hasBeenPulled(in)) {
+
+              if (enoughSpace && !hasBeenPulled(in)) {
+                //log.debug("Downstream triggers pull {}", fifo.size)
                 pull(in)
               }
             }
+          }
+        )
+      }
+  }
+
+  final class DropHeadStage[A](watermark: Int) extends GraphStage[FlowShape[A, A]] {
+    val in    = Inlet[A]("ib.in")
+    val out   = Outlet[A]("ib.out")
+    val shape = FlowShape.of(in, out)
+
+    override protected def initialAttributes: Attributes =
+      Attributes.name("drop-head-buffer")
+
+    override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
+      new GraphStageLogic(shape) with StageLogging {
+        //this if how we can access internal decider
+        val decider = inheritedAttributes
+          .get[akka.stream.ActorAttributes.SupervisionStrategy]
+          .map(_.decider)
+          .getOrElse(Supervision.stoppingDecider)
+
+        var isDownstreamRequested = false
+        val fifo                  = mutable.Queue[A]()
+
+        def enoughSpace: Boolean =
+          fifo.size < watermark
+
+        // a detached stage needs to start upstream demand itself as it's not triggered by downstream demand
+        override def preStart(): Unit = pull(in)
+
+        setHandler(
+          in,
+          new InHandler {
+            override def onPush(): Unit = {
+              val inElem = grab(in)
+
+              if (enoughSpace) {
+                //log.debug("{} Buffering: {}", Thread.currentThread.getName, fifo.size)
+                fifo.enqueue(inElem) //O(1)
+                if (isDownstreamRequested) {
+                  isDownstreamRequested = false
+                  val outElem = fifo.dequeue
+                  push(out, outElem)
+                }
+              } else {
+                log.debug("{} Ignoring: {}", Thread.currentThread.getName, inElem)
+              }
+              pull(in)
+              //if (fifo.size > 1) log.debug("{} Can't keep up with req rate! Buffering: {}", Thread.currentThread.getName, fifo.size)
+            }
+
+            override def onUpstreamFinish(): Unit = {
+              if (fifo.nonEmpty) {
+                // emit the rest if possible
+                emitMultiple(out, fifo.iterator)
+              }
+              completeStage()
+            }
+          }
+        )
+
+        setHandler(
+          out,
+          new OutHandler {
+            override def onPull(): Unit =
+              if (fifo.isEmpty) {
+                isDownstreamRequested = true
+              } else {
+                val elem = fifo.dequeue //O(1)
+                push(out, elem)
+              }
+          }
+        )
+      }
+  }
+
+  final class DropTailStage[A](watermark: Int) extends GraphStage[FlowShape[A, A]] {
+    val in    = Inlet[A]("ib.in")
+    val out   = Outlet[A]("ib.out")
+    val shape = FlowShape.of(in, out)
+
+    override protected def initialAttributes: Attributes =
+      Attributes.name("drop-tail-buffer")
+
+    override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
+      new GraphStageLogic(shape) with StageLogging {
+        //this if how we can access internal decider
+        val decider = inheritedAttributes
+          .get[akka.stream.ActorAttributes.SupervisionStrategy]
+          .map(_.decider)
+          .getOrElse(Supervision.stoppingDecider)
+
+        var isDownstreamRequested = false
+        val fifo                  = mutable.Queue[A]()
+
+        def enoughSpace: Boolean =
+          fifo.size < watermark
+
+        // a detached stage needs to start upstream demand itself as it's not triggered by downstream demand
+        override def preStart(): Unit = pull(in)
+
+        setHandler(
+          in,
+          new InHandler {
+            override def onPush(): Unit = {
+              val elem = grab(in)
+              fifo enqueue elem //O(1)
+
+              //FOR DEBUG
+              if (fifo.size > 1)
+                log.debug("{} Can't keep up with req rate! Buffering: {}", Thread.currentThread.getName, fifo.size)
+
+              if (isDownstreamRequested) {
+                isDownstreamRequested = false
+                val elem = fifo.dequeue
+                push(out, elem)
+              }
+
+              if (enoughSpace) pull(in)
+              else {
+                val e = fifo.dequeue
+                log.debug("{} Dropping: {}", Thread.currentThread.getName, e)
+                pull(in)
+              }
+            }
+
+            override def onUpstreamFinish(): Unit = {
+              if (fifo.nonEmpty) {
+                // emit the rest if possible
+                emitMultiple(out, fifo.iterator)
+              }
+              completeStage()
+            }
+          }
+        )
+
+        setHandler(
+          out,
+          new OutHandler {
+            override def onPull(): Unit =
+              if (fifo.isEmpty) {
+                isDownstreamRequested = true
+              } else {
+                val elem = fifo.dequeue //O(1)
+                push(out, elem)
+              }
           }
         )
       }
@@ -240,16 +389,18 @@ object CustomStages {
                 push(out, bufferedElem)
               }
 
-              if (!watermarkIsReached) {
-                pull(in)
-              }
+              if (watermarkIsReached)
+                //drop element
+                rb.poll()
+
+              pull(in)
             }
 
             override def onUpstreamFinish(): Unit = {
               if (!rb.isEmpty) {
                 // emit the rest if possible
-                import scala.collection.JavaConverters._
-                emitMultiple(out, rb.iterator().asScala)
+                import scala.jdk.CollectionConverters._
+                emitMultiple(out, rb.iterator.asScala)
               }
               completeStage()
             }

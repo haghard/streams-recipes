@@ -1,0 +1,60 @@
+<configuration>
+
+  <property name="defaultPattern"
+            value="%date{&quot;yyyy-MM-dd HH:mm:ss.SSSXXX&quot;, UTC} |%highlight(%level)| [%logger{36}]%replace(\[%mdc{prefix}\]){'\\[\\]', ''} %msg%replace(  | %mdc){'^         &gt;&gt;&gt; $', ''}%n" />
+
+
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+      <encoder>
+        <!--<pattern>%yellow(%X{akkaTimestamp}) |%highlight(%-5level)| [%green(%X{sourceThread}, %X{sourceActorSystem}, %X{akkaSource})] %cyan(%logger{36}) - %highlight(%msg%n%ex{full})</pattern>-->
+        <!--<pattern>%yellow(%X{akkaTimestamp}) |%highlight(%-5level)| [%green(%X{sourceThread}, %X{sourceActorSystem}, %X{akkaSource})] - %highlight(%msg%n%ex{full})</pattern>-->
+        <!--<pattern>${defaultPattern}</pattern>-->
+
+        <pattern>[%yellow(%date{ISO8601})] [%level] [%logger] [%green(%thread)] [%X{akkaSource}] - %highlight(%msg%n)</pattern>
+        
+        <!--<pattern>%yellow(%date{&quot;yyyy-MM-dd HH:mm:ss.SSSXXX&quot;, UTC})| %highlight(%-5level)| [%green(%X{thread}, %X{akkaSource})] - %highlight(%msg%n%ex{full})</pattern>-->
+
+      </encoder>
+  </appender>
+
+  <appender name="SERVER" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <file>logs/recipes.log</file>
+    <append>true</append>
+    <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+      <fileNamePattern>"logs/%d{yyyy-MM-dd}/server-%i.log"</fileNamePattern>
+      <maxFileSize>50MB</maxFileSize>
+    </rollingPolicy>
+    <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+      <maxFileSize>50MB</maxFileSize>
+    </triggeringPolicy>
+
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} [%X{sourceThread}] %-5level %logger{36} %X{akkaSource} – %msg%n</pattern>
+    </encoder>
+
+  </appender>
+
+  <appender name="console" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SS} [%X{sourceThread}] %-5level %logger{36} %X{akkaSource} – %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <appender name="asyncFile" class="ch.qos.logback.classic.AsyncAppender">
+    <appender-ref ref="SERVER"/>
+  </appender>
+
+  <appender name="asyncConsole" class="ch.qos.logback.classic.AsyncAppender">
+    <appender-ref ref="console"/>
+  </appender>
+
+  <appender name="asyncSTDOUT" class="ch.qos.logback.classic.AsyncAppender">
+    <appender-ref ref="STDOUT"/>
+  </appender>
+
+  <root level="DEBUG">
+    <appender-ref ref="asyncSTDOUT"/>
+    <appender-ref ref="asyncFile"/>
+  </root>
+
+</configuration>

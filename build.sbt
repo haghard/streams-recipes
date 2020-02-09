@@ -55,7 +55,7 @@ resolvers ++= Seq(
 
 promptTheme := ScalapenosTheme
 
-val akkaStreamV = "2.5.26"
+val akkaV = "2.5.26"
 val fs2V = "2.0.1"
 val scalazVersion = "7.2.28"
 
@@ -88,8 +88,8 @@ libraryDependencies ++= Seq(
   
   //Users/haghard/.ivy2/local/default/fs2-cache_2.11/1.0/jars/fs2-cache_2.11.jar
 
-  "com.typesafe.akka" %% "akka-stream" % akkaStreamV,
-  "com.typesafe.akka" %% "akka-stream-typed" % akkaStreamV,
+  "com.typesafe.akka" %% "akka-stream" % akkaV,
+  "com.typesafe.akka" %% "akka-stream-typed" % akkaV,
 
   "com.typesafe.akka" %% "akka-http" % "10.1.10",
 
@@ -100,7 +100,7 @@ libraryDependencies ++= Seq(
 
   //"com.twitter"   %% "algebird-core" % "0.13.5", //prevents me from jumping on 2.13
 
-  "org.hdrhistogram"  %  "HdrHistogram"      % "2.1.10",
+  "org.hdrhistogram"  %  "HdrHistogram"      % "2.1.12",
   "com.esri.geometry" %  "esri-geometry-api" % "1.2.1",
   "io.spray"          %% "spray-json"        % "1.3.5",
 
@@ -138,6 +138,9 @@ libraryDependencies ++= Seq(
   //"io.moia" %% "streamee" % "5.0.0",
 
   "org.apache.commons" % "commons-collections4" % "4.0",
+
+  "com.typesafe.akka" %% "akka-slf4j" % akkaV,
+  "ch.qos.logback" % "logback-classic" % "1.2.3",
 
   // li haoyi ammonite repl embed
   ("com.lihaoyi" % "ammonite" % "1.9.2" % "test").cross(CrossVersion.full)

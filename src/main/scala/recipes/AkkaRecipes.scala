@@ -29,7 +29,7 @@ import recipes.AkkaRecipes.{CircularFifo, LogEntry, SimpleMAState}
 import recipes.BalancerRouter._
 import recipes.BatchProducer.Item
 import recipes.ConsistentHashingRouter.{CHWork, DBObject2}
-import recipes.CustomStages.{DisjunctionStage, InternalBufferStage, QueueSrc, SimpleRingBuffer}
+import recipes.CustomStages.{BackPressuredStage, DisjunctionStage, DropHeadStage, DropTailStage, QueueSrc, SimpleRingBuffer}
 import recipes.DegradingTypedActorSink.{IntValue, Protocol, RecoverableSinkFailure}
 import recipes.Sinks.{DegradingGraphiteSink, GraphiteSink, GraphiteSink3}
 
@@ -63,9 +63,9 @@ object AkkaRecipes extends App {
       |  fixed-dispatcher {
       |    executor = "thread-pool-executor"
       |    thread-pool-executor {
-      |     fixed-pool-size = 2
+      |     fixed-pool-size = 3
       |    }
-      |    throughput = 1
+      |    throughput = 50
       |  }
       |
       |  resizable-dispatcher {
@@ -92,7 +92,7 @@ object AkkaRecipes extends App {
     new InetSocketAddress(InetAddress.getByName("127.0.0.1" /*"192.168.77.83"*/ ), 8125)
 
   def sys: ActorSystem =
-    ActorSystem("streams", config)
+    ActorSystem("streams", ConfigFactory.empty().withFallback(config).withFallback(ConfigFactory.load()))
 
   val decider: akka.stream.Supervision.Decider = {
     case ex: Throwable ⇒
@@ -135,6 +135,8 @@ object AkkaRecipes extends App {
   //RunnableGraph.fromGraph(scenario24).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario25).run()(ActorMaterializer(Settings)(sys))
   //RunnableGraph.fromGraph(scenario26).run()(ActorMaterializer(Settings)(sys))
+
+  //scenario2_1
   RunnableGraph.fromGraph(scenario31).run()(ActorMaterializer(Settings)(sys))
 
   case object CurrentThreadExecutionContext extends ExecutionContextExecutor {
@@ -312,7 +314,6 @@ object AkkaRecipes extends App {
     src
       .alsoTo(countElementsWindow("akka-scenario2", 5 seconds))
       .via(buffer)
-      .async
       .to(degradingSink)
 
     /*GraphDSL.create() { implicit b =>
@@ -333,7 +334,7 @@ object AkkaRecipes extends App {
 
     source
       .alsoTo(countElementsWindow("akka-scenario2_1", 10 seconds))
-      .via(new InternalBufferStage[Int](1 << 7))
+      .via(new BackPressuredStage[Int](1 << 7))
       .async
       .to(sink)
   }
@@ -1821,6 +1822,7 @@ object AkkaRecipes extends App {
     //Source.fromPublisher(qPublisher(src)).runWith(Sink.foreach(println(_)))(mat)
     //qOut(src).runWith(Sink.foreach(println(_)))(mat)
 
+    //Use case: Many clients write at most once (no response required).
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
       val bufferSize = 1 << 4
@@ -1835,28 +1837,46 @@ object AkkaRecipes extends App {
 
         If the consumer cannot keep up with the rate, all producers will be backpressured.
        */
-      val (sink, src) =
+
+      /*
+      .via(new InternalBufferStage[Int](1 << 7))
+            .async
+            .to(sink)
+       */
+
+      val (sink, publisher) =
         MergeHub
           .source[Int](perProducerBufferSize = 1)
           //insert a buffer stage to decouple the downstream from the MergeHub. If/when the buffer fulls up and a new element arrives, it drops the new element.
-          .via(Flow[Int].buffer(bufferSize, OverflowStrategy.dropNew).async)
+          //.via(Flow[Int].buffer(bufferSize, OverflowStrategy.dropNew).async(FixedDispatcher))
+          //.via(new BackPressuredStage[Int](bufferSize).async(FixedDispatcher))
+          //.via(new DropTailStage[Int](bufferSize).async(FixedDispatcher))
+          .via(new DropHeadStage[Int](bufferSize).async(FixedDispatcher))
+          /*.via(
+            Flow[Int]
+              .map { i ⇒
+                //println(s"${Thread.currentThread.getName}: Buffer:$i")
+                i
+              }
+              .async(FixedDispatcher, bufferSize)
+          )*/
           //.via(Flow[Int].addAttributes(Attributes.inputBuffer(bufferSize, bufferSize)).addAttributes(Attributes.asyncBoundary))
-          .toMat(
-            Sink.asPublisher[Int](false)
-            //.addAttributes(Attributes.inputBuffer(bufferSize, bufferSize))
-            //.addAttributes(Attributes.asyncBoundary) //to improve the performance we apply async boundaries so that the
-          )(Keep.both)
+          .toMat(Sink.asPublisher[Int](false))(Keep.both)
+          //.addAttributes(Attributes.inputBuffer(bufferSize, bufferSize))
+          //.addAttributes(Attributes.asyncBoundary) //to improve the performance we apply async boundaries so that the
           //.toMat(Sink.queue[Int])(Keep.both)
           .run()(mat)
 
       //materialize this sink 3 times and each of the new materializations will feed its consumed elements to the original Source.
-      timedSource(ms, 1.second, 100.millis, Int.MaxValue, "akka-source_31_0", start = 1000) ~> sink
-      timedSource(ms, 1.second, 200.millis, Int.MaxValue, "akka-source_31_1", start = 2000) ~> sink
-      timedSource(ms, 1.second, 300.millis, Int.MaxValue, "akka-source_31_2", start = 3000) ~> sink
+      timedSource(ms, 1.second, 5.millis, Int.MaxValue, "akka-source_31_0", start = 1000000) ~> sink
+      timedSource(ms, 1.second, 8.millis, Int.MaxValue, "akka-source_31_1", start = 2000000) ~> sink
+      timedSource(ms, 1.second, 10.millis, Int.MaxValue, "akka-source_31_2", start = 3000000) ~> sink
 
-      Source.fromPublisher(src) ~> Sink.foreach { i: Int ⇒
-        println(s"out: $i")
-      }
+      Source.fromPublisher(publisher) ~> new DegradingGraphiteSink[Int]("akka-sink_31", 2L, ms)
+
+      /*Sink.foreach { i: Int ⇒
+        println(s"${Thread.currentThread.getName}: Out:$i")
+      }*/
 
       /*Source.fromGraph(new QueueSrc(src)) ~> Sink.foreach { i: Int ⇒
         println(s"out: $i")
