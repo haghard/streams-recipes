@@ -1823,18 +1823,30 @@ object AkkaRecipes extends App {
 
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
+      val bufferSize = 1 << 4
 
+      //https://doc.akka.io/docs/akka/current/stream/stream-dynamic.html#using-the-mergehub
       //val ((sink, killSwitch), src) =
       /*
         A MergeHub is a special streaming hub that is able to collect streamed elements from a dynamic set of producers.
         It consists of two parts, a Source and a Sink. The Source streams the element to a consumer from its merged inputs.
         Once the consumer has been materialized, the Source returns a materialized value which  is the corresponding Sink.
         This Sink can then be materialized arbitrary many times, where each of the new materializations will feed its consumed elements to the  original Source.
+
+        If the consumer cannot keep up with the rate, all producers will be backpressured.
        */
       val (sink, src) =
         MergeHub
-          .source[Int](perProducerBufferSize = 1 << 4)
-          .toMat(Sink.queue[Int])(Keep.both)
+          .source[Int](perProducerBufferSize = 1)
+          //insert a buffer stage to decouple the downstream from the MergeHub. If/when the buffer fulls up and a new element arrives, it drops the new element.
+          .via(Flow[Int].buffer(bufferSize, OverflowStrategy.dropNew).async)
+          //.via(Flow[Int].addAttributes(Attributes.inputBuffer(bufferSize, bufferSize)).addAttributes(Attributes.asyncBoundary))
+          .toMat(
+            Sink.asPublisher[Int](false)
+            //.addAttributes(Attributes.inputBuffer(bufferSize, bufferSize))
+            //.addAttributes(Attributes.asyncBoundary) //to improve the performance we apply async boundaries so that the
+          )(Keep.both)
+          //.toMat(Sink.queue[Int])(Keep.both)
           .run()(mat)
 
       //materialize this sink 3 times and each of the new materializations will feed its consumed elements to the original Source.
@@ -1842,9 +1854,13 @@ object AkkaRecipes extends App {
       timedSource(ms, 1.second, 200.millis, Int.MaxValue, "akka-source_31_1", start = 2000) ~> sink
       timedSource(ms, 1.second, 300.millis, Int.MaxValue, "akka-source_31_2", start = 3000) ~> sink
 
-      Source.fromGraph(new QueueSrc(src)) ~> Sink.foreach { i: Int ⇒
+      Source.fromPublisher(src) ~> Sink.foreach { i: Int ⇒
         println(s"out: $i")
       }
+
+      /*Source.fromGraph(new QueueSrc(src)) ~> Sink.foreach { i: Int ⇒
+        println(s"out: $i")
+      }*/
 
       /*qOut(src) ~> Sink.foreach { i: Int ⇒
         println(s"out: $i")

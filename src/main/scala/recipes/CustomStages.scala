@@ -693,7 +693,7 @@ object CustomStages {
     }
   }
 
-  //More interesting example here:  https://github.com/calvinlfer/Akka-Streams-custom-stream-processing-examples/blob/master/src/main/scala/com/calvin/streamy/SideChannelSource.scala
+  //More interesting example here: https://github.com/calvinlfer/Akka-Streams-custom-stream-processing-examples/blob/master/src/main/scala/com/calvin/streamy/SideChannelSource.scala
   class QueueSrc[T](q: SinkQueueWithCancel[T]) extends GraphStage[SourceShape[T]] {
     val out: Outlet[T]                 = Outlet("queue-out")
     override val shape: SourceShape[T] = SourceShape(out)
