@@ -1835,15 +1835,8 @@ object AkkaRecipes extends App {
         Once the consumer has been materialized, the Source returns a materialized value which  is the corresponding Sink.
         This Sink can then be materialized arbitrary many times, where each of the new materializations will feed its consumed elements to the  original Source.
 
-        If the consumer cannot keep up with the rate, all producers will be backpressured.
+        Why MergeHub: If the consumer cannot keep up with the rate, all producers will be backpressured.
        */
-
-      /*
-      .via(new InternalBufferStage[Int](1 << 7))
-            .async
-            .to(sink)
-       */
-
       val (sink, publisher) =
         MergeHub
           .source[Int](perProducerBufferSize = 4)
