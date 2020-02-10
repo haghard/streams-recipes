@@ -762,7 +762,7 @@ object CustomStages {
     override val shape: FlowShape[T, T] = FlowShape.of(in, out)
 
     override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
-      new GraphStageLogic(shape) /*with InHandler with OutHandler*/ with StageLogging {
+      new GraphStageLogic(shape) with StageLogging {
         //val histogram        = new org.HdrHistogram.Histogram(3600000000000L, 3)
         var lastPulled: Long = System.nanoTime
         var lastPushed: Long = lastPulled
