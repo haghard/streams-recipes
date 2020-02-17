@@ -1558,6 +1558,9 @@ object AkkaRecipes extends App {
       }
 
     //https://github.com/paypal/squbs/blob/master/docs/persistent-buffer.md
+    //https://github.com/paypal/squbs/blob/master/docs/persistent-buffer.md#broadcast-buffer
+    //https://www.youtube.com/watch?v=15jAG6-T_KE
+
 
     /*
       It works like the Akka Streams buffer with the difference that the content of the buffer is stored in a series of memory-mapped files
@@ -1839,7 +1842,7 @@ object AkkaRecipes extends App {
        */
       val (sink, publisher) =
         MergeHub
-          .source[Int](perProducerBufferSize = 4)
+          .source[Int](perProducerBufferSize = 1)
           //insert a buffer stage to decouple the downstream from the MergeHub. If/when the buffer fulls up and a new element arrives, it drops the new element.
           //.via(Flow[Int].buffer(bufferSize, OverflowStrategy.dropNew).async(FixedDispatcher))
           //.via(new BackPressuredStage[Int](bufferSize).async(FixedDispatcher))

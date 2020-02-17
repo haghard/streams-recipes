@@ -95,7 +95,9 @@ libraryDependencies ++= Seq(
 
   //"com.typesafe.akka" %% "akka-actor-typed" % akkaStreamV,
 
-  //("org.squbs" %% "squbs-pattern" %  "0.12.0").excludeAll("com.typesafe.akka"),
+  //https://squbs.readthedocs.io/en/latest/circuitbreaker/
+  //("org.squbs" %% "squbs-pattern" %  "0.13.0").excludeAll("com.typesafe.akka"),
+
   "net.openhft" % "chronicle-queue" % "4.16.5",
 
   //"com.twitter"   %% "algebird-core" % "0.13.5", //prevents me from jumping on 2.13

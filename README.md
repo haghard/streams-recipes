@@ -49,6 +49,7 @@ https://github.com/efekahraman/akka-streams-session-window
 ## Akka streams links ##
 http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
 https://blog.softwaremill.com/painlessly-passing-message-context-through-akka-streams-1615b11efc2c
+https://github.com/calvinlfer/Akka-Streams-custom-stream-processing-examples
 
 
 https://github.com/svezfaz/akka-backpressure-scala-central-talk.git
