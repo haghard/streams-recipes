@@ -137,42 +137,38 @@ object AkkaRecipes extends App {
   //RunnableGraph.fromGraph(scenario26).run()(ActorMaterializer(Settings)(sys))
 
   //scenario2_1
-  RunnableGraph.fromGraph(scenario31).run()(ActorMaterializer(Settings)(sys))
+  //RunnableGraph.fromGraph(scenario31).run()(ActorMaterializer(Settings)(sys))
 
+  //Take a look
   case object CurrentThreadExecutionContext extends ExecutionContextExecutor {
     def execute(runnable: Runnable): Unit     = runnable.run()
     def reportFailure(cause: Throwable): Unit = throw cause
   }
-  /*
-  val graph = scenario27().run()(ActorMaterializer(Settings)(sys))
-  val enqueue = (elem: Int) ⇒ {
-    //println(s"${Thread.currentThread.getName}: $elem")
-    /*{
-      implicit val ec = akka.dispatch.ExecutionContexts.sameThreadExecutionContext // CurrentThreadExecutionContext
-      elem.handler.map { x => SignalAndHandler(elem.signal, Success(x)) }
-        .recover { case x => SignalAndHandler(elem.signal, Failure(x)) }
-    }*/
 
+  val graph = scenario27(sys).run()(mat)
+
+  def enqueue(elem: Int) = {
+    //println(s"${Thread.currentThread.getName}: $elem")
     val future: Future[Handler[Int]] =
-      /*Future {
-        Thread.sleep(100)
-        println(s"${Thread.currentThread.getName}: remote call0:$elem")
+      Future {
+        Thread.sleep(1000)
+        sys.log.info("remote call0: {}", elem)
+        //println(s"${Thread.currentThread.getName}: remote call0: $elem")
         elem
-      }(CurrentThreadExecutionContext)*/
-      Future
-        .successful(elem)
+      }(CurrentThreadExecutionContext)
+      //Future.successful(elem)
         .map { e ⇒
-          println(s"${Thread.currentThread.getName}: remote call: $e")
+          sys.log.info("remote call1: {}", e)
           Thread.sleep(200)
           Handler(Success(e))
         }(CurrentThreadExecutionContext)
 
     graph.offer(future).onComplete {
       case Success(r /*QueueOfferResult.Enqueued*/ ) ⇒
-        println(s"${Thread.currentThread.getName}: $r: $elem")
+        sys.log.info("{}:{}", r, elem)
       //case Success(QueueOfferResult.Dropped) ⇒ println("Dropped")
       case Failure(error) ⇒
-        println(s"Error: $error")
+        sys.log.error(s"Error: ", error)
     }
     //Thread.sleep(200)
   }
@@ -183,7 +179,7 @@ object AkkaRecipes extends App {
   graph.complete
   graph.watchCompletion().onComplete { _ ⇒
     println("Completion !!!!")
-  }*/
+  }
 
   /**
     * Tumbling windows discretize a stream into non-overlapping windows
@@ -1642,7 +1638,7 @@ object AkkaRecipes extends App {
 
   case class Handler[T](handler: Try[T])
 
-  def scenario27(): RunnableGraph[SourceQueueWithComplete[Future[Handler[Int]]]] = {
+  def scenario27(sys: ActorSystem): RunnableGraph[SourceQueueWithComplete[Future[Handler[Int]]]] = {
     def queueGraph[T](
       onBatch: List[Handler[T]] ⇒ Future[Unit],
       parallelism: Int = 3
@@ -1650,6 +1646,11 @@ object AkkaRecipes extends App {
       Source
         .queue[Future[Handler[T]]](1 << 6, OverflowStrategy.backpressure)
         .mapAsync(parallelism)(identity)
+        /*
+          Allows a faster upstream to progress independently of a slower subscriber by aggregating elements into batches
+          until the subscriber is ready to accept them. For example a batch step might store received elements in
+          an array up to the allowed max limit if the upstream publisher is faster.
+         */
         .batch[List[Handler[T]]](1 << 3, x ⇒ List(x)) { (xs, x) ⇒
           x :: xs
         }
@@ -1665,7 +1666,7 @@ object AkkaRecipes extends App {
       sys.scheduler.scheduleOnce(max) { promise.success(()) }
 
       val f = promise.future
-      f.onComplete(_ ⇒ println(s"${Thread.currentThread.getName}: onBatchComplete - ${batch.mkString(",")} "))
+      f.onComplete(_ ⇒ sys.log.info("onBatchComplete - {} ", batch.mkString(",")))
       f
     }
 

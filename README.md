@@ -51,6 +51,8 @@ http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing
 https://blog.softwaremill.com/painlessly-passing-message-context-through-akka-streams-1615b11efc2c
 https://github.com/calvinlfer/Akka-Streams-custom-stream-processing-examples
 https://www.infoq.com/presentations/squbs/
+https://github.com/gosubpl/akka-online.git
+https://engineering.prezi.com/prox-part-2-akka-streams-with-cats-effect-f63c28199cad
 
 
 https://github.com/svezfaz/akka-backpressure-scala-central-talk.git

@@ -806,7 +806,8 @@ object CustomStages {
   /*
     Flow.fromGraph(new Chunker(chunkSize))
    */
-  class Chunker(val chunkSize: Int) extends GraphStage[FlowShape[ByteString, ByteString]] {
+
+  final class Chunker(val chunkSize: Int) extends GraphStage[FlowShape[ByteString, ByteString]] {
     val in  = Inlet[ByteString]("chunker.in")
     val out = Outlet[ByteString]("chunker.out")
 
@@ -839,14 +840,25 @@ object CustomStages {
       )
 
       private def emitChunk(): Unit =
-        if (buffer.isEmpty) {
-          if (isClosed(in)) completeStage()
-          else pull(in)
-        } else {
+        if (buffer.nonEmpty && isAvailable(out)) {
           val (chunk, nextBuffer) = buffer.splitAt(chunkSize)
           buffer = nextBuffer
           push(out, chunk)
+        } else {
+          if (buffer.isEmpty)
+            if (isClosed(in)) completeStage()
+          if (!hasBeenPulled(in)) pull(in)
         }
+
+      /*if (buffer.isEmpty) {
+          if (isClosed(in)) completeStage() else pull(in)
+        } else {
+          if(isAvailable(out)) {
+            val (chunk, nextBuffer) = buffer.splitAt(chunkSize)
+            buffer = nextBuffer
+            push(out, chunk)
+          }
+        }*/
     }
   }
 
