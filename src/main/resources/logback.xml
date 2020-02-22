@@ -11,6 +11,9 @@
         <!--<pattern>${defaultPattern}</pattern>-->
 
         <pattern>[%yellow(%date{ISO8601})] [%level] [%logger] [%green(%thread)] [%X{akkaSource}] - %highlight(%msg%n)</pattern>
+
+        <!--use %mdc in logback.xml to include all MDC properties-->
+        <!--<pattern>[%date{ISO8601}] [%level] [%logger] [%marker] [%thread] - %msg {%mdc}%n</pattern>-->
         
         <!--<pattern>%yellow(%date{&quot;yyyy-MM-dd HH:mm:ss.SSSXXX&quot;, UTC})| %highlight(%-5level)| [%green(%X{thread}, %X{akkaSource})] - %highlight(%msg%n%ex{full})</pattern>-->
 
@@ -49,6 +52,8 @@
   </appender>
 
   <appender name="asyncSTDOUT" class="ch.qos.logback.classic.AsyncAppender">
+    <queueSize>1024</queueSize>
+    <neverBlock>true</neverBlock>
     <appender-ref ref="STDOUT"/>
   </appender>
 

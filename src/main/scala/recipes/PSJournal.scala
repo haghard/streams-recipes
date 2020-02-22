@@ -125,7 +125,7 @@ final class PsJournal(
                 push(out, iter.one)
               case Some(iter) ⇒
                 if (iter.isExhausted) {
-                  //a current partition is exhausted, let's try to read from the next partition
+                  //Reached the end of the current partition. Try to read from the next partition.
                   val nextPartition = navigatePartition(sequenceNr, partitionSize): JLong
                   val stmt          = statement(preparedStmt, persistenceId, nextPartition, sequenceNr, pageSize)
                   session.executeAsync(stmt).asScala.onComplete(onMessageCallback.invoke)
@@ -143,7 +143,9 @@ final class PsJournal(
       )
 
       /*
-       * reached the end of page or the end of the journal
+       * Reached either
+       * the end of the page because of fetchSize  or
+       * the end of journal corresponding to given persistence id
        */
       private def onFetchCompleted(rsOrFailure: Try[ResultSet]): Unit =
         rsOrFailure match {

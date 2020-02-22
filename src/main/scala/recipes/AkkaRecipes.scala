@@ -91,8 +91,8 @@ object AkkaRecipes extends App {
   val ms =
     new InetSocketAddress(InetAddress.getByName("127.0.0.1" /*"192.168.77.83"*/ ), 8125)
 
-  def sys: ActorSystem =
-    ActorSystem("streams", ConfigFactory.empty().withFallback(config).withFallback(ConfigFactory.load()))
+  val conf             = ConfigFactory.empty().withFallback(config).withFallback(ConfigFactory.load())
+  val sys: ActorSystem = ActorSystem("streams", conf)
 
   val decider: akka.stream.Supervision.Decider = {
     case ex: Throwable ⇒
@@ -103,7 +103,6 @@ object AkkaRecipes extends App {
 
   val Settings = ActorMaterializerSettings
     .create(system = sys)
-    //.withInputBuffer(32, 32)
     .withInputBuffer(16, 16)
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher")
@@ -139,7 +138,22 @@ object AkkaRecipes extends App {
   //scenario2_1
   //RunnableGraph.fromGraph(scenario31).run()(ActorMaterializer(Settings)(sys))
 
-  //Take a look
+  //https://blog.colinbreck.com/integrating-akka-streams-and-akka-actors-part-iii/
+  /*
+  Source(1 to 100000)
+    .throttle(
+      elements = 100,
+      per = 1.second,
+      maximumBurst = 100,
+      mode = ThrottleMode.shaping
+    )
+    .map { i ⇒
+      val id = java.util.UUID.randomUUID.toString
+      windTurbineShardRegionProxy ! EntityEnvelope(id, StartSimulator)
+    }.runWith(Sink.ignore)
+  */
+
+  /*
   case object CurrentThreadExecutionContext extends ExecutionContextExecutor {
     def execute(runnable: Runnable): Unit     = runnable.run()
     def reportFailure(cause: Throwable): Unit = throw cause
@@ -180,6 +194,7 @@ object AkkaRecipes extends App {
   graph.watchCompletion().onComplete { _ ⇒
     println("Completion !!!!")
   }
+ */
 
   /**
     * Tumbling windows discretize a stream into non-overlapping windows
@@ -524,7 +539,7 @@ object AkkaRecipes extends App {
     implicit val ec       = mat.executionContext
     val numOfMsgPerSource = 300
 
-    val manyToOneSink: Sink[Int, NotUsed] = Sink.actorRefWithAck[Int](
+    val manyToOneActorSink: Sink[Int, NotUsed] = Sink.actorRefWithAck[Int](
       sys.actorOf(DegradingActorSink.props("akka-sink-7_1", ms, 10)),
       onInitMessage = DegradingActorSink.Init,
       ackMessage = DegradingActorSink.Ack,
@@ -585,7 +600,7 @@ object AkkaRecipes extends App {
       MergeHub
         .source[Int](1 << 6)
         //.to(new GraphiteSink("sink_0", 0, ms))
-        .to(manyToOneSink)
+        .to(manyToOneActorSink)
         .run()(mat)
 
     sinkHub.runWith(StreamRefs.sinkRef[Int]())(mat).map { sinkRef ⇒
@@ -1646,6 +1661,7 @@ object AkkaRecipes extends App {
       Source
         .queue[Future[Handler[T]]](1 << 6, OverflowStrategy.backpressure)
         .mapAsync(parallelism)(identity)
+        //.throttle(1024, 1.second, 1024, ThrottleMode.shaping)
         /*
           Allows a faster upstream to progress independently of a slower subscriber by aggregating elements into batches
           until the subscriber is ready to accept them. For example a batch step might store received elements in
@@ -1654,7 +1670,7 @@ object AkkaRecipes extends App {
         .batch[List[Handler[T]]](1 << 3, x ⇒ List(x)) { (xs, x) ⇒
           x :: xs
         }
-        .to(Sink.foreachAsync(parallelism)(xs ⇒ onBatch(xs.reverse)))
+        .to(Sink.foreachAsync(1)(xs ⇒ onBatch(xs.reverse)))
     //or
     //.mapAsync(parallelism)(xs ⇒ onBatch(xs.reverse)).to(Sink.ignore)
 

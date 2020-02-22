@@ -44,6 +44,8 @@ https://efekahraman.github.io/2019/01/session-windows-in-akka-streams
 https://softwaremill.com/windowing-data-in-akka-streams/
 https://blog.kunicki.org/blog/2016/07/20/implementing-a-custom-akka-streams-graph-stage/
 https://github.com/efekahraman/akka-streams-session-window
+https://softwaremill.com/implementing-a-custom-akka-streams-graph-stage/
+https://blog.softwaremill.com/painlessly-passing-message-context-through-akka-streams-1615b11efc2c
 
 
 ## Akka streams links ##
@@ -53,6 +55,10 @@ https://github.com/calvinlfer/Akka-Streams-custom-stream-processing-examples
 https://www.infoq.com/presentations/squbs/
 https://github.com/gosubpl/akka-online.git
 https://engineering.prezi.com/prox-part-2-akka-streams-with-cats-effect-f63c28199cad
+
+
+
+https://t.co/NqbxQPwp7M
 
 
 https://github.com/svezfaz/akka-backpressure-scala-central-talk.git

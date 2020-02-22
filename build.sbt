@@ -137,7 +137,7 @@ libraryDependencies ++= Seq(
 
 
   //https://github.com/moia-dev/streamee
-  //"io.moia" %% "streamee" % "5.0.0",
+  //"io.moia" %% "streamee" % "5.0.0", //cannot use if because if brings akka 2.6
 
   "org.apache.commons" % "commons-collections4" % "4.0",
 
