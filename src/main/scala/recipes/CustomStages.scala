@@ -967,12 +967,11 @@ object CustomStages {
     Create a source where in order to get a number, you have to poll an API and the result is in a Future.
     The API could fail and we want to retry after 2 seconds.
    */
-  final class AsyncSourceWithRetry extends GraphStage[SourceShape[Int]] {
-    import scala.concurrent.duration._
+  import scala.concurrent.duration._
+  final class AsyncSourceWithRetry(retryTo: FiniteDuration = 2.seconds) extends GraphStage[SourceShape[Int]] {
+    val out: Outlet[Int] = Outlet[Int]("out")
 
-    val outlet: Outlet[Int] = Outlet[Int]("SideChannel.out")
-
-    override val shape: SourceShape[Int] = SourceShape(outlet)
+    override val shape: SourceShape[Int] = SourceShape(out)
 
     override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
       new GraphStageLogic(shape) with StageLogging {
@@ -991,7 +990,7 @@ object CustomStages {
             case Failure(ex) ⇒
               log.error(ex, "Error occurred in SideChannelSource. Attempting again after 2 seconds")
               materializer.scheduleOnce(
-                2.seconds,
+                retryTo,
                 () ⇒ grabAndInvokeWithRetry(Future(dangerousComputation())(materializer.executionContext))
               )
           }(materializer.executionContext)
@@ -1013,7 +1012,7 @@ object CustomStages {
             buffer = buffer :+ incoming
             // emulate downstream asking for data by calling onPull on the outlet port
             // Note: we check whether the downstream is really asking there
-            getHandler(outlet).onPull()
+            getHandler(out).onPull()
           }
 
           // In order to receive asynchronous events that are not arriving as stream elements
@@ -1030,16 +1029,16 @@ object CustomStages {
         }
 
         setHandler(
-          outlet,
+          out,
           new OutHandler {
             // the downstream will pull us
             override def onPull(): Unit = {
               // we query here because bufferMessageAndEmulatePull artificially calls onPull
               // and we must not violate the GraphStages guarantees
-              if (buffer.nonEmpty && isAvailable(outlet)) {
+              if (buffer.nonEmpty && isAvailable(out)) {
                 val sendValue = buffer.head
                 buffer = buffer.drop(1)
-                push(outlet, sendValue)
+                push(out, sendValue)
               }
 
               // obtain more elements if the buffer is empty and if an asynchronous call already isn't in progress
