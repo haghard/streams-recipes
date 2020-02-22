@@ -17,6 +17,7 @@ import recipes.AkkaRecipes.FixedDispatcher
 import scala.concurrent.{Future, Promise}
 import scala.concurrent.duration.{Duration, FiniteDuration}
 import scala.reflect.ClassTag
+import scala.util.control.NoStackTrace
 import scala.util.{Failure, Success, Try}
 
 object CustomStages {
@@ -630,8 +631,7 @@ object CustomStages {
   //Session windows represent a period of activity. Concretely, windows are separated by a predefined inactivity/gap period.
 
   /*
-
-  val window: GraphStage[FlowShape[Int, Int]] = SessionWindow(1 second, 10, FailStage)
+  val sessionWindow: GraphStage[FlowShape[Int, Int]] = SessionWindow(1.second, 10, FailStage)
   Source(range)
     .via(sessionWindow)
     .runFold(Nil: List[Int])(_ :+ _)
@@ -962,4 +962,94 @@ object CustomStages {
       (logic, matVal.future)
     }
   }
+
+  /*
+    Create a source where in order to get a number, you have to poll an API and the result is in a Future.
+    The API could fail and we want to retry after 2 seconds.
+   */
+  final class AsyncSourceWithRetry extends GraphStage[SourceShape[Int]] {
+    import scala.concurrent.duration._
+
+    val outlet: Outlet[Int] = Outlet[Int]("SideChannel.out")
+
+    override val shape: SourceShape[Int] = SourceShape(outlet)
+
+    override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
+      new GraphStageLogic(shape) with StageLogging {
+        var callback: AsyncCallback[Int] = _
+        var buffer: Vector[Int]          = Vector.empty
+        var asyncCallInProgress          = false
+
+        // grab the result of the asynchronous call and invoke the safe callback
+        // also performs 2 second retries
+        def grabAndInvokeWithRetry(future: Future[Int]): Unit = {
+          asyncCallInProgress = true
+          future.onComplete {
+            case Success(randInt) ⇒
+              callback.invoke(randInt)
+
+            case Failure(ex) ⇒
+              log.error(ex, "Error occurred in SideChannelSource. Attempting again after 2 seconds")
+              materializer.scheduleOnce(
+                2.seconds,
+                () ⇒ grabAndInvokeWithRetry(Future(dangerousComputation())(materializer.executionContext))
+              )
+          }(materializer.executionContext)
+        }
+
+        def dangerousComputation(): Int = {
+          Thread.sleep(100)
+          val next = scala.util.Random.nextInt(100)
+          if (next < 10) throw new Exception("Number is below 10") with NoStackTrace else next
+        }
+
+        override def preStart(): Unit = {
+          // Setup safe callback and its target handler
+
+          // target handler of getAsyncCallback, this function will be called
+          // when the side channel has data
+          def bufferMessageAndEmulatePull(incoming: Int): Unit = {
+            asyncCallInProgress = false
+            buffer = buffer :+ incoming
+            // emulate downstream asking for data by calling onPull on the outlet port
+            // Note: we check whether the downstream is really asking there
+            getHandler(outlet).onPull()
+          }
+
+          // In order to receive asynchronous events that are not arriving as stream elements
+          // (for example a completion of a future or a callback from a 3rd party API) one must acquire a
+          // AsyncCallback by calling getAsyncCallback() from the stage logic.
+          // The method getAsyncCallback takes as a parameter a callback that will be called once the
+          // asynchronous event fires.
+          // This is a proxy that that asynchronous side channel needs to call for safety
+          // this proxy delegates the data obtained from the callback to bufferMessageAndEmulatePull
+          callback = getAsyncCallback[Int](bufferMessageAndEmulatePull)
+
+          // emulate fake asynchronous call whose results we must obtain (which invokes the above callback)
+          grabAndInvokeWithRetry(Future(dangerousComputation())(materializer.executionContext))
+        }
+
+        setHandler(
+          outlet,
+          new OutHandler {
+            // the downstream will pull us
+            override def onPull(): Unit = {
+              // we query here because bufferMessageAndEmulatePull artificially calls onPull
+              // and we must not violate the GraphStages guarantees
+              if (buffer.nonEmpty && isAvailable(outlet)) {
+                val sendValue = buffer.head
+                buffer = buffer.drop(1)
+                push(outlet, sendValue)
+              }
+
+              // obtain more elements if the buffer is empty and if an asynchronous call already isn't in progress
+              if (buffer.isEmpty && !asyncCallInProgress) {
+                grabAndInvokeWithRetry(Future(dangerousComputation())(materializer.executionContext))
+              }
+            }
+          }
+        )
+      }
+  }
+
 }
