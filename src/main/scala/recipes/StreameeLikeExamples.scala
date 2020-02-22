@@ -13,20 +13,25 @@ import org.reactivestreams.Publisher
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.{Failure, Success}
 
+/**
+  * https://github.com/moia-dev/streamee
+  * https://github.com/hseeberger/xtream.git
+  *
+  */
 object StreameeLikeExamples {
+  //import io.moia.streamee._
 
-  val buffersSize = 1 << 4
+  val buffersSize = 1 << 3
+  implicit val mat = ActorMaterializer()(??? /*context.system*/ )
+  implicit val ec  = mat.executionContext
 
   def authProcess: FlowWithContext[HttpRequest, ActorRef[HttpResponse], HttpResponse, ActorRef[HttpResponse], Any] =
     FlowWithContext[HttpRequest, ActorRef[HttpResponse]] //Promise[HttpResponse]
-      .withAttributes(Attributes.inputBuffer(1 << 4, 1 << 4))
+      .withAttributes(Attributes.inputBuffer(buffersSize, buffersSize))
       //.map { req: HttpRequest ⇒ null.asInstanceOf[HttpResponse] }
       .mapAsync(2) { req: HttpRequest ⇒
         Future { null.asInstanceOf[HttpResponse] }(ExecutionContext.global)
       }
-
-  implicit val mat = ActorMaterializer()(??? /*context.system*/ )
-  implicit val ec  = mat.executionContext
 
   def auth: FlowWithContext[HttpRequest, Promise[HttpResponse], HttpResponse, Promise[HttpResponse], Any] =
     FlowWithContext[HttpRequest, Promise[HttpResponse]]
@@ -34,8 +39,6 @@ object StreameeLikeExamples {
       .mapAsync(4) { req: HttpRequest ⇒
         Future { null.asInstanceOf[HttpResponse] }(ec)
       }
-
-  //import io.moia.streamee._
 
   //case GetSinkRef(replyTo) =>
   StreamRefs
@@ -62,8 +65,6 @@ object StreameeLikeExamples {
   Source.queue(1, ???).to(sink).run()
 
   Source.queue(1, ???).to(sink).run()
-
-
   //akka.NotUsed
   //ProcessSink[HttpResponse, Any]
   /*val sink: Sink[(HttpResponse, Respondee[HttpResponse]), Any] =

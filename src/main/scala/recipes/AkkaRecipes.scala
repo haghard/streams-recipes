@@ -151,7 +151,7 @@ object AkkaRecipes extends App {
       val id = java.util.UUID.randomUUID.toString
       windTurbineShardRegionProxy ! EntityEnvelope(id, StartSimulator)
     }.runWith(Sink.ignore)
-  */
+   */
 
   /*
   case object CurrentThreadExecutionContext extends ExecutionContextExecutor {
@@ -194,7 +194,7 @@ object AkkaRecipes extends App {
   graph.watchCompletion().onComplete { _ ⇒
     println("Completion !!!!")
   }
- */
+   */
 
   /**
     * Tumbling windows discretize a stream into non-overlapping windows
