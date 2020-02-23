@@ -14,7 +14,7 @@ import akka.stream.stage.{StageLogging, _}
 import akka.util.ByteString
 import recipes.AkkaRecipes.FixedDispatcher
 
-import scala.concurrent.{Future, Promise}
+import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.concurrent.duration.{Duration, FiniteDuration}
 import scala.reflect.ClassTag
 import scala.util.control.NoStackTrace
@@ -980,7 +980,7 @@ object CustomStages {
         var asyncCallInProgress          = false
 
         // grab the result of the asynchronous call and invoke the safe callback
-        // also performs 2 second retries
+        // also performs retries
         def grabAndInvokeWithRetry(future: Future[Int]): Unit = {
           asyncCallInProgress = true
           future.onComplete {
@@ -988,19 +988,20 @@ object CustomStages {
               callback.invoke(randInt)
 
             case Failure(ex) ⇒
-              log.error(ex, "Error occurred in SideChannelSource. Attempting again after 2 seconds")
+              log.error(ex, "Error occurred in AsyncSourceWithRetry. Attempting again after 2 seconds")
               materializer.scheduleOnce(
                 retryTo,
-                () ⇒ grabAndInvokeWithRetry(Future(dangerousComputation())(materializer.executionContext))
+                () ⇒ grabAndInvokeWithRetry(pullRemoteApi(materializer.executionContext))
               )
           }(materializer.executionContext)
         }
 
-        def dangerousComputation(): Int = {
-          Thread.sleep(100)
-          val next = scala.util.Random.nextInt(100)
-          if (next < 10) throw new Exception("Number is below 10") with NoStackTrace else next
-        }
+        def pullRemoteApi(implicit ec: ExecutionContext) =
+          Future {
+            Thread.sleep(100)
+            val next = scala.util.Random.nextInt(100)
+            if (next < 10) throw new Exception("Number is below 10") with NoStackTrace else next
+          }
 
         override def preStart(): Unit = {
           // Setup safe callback and its target handler
@@ -1025,7 +1026,7 @@ object CustomStages {
           callback = getAsyncCallback[Int](bufferMessageAndEmulatePull)
 
           // emulate fake asynchronous call whose results we must obtain (which invokes the above callback)
-          grabAndInvokeWithRetry(Future(dangerousComputation())(materializer.executionContext))
+          grabAndInvokeWithRetry(pullRemoteApi(materializer.executionContext))
         }
 
         setHandler(
@@ -1043,7 +1044,7 @@ object CustomStages {
 
               // obtain more elements if the buffer is empty and if an asynchronous call already isn't in progress
               if (buffer.isEmpty && !asyncCallInProgress) {
-                grabAndInvokeWithRetry(Future(dangerousComputation())(materializer.executionContext))
+                grabAndInvokeWithRetry(pullRemoteApi(materializer.executionContext))
               }
             }
           }

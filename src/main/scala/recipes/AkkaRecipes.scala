@@ -1909,6 +1909,7 @@ object AkkaRecipes extends App {
   }
 
   //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
+  //Using a Balancing Buffer to Avoid Deadlock
   def trailingDifference(offset: Int): Graph[FlowShape[Int, Int], akka.NotUsed] =
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._

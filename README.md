@@ -11,13 +11,64 @@ Run grafana + graphite docker image
     docker run -it -p 80:80 -p 8125:8125/udp -p 8126:8126 kamon/grafana_graphite
 ```
 
-### Useful links ###
+### Akka-streams links ###
+##Main goal: getting data across async boundary with non-blocking back pressure ##
 
 http://allaboutscala.com/scala-frameworks/akka/
 http://blog.akka.io/streams/2016/07/30/mastering-graph-stage-part-1
 https://doc.akka.io/docs/akka/current/stream/stream-graphs.html#bidirectional-flows
-Rethinking Streaming Workloads with Akka Streams: Part II https://blog.colinbreck.com/rethinking-streaming-workloads-with-akka-streams-part-ii/
+
+http://blog.colinbreck.com/partitioning-akka-streams-for-scalability-and-high-availability/
+https://blog.colinbreck.com/rethinking-streaming-workloads-with-akka-streams-part-ii/
+
+https://softwaremill.com/implementing-a-custom-akka-streams-graph-stage/
+
+https://mikołak.net/blog/2017/akka-streams-libgdx-7.html
+http://leaks.wanari.com/2017/11/07/ray-tracing-akka-part-4/
+https://blog.softwaremill.com/akka-streams-pitfalls-to-avoid-part-2-f93e60746c58
+https://blog.scalac.io/2017/04/25/akka-streams-graph-stage.html
+https://markatta.com/codemonkey/posts/chat-with-akka-http-websockets/
+
+https://softwaremill.com/interval-based-rate-limiter/
+https://github.com/mkubala/akka-stream-contrib/blob/feature/101-mkubala-interval-based-rate-limiter/contrib/src/main/scala/akka/stream/contrib/IntervalBasedRateLimiter.scala
+
+https://efekahraman.github.io/2019/01/session-windows-in-akka-streams
+
+https://softwaremill.com/windowing-data-in-akka-streams/
+https://github.com/IBM/db2-event-store-akka-streams
+http://jesseyates.com/2019/04/07/just-right-parallelism-in-akka-streams.html
+
+
 https://engineering.prezi.com/prox-part-2-akka-streams-with-cats-effect-f63c28199cad
+http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
+
+
+## Integrating streams and actors
+https://blog.colinbreck.com/integrating-akka-streams-and-akka-actors-part-i/
+https://blog.colinbreck.com/integrating-akka-streams-and-akka-actors-part-ii/
+https://blog.colinbreck.com/integrating-akka-streams-and-akka-actors-part-iii/
+https://blog.colinbreck.com/integrating-akka-streams-and-akka-actors-part-iv/
+
+https://blog.colinbreck.com/rethinking-streaming-workloads-with-akka-streams-part-i/
+https://blog.colinbreck.com/rethinking-streaming-workloads-with-akka-streams-part-ii/
+
+https://blog.colinbreck.com/backoff-and-retry-error-handling-for-akka-streams/
+
+
+
+https://www.youtube.com/watch?v=MzosGtjJdPg
+https://blog.colinbreck.com/partitioning-akka-streams-for-scalability-and-high-availability/
+https://blog.colinbreck.com/partitioning-akka-streams-to-maximize-throughput/
+
+https://blog.colinbreck.com/patterns-for-streaming-measurement-data-with-akka-streams/
+(The concepts of batching measurements, decomposing measurements, rate-limiting requests, throttling requests, performing tasks concurrently, and so on)
+
+https://blog.colinbreck.com/akka-streams-a-motivating-example/
+
+https://blog.colinbreck.com/calling-blocking-code-there-is-no-free-lunch/
+https://blog.colinbreck.com/performance-considerations-for-akka-debug-logging/
+
+https://blog.colinbreck.com/considering-time-in-a-streaming-data-system/
 
 ### How to set up grafana_graphite ### 
 
