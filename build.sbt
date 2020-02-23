@@ -128,7 +128,7 @@ libraryDependencies ++= Seq(
 
   //"io.verizon.quiver"      %% "core"        % "6.0.0-scalaz-7.2-SNAPSHOT",
 
-  //"com.typesafe.akka" %% "akka-stream-contrib" % "0.9",
+  ("com.typesafe.akka" %% "akka-stream-contrib" % "0.11").excludeAll("com.typesafe.akka"), //2.6.0
 
   //"co.adhoclabs"    && "akka-http-contrib" % "0.0.6"
 

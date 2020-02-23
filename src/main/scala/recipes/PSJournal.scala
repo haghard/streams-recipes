@@ -10,7 +10,7 @@ import akka.stream.scaladsl.{Keep, Source}
 import akka.stream.stage.{AsyncCallback, GraphStage, GraphStageLogic, OutHandler, StageLogging}
 import com.datastax.driver.core.{BoundStatement, Cluster, PreparedStatement, ResultSet, Row}
 import com.google.common.util.concurrent.ListenableFuture
-import recipes.CustomStages.LastSeen
+import recipes.MoreStages.LastSeen
 
 import scala.annotation.tailrec
 import scala.concurrent.{ExecutionContext, Future, Promise}

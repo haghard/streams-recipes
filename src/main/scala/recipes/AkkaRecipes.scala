@@ -29,7 +29,7 @@ import recipes.AkkaRecipes.{CircularFifo, LogEntry, SimpleMAState}
 import recipes.BalancerRouter._
 import recipes.BatchProducer.Item
 import recipes.ConsistentHashingRouter.{CHWork, DBObject2}
-import recipes.CustomStages.{BackPressuredStage, BackpressureMeasurementStage, DisjunctionStage, DropHeadStage, DropTailStage, QueueSrc, SimpleRingBuffer}
+import recipes.MoreStages.{BackPressuredStage, BackpressureMeasurementStage, DisjunctionStage, DropHeadStage, DropTailStage, QueueSrc, SimpleRingBuffer}
 import recipes.DegradingTypedActorSink.{IntValue, Protocol, RecoverableSinkFailure}
 import recipes.Sinks.{DegradingGraphiteSink, GraphiteSink, GraphiteSink3}
 
@@ -345,7 +345,7 @@ object AkkaRecipes extends App {
 
     source
       .alsoTo(countElementsWindow("akka-scenario2_1", 10 seconds))
-      .via(new BackPressuredStage[Int](1 << 7))
+      .via(new recipes.MoreStages.BackPressuredStage[Int](1 << 7))
       .async
       .to(sink)
   }
@@ -1773,15 +1773,14 @@ object AkkaRecipes extends App {
   def scenario30 = {
     type P = (Int, Promise[Int])
 
-    def out(
+    /*def out(
       queue: SinkQueueWithCancel[P]
     ): Source[P, akka.NotUsed] =
       Source.unfoldAsync[SinkQueueWithCancel[P], P](queue) { q: SinkQueueWithCancel[P] ⇒
-        q.pull()
-          .map(_.map(el ⇒ (q, el)))
-      }
+        q.pull().map(_.map(el ⇒ (q, el)))
+      }*/
 
-    def process(
+    def longRunningProc(
       sink: Sink[(Int, Promise[Int]), akka.NotUsed]
     ): FlowWithContext[Int, Promise[Int], Int, Promise[Int], Any] =
       FlowWithContext[Int, Promise[Int]]
@@ -1803,20 +1802,23 @@ object AkkaRecipes extends App {
       MergeHub
         .source[(Int, Promise[Int])](perProducerBufferSize = 4)
         .viaMat(KillSwitches.single)(Keep.both)
-        .toMat(Sink.queue[(Int, Promise[Int])])(Keep.both)
+        .toMat(Sink.asPublisher(false))(Keep.both)
+        //.toMat(Sink.queue[(Int, Promise[Int])])(Keep.both)
         //.addAttributes(Attributes.inputBuffer(bufSize.initial, bufSize.max)))(Keep.both)
         //.toMat(BroadcastHub.sink[(E, CtxOut)])(Keep.both)
         .run()(mat)
 
-    val flow = process(sink).asFlow
-      .alsoTo(
-        Flow[Any]
-          .to(Sink.onComplete {
-            case Success(_)     ⇒ killSwitch.shutdown()
-            case Failure(cause) ⇒ killSwitch.abort(cause)
-          })
-      )
-      .merge(out(src))
+    val flow /*: FlowWithContext[Int, Promise[Int], Int, Promise[Int], Any]*/ =
+      longRunningProc(sink).asFlow
+        .alsoTo(
+          Flow[Any]
+            .to(Sink.onComplete {
+              case Success(_)     ⇒ killSwitch.shutdown()
+              case Failure(cause) ⇒ killSwitch.abort(cause)
+            })
+        )
+        .merge(Source.fromPublisher(src))
+    //.merge(out(src))
 
     FlowWithContext.fromTuples(flow)
     ???
@@ -1862,8 +1864,8 @@ object AkkaRecipes extends App {
           .source[Int](perProducerBufferSize = 1)
           //insert a buffer stage to decouple the downstream from the MergeHub. If/when the buffer fulls up and a new element arrives, it drops the new element.
           //.via(Flow[Int].buffer(bufferSize, OverflowStrategy.dropNew).async(FixedDispatcher))
-          //.via(new BackPressuredStage[Int](bufferSize).async(FixedDispatcher))
-          .via(new DropTailStage[Int](bufferSize).async(FixedDispatcher))
+          .via(new BackPressuredStage[Int](bufferSize).async(FixedDispatcher))
+          //.via(new DropTailStage[Int](bufferSize).async(FixedDispatcher))
           //.via(new DropHeadStage[Int](bufferSize).async(FixedDispatcher))
           .via(new BackpressureMeasurementStage)
           /*.via(

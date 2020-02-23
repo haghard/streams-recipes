@@ -21,7 +21,7 @@ import scala.util.{Failure, Success}
 object StreameeLikeExamples {
   //import io.moia.streamee._
 
-  val buffersSize = 1 << 3
+  val buffersSize  = 1 << 3
   implicit val mat = ActorMaterializer()(??? /*context.system*/ )
   implicit val ec  = mat.executionContext
 

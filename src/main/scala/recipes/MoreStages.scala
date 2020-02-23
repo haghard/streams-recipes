@@ -19,8 +19,9 @@ import scala.concurrent.duration.{Duration, FiniteDuration}
 import scala.reflect.ClassTag
 import scala.util.control.NoStackTrace
 import scala.util.{Failure, Success, Try}
+import scala.concurrent.duration._
 
-object CustomStages {
+object MoreStages {
 
   //(E[]) new Object[capacity];
   //new Array[AnyRef](findNextPositivePowerOfTwo(capacity)).asInstanceOf[Array[T]])
@@ -123,8 +124,9 @@ object CustomStages {
       Rate decoupled graph stages.
       The main point being is that an onPush call does not always lead to calling push and
         an onPull call does not always lead to calling pull.
+      We stop pulling upstream when the internal buffer's filled up.
    */
-  final class BackPressuredStage[A](watermark: Int) extends GraphStage[FlowShape[A, A]] {
+  class BackPressuredStage[A](watermark: Int) extends GraphStage[FlowShape[A, A]] {
     val in    = Inlet[A]("ib.in")
     val out   = Outlet[A]("ib.out")
     val shape = FlowShape.of(in, out)
@@ -145,11 +147,16 @@ object CustomStages {
         var isDownstreamRequested = false
         val fifo                  = mutable.Queue[A]()
 
-        def enoughSpace: Boolean =
+        private def enoughSpace: Boolean =
           fifo.size < watermark
 
         // a detached stage needs to start upstream demand itself as it's not triggered by downstream demand
         override def preStart(): Unit = pull(in)
+
+        @inline
+        private def tryPull() =
+          if (enoughSpace && !hasBeenPulled(in))
+            pull(in)
 
         setHandler(
           in,
@@ -167,9 +174,8 @@ object CustomStages {
                 push(out, elem)
               }
 
-              if (enoughSpace) pull(in)
-              //wait for demand from downstream
-              //else log.debug("{} Buffer is filled up. Wait for demand from the downstream", Thread.currentThread.getName)
+              tryPull()
+              //else log.debug("{} Buffer is filled up. Wait for demand from the downstream")
             }
 
             override def onUpstreamFinish(): Unit = {
@@ -193,17 +199,14 @@ object CustomStages {
                 //emitMultiple()
                 push(out, elem)
               }
-
-              if (enoughSpace && !hasBeenPulled(in)) {
-                //log.debug("Downstream triggers pull {}", fifo.size)
-                pull(in)
-              }
+              tryPull()
             }
           }
         )
       }
   }
 
+  //an upstream throttler
   final class DropHeadStage[A](watermark: Int) extends GraphStage[FlowShape[A, A]] {
     val in    = Inlet[A]("ib.in")
     val out   = Outlet[A]("ib.out")
@@ -234,7 +237,6 @@ object CustomStages {
           new InHandler {
             override def onPush(): Unit = {
               val inElem = grab(in)
-
               if (enoughSpace) {
                 //log.debug("{} Buffering: {}", Thread.currentThread.getName, fifo.size)
                 fifo.enqueue(inElem) //O(1)
@@ -967,7 +969,6 @@ object CustomStages {
     Create a source where in order to get a number, you have to poll an API and the result is in a Future.
     The API could fail and we want to retry after 2 seconds.
    */
-  import scala.concurrent.duration._
   final class AsyncSourceWithRetry(retryTo: FiniteDuration = 2.seconds) extends GraphStage[SourceShape[Int]] {
     val out: Outlet[Int] = Outlet[Int]("out")
 
@@ -1051,5 +1052,4 @@ object CustomStages {
         )
       }
   }
-
 }

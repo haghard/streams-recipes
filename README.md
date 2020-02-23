@@ -42,6 +42,8 @@ http://jesseyates.com/2019/04/07/just-right-parallelism-in-akka-streams.html
 https://engineering.prezi.com/prox-part-2-akka-streams-with-cats-effect-f63c28199cad
 http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
 
+## akka.stream.contrib
+https://github.com/akka/akka-stream-contrib/tree/master/src/main/scala/akka/stream/contrib
 
 ## Integrating streams and actors
 https://blog.colinbreck.com/integrating-akka-streams-and-akka-actors-part-i/
@@ -53,6 +55,10 @@ https://blog.colinbreck.com/rethinking-streaming-workloads-with-akka-streams-par
 https://blog.colinbreck.com/rethinking-streaming-workloads-with-akka-streams-part-ii/
 
 https://blog.colinbreck.com/backoff-and-retry-error-handling-for-akka-streams/
+
+
+http
+https://github.com/hseeberger/accessus.git
 
 
 
