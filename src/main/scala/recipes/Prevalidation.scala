@@ -56,7 +56,6 @@ object Prevalidation extends App {
 
   val decider: akka.stream.Supervision.Decider = {
     case ex: Throwable ⇒
-      ex.printStackTrace
       println(s"Caught error: ${ex.getMessage}")
       akka.stream.Supervision.Stop
   }
@@ -73,7 +72,7 @@ object Prevalidation extends App {
   )
 
   //fetch some data from cache
-  def prefetchDataForValidation(ordCmd: OrderedCmd)(
+  def asyncPreValidation(ordCmd: OrderedCmd)(
     implicit ec: ExecutionContext
   ): Future[EnrichedCmd] =
     Future {
@@ -98,7 +97,7 @@ object Prevalidation extends App {
         ordCmd.withOrigin(cmd)
       }
       .mapAsyncUnordered(parallelism) { cmd ⇒
-        prefetchDataForValidation(cmd)(mat.executionContext)
+        asyncPreValidation(cmd)(mat.executionContext)
       }
       .conflateWithSeed({ enrichedCmd: EnrichedCmd ⇒
         immutable.SortedSet

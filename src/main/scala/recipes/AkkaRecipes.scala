@@ -272,11 +272,7 @@ object AkkaRecipes extends App {
           import GraphDSL.Implicits._
 
           def conflate: FlowShape[T, T] =
-            b.add(
-              Flow[T]
-                .withAttributes(Attributes.inputBuffer(1, 1))
-                .conflateWithSeed(identity)((c, _) ⇒ c)
-            )
+            b.add(Flow[T].withAttributes(Attributes.inputBuffer(1, 1)).conflateWithSeed(identity)((c, _) ⇒ c))
 
           val zip = b.add(ZipWith(Tuple3.apply[T, T, T] _).withAttributes(Attributes.inputBuffer(1, 1)))
 
@@ -294,7 +290,7 @@ object AkkaRecipes extends App {
 
     last3(fastest, middle, slowest)
       .alsoTo(countElementsWindow[(Int, Int, Int)]("akka-scenario0", 2 seconds))
-      .async
+      .async  //When u insert an async boundary the stream now is using message passing between 2 actors and inserts a small buffer(16 elements by default)
       .to(new GraphiteSink3("sink_0", 0, ms))
   }
 
@@ -426,9 +422,12 @@ object AkkaRecipes extends App {
       val bcast  = b.add(Broadcast[Int](3) /*.addAttributes(Attributes.asyncBoundary)*/ )
       val buffer = b.add(Flow[Int].buffer(1 << 7, OverflowStrategy.dropTail))
 
+      // format: OFF
       source ~> bcast ~> fastSink
-      bcast ~> buffer ~> degradingSink1
-      bcast ~> buffer ~> degradingSink2
+                bcast ~> buffer     ~> degradingSink1
+                bcast ~> buffer     ~> degradingSink2
+      // format: ON
+
       ClosedShape
     }
 
@@ -447,8 +446,10 @@ object AkkaRecipes extends App {
 
       val balancer = b.add(Balance[Int](2))
 
+      // format: OFF
       source ~> balancer ~> fastSink
-      balancer ~> slowSink
+                balancer ~> slowSink
+      // format: ON
       ClosedShape
     }
 
@@ -983,9 +984,11 @@ object AkkaRecipes extends App {
 
       val window = 1000 milliseconds
 
-      src ~> broadcast ~> flow ~> zip.in0
-      broadcast ~> Flow[Int].dropWithin(window) ~> zip.in1
-      zip.out ~> sink
+      // format: OFF
+      src ~>  broadcast ~> flow ~>                         zip.in0
+              broadcast ~> Flow[Int].dropWithin(window) ~> zip.in1
+                                                           zip.out ~> sink
+      // format: ON
 
       //src ~> (flow via throttledFlow(1000 milliseconds)) ~> sink
       //(aggregatedSource via throttledFlow(1000 milliseconds)) ~> sink
@@ -1098,9 +1101,12 @@ object AkkaRecipes extends App {
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
       val zip = b.add(Zip[Int, Int].withAttributes(Attributes.inputBuffer(16, 32)))
-      srcFast ~> zip.in0
-      srcSlow ~> zip.in1
-      zip.out ~> Sink.actorSubscriber(DegradingActor.props2("akka-sink12", ms, 0L))
+
+      // format: OFF
+      srcFast  ~>  zip.in0
+      srcSlow  ~>  zip.in1
+                   zip.out ~> Sink.actorSubscriber(DegradingActor.props2("akka-sink12", ms, 0L))
+      // format: ON
       ClosedShape
     }
   }
