@@ -34,8 +34,10 @@ import recipes.DegradingTypedActorSink.{IntValue, Protocol, RecoverableSinkFailu
 import recipes.Sinks.{DegradingGraphiteSink, GraphiteSink, GraphiteSink3}
 
 import scala.collection.{immutable, mutable}
+import scala.concurrent.ExecutionContext.defaultReporter
+import scala.concurrent.ExecutionContext.parasitic.submitSyncBatched
 import scala.concurrent.duration.{Deadline, FiniteDuration, _}
-import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, Future, Promise}
+import scala.concurrent.{BatchingExecutor, ExecutionContext, ExecutionContextExecutor, Future, Promise}
 import scala.language.postfixOps
 import scala.reflect.ClassTag
 import scala.util.control.NoStackTrace
@@ -120,6 +122,51 @@ object AkkaRecipes extends App {
 
   val mat: Materializer = ActorMaterializer(Settings)(sys)
   implicit val ec       = mat.executionContext
+
+  trait Cmd
+  case class AddUser(id: Long) extends Cmd
+  case class RmUser(id: Long)  extends Cmd
+  trait Evn
+  trait Reply
+
+  case class UserState(seqNum: Long)
+
+  /*
+  def processingFlow(
+    s: UserState
+  ): FlowWithContext[Cmd, Promise[Seq[Reply]], Seq[Reply], Promise[Seq[Reply]], Any] = {
+    val f = FlowWithContext[Cmd, Promise[Seq[Reply]]]
+      .asFlow
+      .scan((s, Seq.empty[Evn])) {
+        case ((s, events), (cmd, _)) ⇒
+          cmd match {
+            case AddUser(_) ⇒ (s.copy(s.seqNum + 1), events)
+            case RmUser(_)  ⇒ (s.copy(s.seqNum - 1), events)
+          }
+      }
+      .mapAsync(1) { case (state, events) ⇒ persist(events) }
+    FlowWithContext.fromTuples(f)
+    f
+  }
+
+  val (processor, _) =
+    Source
+      .queue[(Cmd, Promise[Seq[Reply]])](1 << 5, OverflowStrategy.dropNew)
+      .via(processingFlow(UserState(0L)))
+      .toMat(
+        Sink.foreach { case (replies, prom) ⇒ prom.complete(Success(replies)) }
+      )(Keep.both)
+      //.addAttributes(ActorAttributes.supervisionStrategy(akka.stream.Supervision.Resume))
+      .run()(???)
+
+  processor.offer((AddUser(0), Promise[Seq[Reply]]()))
+
+  def persist(events: Seq[Evn]): Future[Seq[Reply]] = ???
+
+  def validateCmd(cmd: Cmd): Future[(State, Seq[Evn])] =
+    Future { (UserState(9L), Seq.empty[Evn]) }(???)
+
+   */
 
   //scenario31
 

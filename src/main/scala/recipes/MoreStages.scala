@@ -154,7 +154,7 @@ object MoreStages {
         override def preStart(): Unit = pull(in)
 
         @inline
-        private def tryPull() =
+        private def tryPull(): Unit =
           if (enoughSpace && !hasBeenPulled(in))
             pull(in)
 

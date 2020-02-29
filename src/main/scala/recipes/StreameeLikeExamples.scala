@@ -30,15 +30,20 @@ object StreameeLikeExamples {
       .withAttributes(Attributes.inputBuffer(buffersSize, buffersSize))
       //.map { req: HttpRequest ⇒ null.asInstanceOf[HttpResponse] }
       .mapAsync(2) { req: HttpRequest ⇒
-        Future { null.asInstanceOf[HttpResponse] }(ExecutionContext.global)
-      }
-
-  def auth: FlowWithContext[HttpRequest, Promise[HttpResponse], HttpResponse, Promise[HttpResponse], Any] =
-    FlowWithContext[HttpRequest, Promise[HttpResponse]]
-      .withAttributes(Attributes.inputBuffer(buffersSize, buffersSize))
-      .mapAsync(4) { req: HttpRequest ⇒
         Future { null.asInstanceOf[HttpResponse] }(ec)
       }
+
+  def auth: FlowWithContext[HttpRequest, Promise[HttpResponse], HttpResponse, Promise[HttpResponse], Any] = {
+    val flow = FlowWithContext[HttpRequest, Promise[HttpResponse]]
+      .withAttributes(Attributes.inputBuffer(buffersSize, buffersSize))
+      .asFlow
+      .mapAsync[(HttpResponse, Promise[HttpResponse])](4) {
+        case ((req: HttpRequest, p: Promise[HttpResponse])) ⇒
+          Future { (null.asInstanceOf[HttpResponse], p) }(ec)
+      }
+    //get back a FlowWithContext
+    FlowWithContext.fromTuples[HttpRequest, Promise[HttpResponse], HttpResponse, Promise[HttpResponse], Any](flow)
+  }
 
   //case GetSinkRef(replyTo) =>
   StreamRefs
@@ -57,7 +62,7 @@ object StreameeLikeExamples {
       .viaMat(KillSwitches.single)(Keep.both)
       .via(auth)
       //.to(Sink.foreach { case (response, promise) ⇒ promise.complete(Success(response)) })
-      .toMat(Sink.foreach { case (response, promise) ⇒ promise.complete(Success(response)) }) {
+      .toMat(Sink.foreach { case (response, promise) ⇒ promise.trySuccess(response) }) {
         case ((sink, switch), done) ⇒ (sink, switch, done)
       }
       .run()

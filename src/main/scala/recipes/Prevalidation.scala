@@ -73,7 +73,7 @@ object Prevalidation extends App {
   )
 
   //fetch some data from cache
-  def prefetchDataForValidation(ordCmd: OrderedCmd)(
+  def preValidateCmd(ordCmd: OrderedCmd)(
     implicit ec: ExecutionContext
   ): Future[EnrichedCmd] =
     Future {
@@ -98,34 +98,32 @@ object Prevalidation extends App {
         ordCmd.withOrigin(cmd)
       }
       .mapAsyncUnordered(parallelism) { cmd ⇒
-        prefetchDataForValidation(cmd)(mat.executionContext)
+        preValidateCmd(cmd)(mat.executionContext)
       }
       .conflateWithSeed({ enrichedCmd: EnrichedCmd ⇒
         immutable.SortedSet
           .empty[EnrichedCmd]((x: EnrichedCmd, y: EnrichedCmd) ⇒ if (x.seqNum < y.seqNum) -1 else 1) + enrichedCmd
       })({ _ + _ })
 
-  def preValidationFlow(bufferSize: Int = 1 << 8) =
-    Source
-      .queue[Cmd](bufferSize, OverflowStrategy.dropHead)
-      .via(preValidation())
-      .to(
-        Sink.foreachAsync(1) { batch ⇒
-          Future {
-            Thread.sleep(500)
-            if (batch.size == 1 && batch.head.originCmd == null) sys.log.info("ignore empty element")
-            else sys.log.info("persist:[{}]", batch.mkString(","))
-          }(mat.executionContext)
-        }
-        /*Sink.foreachAsync(1) { batch ⇒
+  def preValidationFlow(bufferSize: Int = 1 << 8) = {
+    val src = Source.queue[Cmd](bufferSize, OverflowStrategy.dropHead)
+    val sink = Sink.foreachAsync[immutable.SortedSet[EnrichedCmd]](1) { batch ⇒
+      Future {
+        Thread.sleep(500)
+        if (batch.size == 1 && batch.head.originCmd == null) sys.log.info("ignore empty element")
+        else sys.log.info("persist:[{}]", batch.mkString(","))
+      }(mat.executionContext)
+    }
+
+    src.via(preValidation()).to(sink).run()(mat)
+    /*Sink.foreachAsync(1) { batch ⇒
           import akka.pattern.ask
           import scala.concurrent.duration._
           implicit val t = akka.util.Timeout(1.second)
           //val actor: ActorRef = ???
           (actor ask batch).mapTo[???]
         }*/
-      )
-      .run()(mat)
+  }
 
   def producer(startTs: Long, process: SourceQueueWithComplete[Cmd]): Unit = {
     val playerId = ThreadLocalRandom.current.nextInt(0, 10)
