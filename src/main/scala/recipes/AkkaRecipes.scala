@@ -12,6 +12,7 @@ import akka.actor._
 import akka.actor.typed.{Behavior, PreRestart}
 import akka.actor.typed.scaladsl.Behaviors
 import akka.http.scaladsl.Http
+import akka.http.scaladsl.model.ws.Message
 import akka.http.scaladsl.model.{HttpRequest, HttpResponse}
 import akka.routing.ConsistentHashingRouter.ConsistentHashMapping
 import akka.stream._
@@ -119,54 +120,6 @@ object AkkaRecipes extends App {
   //RunnableGraph.fromGraph(scenario22(sys)).run()(ActorMaterializer(Settings)(sys))
 
   //RunnableGraph.fromGraph(scenario23(sys)).run()(ActorMaterializer(Settings)(sys))
-
-  val mat: Materializer = ActorMaterializer(Settings)(sys)
-  implicit val ec       = mat.executionContext
-
-  trait Cmd
-  case class AddUser(id: Long) extends Cmd
-  case class RmUser(id: Long)  extends Cmd
-  trait Evn
-  trait Reply
-
-  case class UserState(seqNum: Long)
-
-  /*
-  def processingFlow(
-    s: UserState
-  ): FlowWithContext[Cmd, Promise[Seq[Reply]], Seq[Reply], Promise[Seq[Reply]], Any] = {
-    val f = FlowWithContext[Cmd, Promise[Seq[Reply]]]
-      .asFlow
-      .scan((s, Seq.empty[Evn])) {
-        case ((s, events), (cmd, _)) ⇒
-          cmd match {
-            case AddUser(_) ⇒ (s.copy(s.seqNum + 1), events)
-            case RmUser(_)  ⇒ (s.copy(s.seqNum - 1), events)
-          }
-      }
-      .mapAsync(1) { case (state, events) ⇒ persist(events) }
-    FlowWithContext.fromTuples(f)
-    f
-  }
-
-  val (processor, _) =
-    Source
-      .queue[(Cmd, Promise[Seq[Reply]])](1 << 5, OverflowStrategy.dropNew)
-      .via(processingFlow(UserState(0L)))
-      .toMat(
-        Sink.foreach { case (replies, prom) ⇒ prom.complete(Success(replies)) }
-      )(Keep.both)
-      //.addAttributes(ActorAttributes.supervisionStrategy(akka.stream.Supervision.Resume))
-      .run()(???)
-
-  processor.offer((AddUser(0), Promise[Seq[Reply]]()))
-
-  def persist(events: Seq[Evn]): Future[Seq[Reply]] = ???
-
-  def validateCmd(cmd: Cmd): Future[(State, Seq[Evn])] =
-    Future { (UserState(9L), Seq.empty[Evn]) }(???)
-
-   */
 
   //scenario31
 
@@ -993,7 +946,7 @@ object AkkaRecipes extends App {
 
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
-      ((source via Flow[Int].buffer(128, OverflowStrategy.backpressure)) via throttledFlow(100 milliseconds)) ~> sink
+      ((source via Flow[Int].buffer(128, OverflowStrategy.backpressure)) via throttledFlow(100.millis)) ~> sink
       ClosedShape
     }
   }
@@ -1030,9 +983,11 @@ object AkkaRecipes extends App {
 
       val window = 1000 milliseconds
 
-      src ~> broadcast ~> flow ~> zip.in0
-      broadcast ~> Flow[Int].dropWithin(window) ~> zip.in1
-      zip.out ~> sink
+      // format: off
+      src ~> broadcast ~> flow                         ~> zip.in0
+             broadcast ~> Flow[Int].dropWithin(window) ~> zip.in1
+                                                          zip.out ~> sink
+      // format: on
 
       //src ~> (flow via throttledFlow(1000 milliseconds)) ~> sink
       //(aggregatedSource via throttledFlow(1000 milliseconds)) ~> sink
@@ -1241,7 +1196,7 @@ object AkkaRecipes extends App {
     * for each item received from the external service
     */
   def scenario14: Graph[ClosedShape, akka.NotUsed] = {
-    val batchedSource = Source.actorPublisher[Vector[Item]](BatchProducer.props)
+    val batchedSource = Source.actorPublisher[Vector[Item]](BatchProducer.props).batch()
     val sink          = Sink.actorSubscriber[Int](DegradingActor.props2("akka-sink14", ms, 10L))
     val external      = Flow[Item].buffer(1, OverflowStrategy.backpressure).map(_.num)
 
@@ -2032,6 +1987,13 @@ object AkkaRecipes extends App {
       case Right(a)    ⇒ Source.fromIterator(???) //single(a)
       case Left(nextA) ⇒ tailRecM(nextA)(f)
     }
+
+  //
+  Flow[Message]
+    .flatMapConcat(_.asTextMessage.getStreamedText.fold("")(_+_)) //the websocket spec says that a single msg over web socket can be streamed (multiple chunks)
+    .groupedWithin(500, 1.second)
+    .mapAsync(1) { msg => Future { /*bulk insert*/ 1 }(???) }
+
 }
 
 object GraphiteMetrics {
