@@ -42,6 +42,13 @@ http://jesseyates.com/2019/04/07/just-right-parallelism-in-akka-streams.html
 https://engineering.prezi.com/prox-part-2-akka-streams-with-cats-effect-f63c28199cad
 http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
 
+
+https://skillsmatter.com/skillscasts/6869-workshop-end-to-end-asynchronous-back-pressure-with-akka-streams
+
+
+Examples using Akka HTTP with Streaming
+https://github.com/ktoso/akka-http-streaming-response-examples
+
 ## akka.stream.contrib
 https://github.com/akka/akka-stream-contrib/tree/master/src/main/scala/akka/stream/contrib
 
