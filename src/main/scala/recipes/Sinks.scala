@@ -50,16 +50,19 @@ object Sinks {
         override def preStart(): Unit =
           pull(in)
 
-        setHandler(in, new InHandler {
-          override def onPush(): Unit = {
-            if (delay > 0)
-              Thread.sleep(delay) //
+        setHandler(
+          in,
+          new InHandler {
+            override def onPush(): Unit = {
+              if (delay > 0)
+                Thread.sleep(delay) //
 
-            val _ = grab(in)
-            send(s"$name:1|c")
-            pull(in)
+              val _ = grab(in)
+              send(s"$name:1|c")
+              pull(in)
+            }
           }
-        })
+        )
       }
   }
 

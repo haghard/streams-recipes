@@ -50,8 +50,7 @@ object WebSocketClient {
 
 }
 
-class WebSocketClient(id: String, endpoint: String, supervisor: ActorRef)(
-  implicit
+class WebSocketClient(id: String, endpoint: String, supervisor: ActorRef)(implicit
   system: ActorSystem,
   materializer: ActorMaterializer,
   executionContext: ExecutionContext

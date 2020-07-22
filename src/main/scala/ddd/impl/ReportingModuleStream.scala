@@ -29,11 +29,12 @@ trait ReportingModuleStream extends ReportingModule[ReportingModuleStream.PTask]
       .kleisli[ReportingModuleStream.PTask, AccountRepo, ddd.Valid[Seq[T]]] { repo: AccountRepo ⇒
         fs2.Stream.eval {
           IO.shift *> IO {
-            repo.all.fold({ error ⇒
-              error.toString().failureNel
-            }, { as: Seq[ddd.account.Account] ⇒
-              as.map(a ⇒ (a.no, a.balance.amount)).success
-            })
+            repo.all.fold(
+              error ⇒ error.toString().failureNel,
+              { as: Seq[ddd.account.Account] ⇒
+                as.map(a ⇒ (a.no, a.balance.amount)).success
+              }
+            )
           }
         }
       }

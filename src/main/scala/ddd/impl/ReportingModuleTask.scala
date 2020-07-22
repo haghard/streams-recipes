@@ -17,11 +17,12 @@ trait ReportingModuleTask extends ReportingModule[Task] {
   override def balances: ReportOperation[Seq[T]] =
     kleisli[Task, AccountRepo, ddd.Valid[Seq[T]]] { repo: AccountRepo ⇒
       Task {
-        repo.all.fold({ error ⇒
-          error.toString().failureNel
-        }, { as: Seq[Account] ⇒
-          as.map(a ⇒ (a.no, a.balance.amount)).success
-        })
+        repo.all.fold(
+          error ⇒ error.toString().failureNel,
+          { as: Seq[Account] ⇒
+            as.map(a ⇒ (a.no, a.balance.amount)).success
+          }
+        )
       }(executor)
     }
 }

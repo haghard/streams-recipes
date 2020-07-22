@@ -79,9 +79,7 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
     Stream
       .fixedRate[IO](latency)
       .scan(State(item = 0L))((acc, _) ⇒ tumblingWindow(acc, timeWindow))
-      .through(graphitePipe(monitoring, msg, { s ⇒
-        s.item
-      }))
+      .through(graphitePipe(monitoring, msg, s ⇒ s.item))
       //.evalMap(state ⇒ send(monitoring, msg).map(_ ⇒ state.item))
       .through(q.enqueue)
 
@@ -91,19 +89,21 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
   def graphitePipe[A, B](monitoring: GraphiteMetrics, message: String, f: A ⇒ B): Pipe[IO, A, B] =
     _.evalMap(i ⇒ send(monitoring, message).map(_ ⇒ f(i)))
 
-  def testSink(i: Long) = IO {
-    println(s"${Thread.currentThread.getName}: $i start")
-    Thread.sleep(ThreadLocalRandom.current.nextInt(300, 500))
-    println(s"${Thread.currentThread.getName}: $i stop")
-    i
-  }
+  def testSink(i: Long) =
+    IO {
+      println(s"${Thread.currentThread.getName}: $i start")
+      Thread.sleep(ThreadLocalRandom.current.nextInt(300, 500))
+      println(s"${Thread.currentThread.getName}: $i stop")
+      i
+    }
 
-  def ts[T](i: T) = IO {
-    println(s"${Thread.currentThread.getName}: $i start")
-    Thread.sleep(ThreadLocalRandom.current.nextInt(300, 500))
-    println(s"${Thread.currentThread.getName}: $i stop")
-    i
-  }
+  def ts[T](i: T) =
+    IO {
+      println(s"${Thread.currentThread.getName}: $i start")
+      Thread.sleep(ThreadLocalRandom.current.nextInt(300, 500))
+      println(s"${Thread.currentThread.getName}: $i stop")
+      i
+    }
 
   def worker(i: Int): Long ⇒ IO[Unit] =
     (out: Long) ⇒
@@ -144,18 +144,18 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
     (for {
       q ← Stream.eval(Queue.bounded[IO, Long](1 << 6))
 
-      src = Stream
-        .fixedRate[IO](sourceDelay)
-        .scan(State(item = 0L))((acc, _) ⇒ tumblingWindow(acc, window))
-        .through(graphitePipe(gSrc, srcMessage, { s ⇒
-          s.item
-        }))
-        //.evalMap(state ⇒ send(monitoring, msg).map(_ ⇒ state.item))
-        .through(q.enqueue)
+      src =
+        Stream
+          .fixedRate[IO](sourceDelay)
+          .scan(State(item = 0L))((acc, _) ⇒ tumblingWindow(acc, window))
+          .through(graphitePipe(gSrc, srcMessage, s ⇒ s.item))
+          //.evalMap(state ⇒ send(monitoring, msg).map(_ ⇒ state.item))
+          .through(q.enqueue)
 
-      sink = q.dequeue
-        .scan(0L)((acc, _) ⇒ slowDown(acc, delayPerMsg))
-        .through(graphiteSink[Long](gSink, sinkMessage))
+      sink =
+        q.dequeue
+          .scan(0L)((acc, _) ⇒ slowDown(acc, delayPerMsg))
+          .through(graphiteSink[Long](gSink, sinkMessage))
       //.evalMap(_ ⇒ send(monitoring, sinkMessage))
 
       out ← src mergeHaltL sink
@@ -205,13 +205,14 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
   def oneToManyFlow: Stream[IO, Unit] =
     (for {
       q ← Stream.eval(fs2.concurrent.Queue.bounded[IO, Option[Long]](1 << 3))
-      src = Stream
-        .fixedRate[IO](50.millis)
-        //.balance()
-        .scan[Option[Long]](Some(0L))((a, _) ⇒ a.map(_ + 1L))
-        .take(200)
-        .through(q.enqueue)
-        .onComplete(Stream.fixedRate[IO](500.millis).map(_ ⇒ None).through(q.enqueue))
+      src =
+        Stream
+          .fixedRate[IO](50.millis)
+          //.balance()
+          .scan[Option[Long]](Some(0L))((a, _) ⇒ a.map(_ + 1L))
+          .take(200)
+          .through(q.enqueue)
+          .onComplete(Stream.fixedRate[IO](500.millis).map(_ ⇒ None).through(q.enqueue))
 
       all = Seq(
         q.dequeue.unNoneTerminate.evalMap(worker(0)(_)),
@@ -258,13 +259,14 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
       q           ← Stream.eval(fs2.concurrent.Queue.bounded[IO, Event](bufferSize))
       interrupter ← Stream.eval(SignallingRef[IO, Int](bufferSize))
 
-      src = Stream
-        .fixedRate[IO](50.millis)
-        .scan[Task](Task(0L))((a, _) ⇒ a.copy(a.id + 1L))
-        .take(200)
-        .through(q.enqueue)
-        .onComplete(Stream.fixedRate[IO](250.millis).map(_ ⇒ PoisonPill).through(q.enqueue))
-        .interruptWhen(interrupter.discrete.map(_ <= 0))
+      src =
+        Stream
+          .fixedRate[IO](50.millis)
+          .scan[Task](Task(0L))((a, _) ⇒ a.copy(a.id + 1L))
+          .take(200)
+          .through(q.enqueue)
+          .onComplete(Stream.fixedRate[IO](250.millis).map(_ ⇒ PoisonPill).through(q.enqueue))
+          .interruptWhen(interrupter.discrete.map(_ <= 0))
 
       sinks = q.dequeue.evalMap(sink(0, interrupter)(_)) merge q.dequeue.evalMap(sink(1, interrupter)(_))
 
@@ -280,12 +282,13 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
 
       interrupter ← Stream.eval(SignallingRef[IO, Boolean](false))
 
-      src = Stream
-        .fixedRate[IO](50.millis)
-        .scan[Long](0L)((a, _) ⇒ a + 1L)
-        .take(200)
-        .through(q.enqueue)
-        .onComplete(Stream.eval(interrupter.set(true)))
+      src =
+        Stream
+          .fixedRate[IO](50.millis)
+          .scan[Long](0L)((a, _) ⇒ a + 1L)
+          .take(200)
+          .through(q.enqueue)
+          .onComplete(Stream.eval(interrupter.set(true)))
 
       sinks = (q.dequeue.evalMap(worker(0)(_)) merge q.dequeue.evalMap(worker(1)(_)))
         .interruptWhen(interrupter)
@@ -340,13 +343,16 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
 
     flow2(worker(_)).compile
       .foldMonoid(cats.Monoid[Long])
-      .redeem({ er ⇒
-        println("Error:" + er)
-        ExitCode.Error
-      }, { r ⇒
-        println("res:" + r)
-        ExitCode.Success
-      })
+      .redeem(
+        { er ⇒
+          println("Error:" + er)
+          ExitCode.Error
+        },
+        { r ⇒
+          println("res:" + r)
+          ExitCode.Success
+        }
+      )
 
     //or
     /*

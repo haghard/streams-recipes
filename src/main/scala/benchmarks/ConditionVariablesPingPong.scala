@@ -48,20 +48,15 @@ object ConditionVariablesPingPong {
           pingLock.lock()
           pingValue = i
           pingCondition.signal()
-        } finally {
-          pingLock.unlock()
-        }
+        } finally pingLock.unlock()
 
         try {
           pongLock.lock()
-          while (pongValue != i) {
+          while (pongValue != i)
             pongCondition.await()
-          }
         } catch {
           case ex: InterruptedException ⇒ ()
-        } finally {
-          pongLock.unlock()
-        }
+        } finally pongLock.unlock()
 
         histogram.recordValue(System.nanoTime() - start)
         loop(i + 1, System.nanoTime())
@@ -74,22 +69,17 @@ object ConditionVariablesPingPong {
       if (i <= iterations) {
         try {
           pingLock.lock()
-          while (pingValue != i) {
+          while (pingValue != i)
             pingCondition.await()
-          }
         } catch {
           case e: InterruptedException ⇒ ()
-        } finally {
-          pingLock.unlock()
-        }
+        } finally pingLock.unlock()
 
         try {
           pongLock.lock()
           pongValue = i
           pongCondition.signal()
-        } finally {
-          pongLock.unlock()
-        }
+        } finally pongLock.unlock()
         loop(i + 1)
       } else ()
 

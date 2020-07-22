@@ -93,5 +93,5 @@ object DDDRecipes extends App {
       val res: Valid[Seq[(String, Amount)]] = balancesProcess.run(Repo).runLog.run(0)
       res.isSuccess === true
       res.toOption.get.size == 2
- */
+   */
 }

@@ -16,7 +16,6 @@ import scala.util.{Failure, Success}
 /**
   * https://github.com/moia-dev/streamee
   * https://github.com/hseeberger/xtream.git
-  *
   */
 object StreameeLikeExamples {
   //import io.moia.streamee._
@@ -30,14 +29,14 @@ object StreameeLikeExamples {
       .withAttributes(Attributes.inputBuffer(buffersSize, buffersSize))
       //.map { req: HttpRequest ⇒ null.asInstanceOf[HttpResponse] }
       .mapAsync(2) { req: HttpRequest ⇒
-        Future { null.asInstanceOf[HttpResponse] }(ExecutionContext.global)
+        Future(null.asInstanceOf[HttpResponse])(ExecutionContext.global)
       }
 
   def auth: FlowWithContext[HttpRequest, Promise[HttpResponse], HttpResponse, Promise[HttpResponse], Any] =
     FlowWithContext[HttpRequest, Promise[HttpResponse]]
       .withAttributes(Attributes.inputBuffer(buffersSize, buffersSize))
       .mapAsync(4) { req: HttpRequest ⇒
-        Future { null.asInstanceOf[HttpResponse] }(ec)
+        Future(null.asInstanceOf[HttpResponse])(ec)
       }
 
   //case GetSinkRef(replyTo) =>
@@ -155,5 +154,5 @@ object StreameeLikeExamples {
 
   }
   FlowWithContext.fromTuples(flow)
- */
+   */
 }

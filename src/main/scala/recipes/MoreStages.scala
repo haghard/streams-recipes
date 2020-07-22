@@ -179,10 +179,9 @@ object MoreStages {
             }
 
             override def onUpstreamFinish(): Unit = {
-              if (fifo.nonEmpty) {
+              if (fifo.nonEmpty)
                 // emit the rest if possible
                 emitMultiple(out, fifo.iterator)
-              }
               completeStage()
             }
           }
@@ -192,9 +191,9 @@ object MoreStages {
           out,
           new OutHandler {
             override def onPull(): Unit = {
-              if (fifo.isEmpty) {
+              if (fifo.isEmpty)
                 isDownstreamRequested = true
-              } else {
+              else {
                 val elem = fifo.dequeue //O(1)
                 //emitMultiple()
                 push(out, elem)
@@ -253,10 +252,9 @@ object MoreStages {
             }
 
             override def onUpstreamFinish(): Unit = {
-              if (fifo.nonEmpty) {
+              if (fifo.nonEmpty)
                 // emit the rest if possible
                 emitMultiple(out, fifo.iterator)
-              }
               completeStage()
             }
           }
@@ -266,9 +264,9 @@ object MoreStages {
           out,
           new OutHandler {
             override def onPull(): Unit =
-              if (fifo.isEmpty) {
+              if (fifo.isEmpty)
                 isDownstreamRequested = true
-              } else {
+              else {
                 val elem = fifo.dequeue //O(1)
                 push(out, elem)
               }
@@ -326,10 +324,9 @@ object MoreStages {
             }
 
             override def onUpstreamFinish(): Unit = {
-              if (fifo.nonEmpty) {
+              if (fifo.nonEmpty)
                 // emit the rest if possible
                 emitMultiple(out, fifo.iterator)
-              }
               completeStage()
             }
           }
@@ -339,9 +336,9 @@ object MoreStages {
           out,
           new OutHandler {
             override def onPull(): Unit =
-              if (fifo.isEmpty) {
+              if (fifo.isEmpty)
                 isDownstreamRequested = true
-              } else {
+              else {
                 val elem = fifo.dequeue //O(1)
                 push(out, elem)
               }
@@ -410,15 +407,14 @@ object MoreStages {
           out,
           new OutHandler {
             override def onPull(): Unit = {
-              if (rb.isEmpty) {
+              if (rb.isEmpty)
                 isDownstreamRequested = true
-              } else {
+              else {
                 val elem = rb.poll()
                 push(out, elem)
               }
-              if (!watermarkIsReached && !hasBeenPulled(in)) {
+              if (!watermarkIsReached && !hasBeenPulled(in))
                 pull(in)
-              }
             }
           }
         )
@@ -437,28 +433,37 @@ object MoreStages {
         var initialized                                           = false
         var pending: Option[(A, Outlet[A]) Either (T, Outlet[T])] = None
 
-        setHandler(in, new InHandler {
-          override def onPush(): Unit = {
-            pending = validation(grab(in))
-              .fold({ err: A ⇒
-                Option(Left(err, error))
-              }, { v: T ⇒
-                Option(Right(v, out))
-              })
-            tryPush
-          }
-        })
-
-        List(error, out).foreach {
-          setHandler(_, new OutHandler {
-            override def onPull() = {
-              if (!initialized) {
-                initialized = true
-                tryPull(in)
-              }
+        setHandler(
+          in,
+          new InHandler {
+            override def onPush(): Unit = {
+              pending = validation(grab(in))
+                .fold(
+                  { err: A ⇒
+                    Option(Left(err, error))
+                  },
+                  { v: T ⇒
+                    Option(Right(v, out))
+                  }
+                )
               tryPush
             }
-          })
+          }
+        )
+
+        List(error, out).foreach {
+          setHandler(
+            _,
+            new OutHandler {
+              override def onPull() = {
+                if (!initialized) {
+                  initialized = true
+                  tryPull(in)
+                }
+                tryPush
+              }
+            }
+          )
         }
 
         private def tryPushError(er: A, erOut: Outlet[A]): Unit =
@@ -467,9 +472,8 @@ object MoreStages {
             tryPull(in)
             pending = None
 
-            if (isClosed(in)) {
+            if (isClosed(in))
               completeStage()
-            }
           }
 
         private def tryPushResult(el: T, out: Outlet[T]): Unit =
@@ -478,18 +482,13 @@ object MoreStages {
             tryPull(in)
             pending = None
 
-            if (isClosed(in)) {
+            if (isClosed(in))
               completeStage()
-            }
           }
 
         private def tryPush(): Unit =
           pending.foreach { out ⇒
-            out.fold({ kv ⇒
-              tryPushError(kv._1, kv._2)
-            }, { kv ⇒
-              tryPushResult(kv._1, kv._2)
-            })
+            out.fold(kv ⇒ tryPushError(kv._1, kv._2), kv ⇒ tryPushResult(kv._1, kv._2))
           }
       }
   }
@@ -518,22 +517,24 @@ object MoreStages {
             }
 
             override def onUpstreamFinish() =
-              if (pending.isEmpty) {
+              if (pending.isEmpty)
                 completeStage()
-              }
           }
         )
 
         outlets.foreach {
-          setHandler(_, new OutHandler {
-            override def onPull() = {
-              if (!initialized) {
-                initialized = true
-                tryPull(in)
+          setHandler(
+            _,
+            new OutHandler {
+              override def onPull() = {
+                if (!initialized) {
+                  initialized = true
+                  tryPull(in)
+                }
+                tryPush()
               }
-              tryPush()
             }
-          })
+          )
         }
 
         private def tryPush(): Unit =
@@ -544,9 +545,8 @@ object MoreStages {
                 tryPull(in)
                 pending = None
 
-                if (isClosed(in)) {
+                if (isClosed(in))
                   completeStage()
-                }
               }
           }
       }
@@ -583,7 +583,7 @@ object MoreStages {
           out,
           new OutHandler {
             override def onDownstreamFinish(): Unit = {
-              if (buffer.nonEmpty) {
+              if (buffer.nonEmpty)
                 /*
                 log.debug(
                   "In order to avoid message lost we need to notify the upsteam that " +
@@ -592,7 +592,6 @@ object MoreStages {
                 2. store to internal DB
                  */
                 completeStage()
-              }
               completeStage()
             }
 
@@ -689,9 +688,8 @@ object MoreStages {
           if (!hasBeenPulled(in)) pull(in)
 
         override def onUpstreamFinish(): Unit = {
-          if (queue.nonEmpty) {
+          if (queue.nonEmpty)
             emitMultiple(out, queue)
-          }
           super.onUpstreamFinish()
         }
 
@@ -741,9 +739,8 @@ object MoreStages {
 
             override def onUpstreamFinish(): Unit = {
               val result = buffer.result()
-              if (result.nonEmpty) {
+              if (result.nonEmpty)
                 emit(out, result)
-              }
               completeStage()
             }
           }
@@ -769,12 +766,15 @@ object MoreStages {
         var lastPulled: Long = System.nanoTime
         var lastPushed: Long = lastPulled
 
-        setHandler(out, new OutHandler {
-          override def onPull(): Unit = {
-            pull(in)
-            lastPulled = System.nanoTime
+        setHandler(
+          out,
+          new OutHandler {
+            override def onPull(): Unit = {
+              pull(in)
+              lastPulled = System.nanoTime
+            }
           }
-        })
+        )
 
         setHandler(
           in,
@@ -815,44 +815,46 @@ object MoreStages {
 
     override val shape = FlowShape.of(in, out)
 
-    override def createLogic(inheritedAttributes: Attributes): GraphStageLogic = new GraphStageLogic(shape) {
-      private var buffer = ByteString.empty
+    override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
+      new GraphStageLogic(shape) {
+        private var buffer = ByteString.empty
 
-      setHandler(out, new OutHandler {
-        override def onPull(): Unit =
-          //println("Buffer size: " + buffer.size)
-          emitChunk()
-      })
+        setHandler(
+          out,
+          new OutHandler {
+            override def onPull(): Unit =
+              //println("Buffer size: " + buffer.size)
+              emitChunk()
+          }
+        )
 
-      setHandler(
-        in,
-        new InHandler {
-          override def onPush(): Unit = {
-            val elem = grab(in)
-            buffer ++= elem
-            emitChunk()
+        setHandler(
+          in,
+          new InHandler {
+            override def onPush(): Unit = {
+              val elem = grab(in)
+              buffer ++= elem
+              emitChunk()
+            }
+
+            override def onUpstreamFinish(): Unit =
+              if (buffer.isEmpty) completeStage()
+              else if (isAvailable(out)) emitChunk()
+          }
+        )
+
+        private def emitChunk(): Unit =
+          if (buffer.nonEmpty && isAvailable(out)) {
+            val (chunk, nextBuffer) = buffer.splitAt(chunkSize)
+            buffer = nextBuffer
+            push(out, chunk)
+          } else {
+            if (buffer.isEmpty)
+              if (isClosed(in)) completeStage()
+            if (!hasBeenPulled(in)) pull(in)
           }
 
-          override def onUpstreamFinish(): Unit =
-            if (buffer.isEmpty) completeStage()
-            else {
-              if (isAvailable(out)) emitChunk()
-            }
-        }
-      )
-
-      private def emitChunk(): Unit =
-        if (buffer.nonEmpty && isAvailable(out)) {
-          val (chunk, nextBuffer) = buffer.splitAt(chunkSize)
-          buffer = nextBuffer
-          push(out, chunk)
-        } else {
-          if (buffer.isEmpty)
-            if (isClosed(in)) completeStage()
-          if (!hasBeenPulled(in)) pull(in)
-        }
-
-      /*if (buffer.isEmpty) {
+        /*if (buffer.isEmpty) {
           if (isClosed(in)) completeStage() else pull(in)
         } else {
           if(isAvailable(out)) {
@@ -861,7 +863,7 @@ object MoreStages {
             push(out, chunk)
           }
         }*/
-    }
+      }
   }
 
   //More interesting example here: https://github.com/calvinlfer/Akka-Streams-custom-stream-processing-examples/blob/master/src/main/scala/com/calvin/streamy/SideChannelSource.scala
@@ -903,13 +905,15 @@ object MoreStages {
           if (isAvailable(out) && pendingBuffer.nonEmpty) {
             val element = pendingBuffer.dequeue
             push(out, element)
-          } else {
+          } else
             pending = true
-          }
 
-        setHandler(out, new OutHandler {
-          override def onPull(): Unit = tryPush()
-        })
+        setHandler(
+          out,
+          new OutHandler {
+            override def onPull(): Unit = tryPush()
+          }
+        )
       }
   }
 
@@ -957,9 +961,12 @@ object MoreStages {
           }
         )
 
-        setHandler(out, new OutHandler {
-          override def onPull(): Unit = pull(in)
-        })
+        setHandler(
+          out,
+          new OutHandler {
+            override def onPull(): Unit = pull(in)
+          }
+        )
       }
       (logic, matVal.future)
     }
@@ -1044,9 +1051,8 @@ object MoreStages {
               }
 
               // obtain more elements if the buffer is empty and if an asynchronous call already isn't in progress
-              if (buffer.isEmpty && !asyncCallInProgress) {
+              if (buffer.isEmpty && !asyncCallInProgress)
                 grabAndInvokeWithRetry(pullRemoteApi(materializer.executionContext))
-              }
             }
           }
         )

@@ -14,6 +14,7 @@ import akka.actor.typed.scaladsl.Behaviors
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.{HttpRequest, HttpResponse}
 import akka.routing.ConsistentHashingRouter.ConsistentHashMapping
+import akka.stream.Attributes.InputBuffer
 import akka.stream._
 import akka.stream.actor.ActorPublisherMessage.{Cancel, Request}
 import akka.stream.actor.ActorSubscriberMessage.{OnComplete, OnError, OnNext}
@@ -238,7 +239,6 @@ object AkkaRecipes extends App {
   }
 
   /**
-    *
     */
   def countElementsWindow[T](name: String, duration: FiniteDuration): Sink[T, akka.NotUsed] =
     Flow[T]
@@ -290,7 +290,7 @@ object AkkaRecipes extends App {
 
     last3(fastest, middle, slowest)
       .alsoTo(countElementsWindow[(Int, Int, Int)]("akka-scenario0", 2 seconds))
-      .async  //When u insert an async boundary the stream now is using message passing between 2 actors and inserts a small buffer(16 elements by default)
+      .async //When u insert an async boundary the stream now is using message passing between 2 actors and inserts a small buffer(16 elements by default)
       .to(new GraphiteSink3("sink_0", 0, ms))
   }
 
@@ -392,14 +392,11 @@ object AkkaRecipes extends App {
     }
 
   /**
-    *
-    *
     * We want the first sink to be the primary sink (source of true), whereas 2th and 3th sinks to be the best effort (some elements)
     *
     * Fast publisher and 3 sinks. The first sink runs as fast as it can, whereas 2th and 3th degrade over time.
     * 2th and 3th sinks get messages through buffers with OverflowStrategy.dropTail strategy, therefore the
     * overall pipeline rate doesn't degrade.
-    *
     */
   def scenario5: Graph[ClosedShape, akka.NotUsed] =
     GraphDSL.create() { implicit b ⇒
@@ -454,11 +451,9 @@ object AkkaRecipes extends App {
     }
 
   /**
-    *
     * Merge[In] – (N inputs, 1 output) picks randomly from inputs pushing them one by one to its output
     * Several sources with different rates fan-in in single merge followed by sink
     * Result: Sink rate = sum(sources)
-    *
     *
     * src1 merge src2 - merge 2 src
     * src1 zipWith src2 zipFunc  - merge 2 src + some work
@@ -471,7 +466,6 @@ object AkkaRecipes extends App {
     *
     * def connect(src: Source[Int, NotUsed]) =
     *       src.to(hub).run()
-    *
     */
   def scenario7: Graph[ClosedShape, akka.NotUsed] = {
     val latencies = List(20L, 30L, 40L, 45L).iterator
@@ -704,7 +698,7 @@ object AkkaRecipes extends App {
         .actorRefWithAck[DegradingTypedActorSource.TypedSrcProtocol, DegradingTypedActorSource.Confirm](
           ackTo = ackTo,
           ackMessage = DegradingTypedActorSource.Confirm,
-          completionMatcher = { case DegradingTypedActorSource.Completed      ⇒ CompletionStrategy.immediately },
+          completionMatcher = { case DegradingTypedActorSource.Completed ⇒ CompletionStrategy.immediately },
           failureMatcher = { case DegradingTypedActorSource.StreamFailure(ex) ⇒ ex }
         )
         .to(Sink.foreach[DegradingTypedActorSource.TypedSrcProtocol](m ⇒ println("out: " + m)))
@@ -804,7 +798,9 @@ object AkkaRecipes extends App {
       MergeHub
         .source[Int](bufferSize) //If the consumer cannot keep up then all of the producers are back pressured.
         //.toMat(Sink.queue[Int]())(Keep.both)
-        .toMat(BroadcastHub.sink[Int](bufferSize))(Keep.both) //The rate of the producers will be automatically set to the slowest consumer.
+        .toMat(BroadcastHub.sink[Int](bufferSize))(
+          Keep.both
+        ) //The rate of the producers will be automatically set to the slowest consumer.
         .run()(mat)
 
     /*
@@ -909,8 +905,6 @@ object AkkaRecipes extends App {
   }
 
   /**
-    *
-    *
     */
   def scenario08: Graph[ClosedShape, akka.NotUsed] = {
     val source    = timedSource(ms, 1 second, 100 milliseconds, Int.MaxValue, "akka-source-08")
@@ -1031,7 +1025,6 @@ object AkkaRecipes extends App {
   /**
     * Fast sink and heartbeats sink.
     * Sink's rate is equal to sum of 2 sources
-    *
     */
   def scenario10: Graph[ClosedShape, akka.NotUsed] =
     GraphDSL.create() { implicit b ⇒
@@ -1137,8 +1130,7 @@ object AkkaRecipes extends App {
   /**
     * External Producer through Source.queue
     */
-  def scenario13_1(
-    implicit
+  def scenario13_1(implicit
     mat: Materializer
   ): Graph[ClosedShape, akka.NotUsed] = {
     implicit val Ctx    = mat.executionContext
@@ -1161,7 +1153,7 @@ object AkkaRecipes extends App {
      */
 
     def externalProducer(q: akka.stream.scaladsl.SourceQueueWithComplete[Int], pName: String, elem: Int): Unit =
-      if (elem < 10000) {
+      if (elem < 10000)
         (q offer elem).onComplete {
           case Success(QueueOfferResult.Enqueued) ⇒
             (pubStatsD send pName)
@@ -1170,7 +1162,7 @@ object AkkaRecipes extends App {
             println(s"error: elem $elem error" + ex.getMessage)
             sys.scheduler.scheduleOnce(1 seconds)(externalProducer(q, pName, elem))(ExtCtx) //retry
         }(ExtCtx)
-      } else {
+      else {
         println("External-producer is completed")
         q.complete()
         q.watchCompletion()
@@ -1277,12 +1269,15 @@ object AkkaRecipes extends App {
         // registered handlers.
         private var counter = 1
 
-        setHandler(out, new OutHandler {
-          override def onPull(): Unit = {
-            push(out, counter)
-            counter += 1
+        setHandler(
+          out,
+          new OutHandler {
+            override def onPull(): Unit = {
+              push(out, counter)
+              counter += 1
+            }
           }
-        })
+        )
       }
   }
 
@@ -1294,12 +1289,15 @@ object AkkaRecipes extends App {
       new GraphStageLogic(shape) {
         override def preStart(): Unit = pull(in)
 
-        setHandler(in, new InHandler {
-          override def onPush(): Unit = {
-            println(grab(in))
-            pull(in)
+        setHandler(
+          in,
+          new InHandler {
+            override def onPush(): Unit = {
+              println(grab(in))
+              pull(in)
+            }
           }
-        })
+        )
       }
   }
 
@@ -1335,12 +1333,13 @@ object AkkaRecipes extends App {
     proc.getOutputStream.close()
     val input = proc.getInputStream
 
-    def readChunk(): scala.concurrent.Future[ByteString] = Future {
-      val buffer = new Array[Byte](1024 * 6)
-      val read   = (input read buffer)
-      println(s"available: $read")
-      if (read > 0) ByteString.fromArray(buffer, 0, read) else ByteString.empty
-    }
+    def readChunk(): scala.concurrent.Future[ByteString] =
+      Future {
+        val buffer = new Array[Byte](1024 * 6)
+        val read   = input read buffer
+        println(s"available: $read")
+        if (read > 0) ByteString.fromArray(buffer, 0, read) else ByteString.empty
+      }
 
     val publisher = Source
       .repeat(0)
@@ -1385,8 +1384,6 @@ object AkkaRecipes extends App {
   }
 
   /**
-    *
-    *
     */
   def scenario17(): RunnableGraph[Future[IOResult]] = {
     import GeoJsonProtocol._
@@ -1516,11 +1513,11 @@ object AkkaRecipes extends App {
       val sink   = Sink.actorSubscriber(SyncActor.props("akka-sink_20", ms, 10L))
       val src    = timedSource(ms, 1 second, 300 milliseconds, Int.MaxValue, "akka-source_20")
 
-      val a = Flow[Int].conflateWithSeed({ e ⇒
+      val a = Flow[Int].conflateWithSeed { e ⇒
         val fifo = new CircularFifo[Int](lenght)
         fifo.add(e)
         fifo
-      }) { (fifo, e) ⇒
+      } { (fifo, e) ⇒
         fifo.add(e)
         fifo
       }
@@ -1534,7 +1531,6 @@ object AkkaRecipes extends App {
     }
 
   /**
-    *
     * Sliding window on bounded memory with CircularFifoQueue, doesn't drop elements
     */
   def scenario21(): Graph[ClosedShape, akka.NotUsed] =
@@ -1623,7 +1619,7 @@ object AkkaRecipes extends App {
     val ks = KillSwitches.shared("kw")
     //ks.shutdown()
     src
-    //.alsoTo(tumblingWindow("akka-scenario23", 10 seconds))
+      //.alsoTo(tumblingWindow("akka-scenario23", 10 seconds))
       .alsoTo(slidingWindow("akka-scenario23", 7 seconds, 3))
       .via(Flow[Int].buffer(1 << 6, OverflowStrategy.backpressure) /*.async("akka.blocking-dispatcher")*/ )
       .via(ks.flow)
@@ -1685,7 +1681,7 @@ object AkkaRecipes extends App {
       val promise = Promise[Unit]
 
       val max = FiniteDuration(ThreadLocalRandom.current.nextInt(2000), MILLISECONDS)
-      sys.scheduler.scheduleOnce(max) { promise.success(()) }
+      sys.scheduler.scheduleOnce(max)(promise.success(()))
 
       val f = promise.future
       f.onComplete(_ ⇒ sys.log.info("onBatchComplete - {} ", batch.mkString(",")))
@@ -1703,7 +1699,7 @@ object AkkaRecipes extends App {
       FlowWithContext[HttpRequest, Promise[HttpResponse]]
         .withAttributes(Attributes.inputBuffer(1, 1))
         .mapAsync(2) { req: HttpRequest ⇒
-          Future { null.asInstanceOf[HttpResponse] }
+          Future(null.asInstanceOf[HttpResponse])
         }
     //.map { req: HttpRequest =>  null.asInstanceOf[HttpResponse] }
 
@@ -1795,18 +1791,16 @@ object AkkaRecipes extends App {
           //Feed stuff into remotable stream
           Source
             .single(in)
-            .map { i ⇒
-              (i, Promise[Int])
-            }
-            .alsoTo(Flow[(Int, Promise[Int])].to(sink))
-            .mapAsync(1) { _._2.future }
+            .map(i ⇒ (i, Promise[Int]))
+            .alsoTo(Flow[P].to(sink))
+            .mapAsync(1)(_._2.future)
             .runWith(Sink.head)(mat)
         }
         .map(identity)
 
     val ((sink, killSwitch), src) =
       MergeHub
-        .source[(Int, Promise[Int])](perProducerBufferSize = 4)
+        .source[P](perProducerBufferSize = 4)
         .viaMat(KillSwitches.single)(Keep.both)
         .toMat(Sink.asPublisher(false))(Keep.both)
         //.toMat(Sink.queue[(Int, Promise[Int])])(Keep.both)
@@ -2075,14 +2069,18 @@ class ConsistentHashingRouter extends ActorSubscriber with ActorLogging {
    */
 
   val logic = akka.routing.ConsistentHashingRoutingLogic(context.system, currentRouteeSize, hashMapping)
-  var router = akka.routing.Router(logic, routees.map { actor ⇒
-    context.watch(actor)
-    akka.routing.ActorRefRoutee(actor)
-  })
+  var router = akka.routing.Router(
+    logic,
+    routees.map { actor ⇒
+      context.watch(actor)
+      akka.routing.ActorRefRoutee(actor)
+    }
+  )
 
-  override protected def requestStrategy = new MaxInFlightRequestStrategy(32) {
-    override def inFlightInternally = routeesMap.size
-  }
+  override protected def requestStrategy =
+    new MaxInFlightRequestStrategy(32) {
+      override def inFlightInternally = routeesMap.size
+    }
 
   override def receive: Actor.Receive = {
     case Terminated(routee) ⇒
@@ -2091,7 +2089,7 @@ class ConsistentHashingRouter extends ActorSubscriber with ActorLogging {
         (context stop self)
 
     case OnNext(DBObject2(id, requestor)) ⇒
-      if (id % 32 == 0) {
+      if (id % 32 == 0)
         if (!removed) {
           router = router.removeRoutee(routees(index))
           println(s"Removed routee by index $index")
@@ -2110,7 +2108,6 @@ class ConsistentHashingRouter extends ActorSubscriber with ActorLogging {
           )
           removed = false
         }
-      }
       routeesMap += (id → requestor)
       router.route(CHWork(id, keys((id % keys.size).toInt)), self)
     case Reply(id) ⇒
@@ -2140,10 +2137,13 @@ class BalancerRouter extends ActorSubscriber with ActorLogging {
     .map(i ⇒ s"worker-$i")
     .map(name ⇒ context.actorOf(Props(classOf[Worker], name).withDispatcher("akka.flow-dispatcher"), name))
 
-  var router = akka.routing.Router(akka.routing.RoundRobinRoutingLogic(), workers.map { r ⇒
-    context.watch(r)
-    akka.routing.ActorRefRoutee(r)
-  })
+  var router = akka.routing.Router(
+    akka.routing.RoundRobinRoutingLogic(),
+    workers.map { r ⇒
+      context.watch(r)
+      akka.routing.ActorRefRoutee(r)
+    }
+  )
 
   override val requestStrategy = new MaxInFlightRequestStrategy(MaxInFlight) {
     override def inFlightInternally = requestors.size
@@ -2694,7 +2694,7 @@ class DbCursorPublisher(name: String, val Limit: Long, val address: InetSocketAd
   val showPeriod = 50
 
   override def receive: Receive = {
-    case Request(n) if (isActive && totalDemand > 0) ⇒
+    case Request(n) if isActive && totalDemand > 0 ⇒
       log.info("request: {}", n)
       if (seqN >= Limit)
         onCompleteThenStop()
@@ -2842,14 +2842,16 @@ class TimeStampedLogReader[T](time: T ⇒ Long) extends GraphStage[FlowShape[T, 
         }
       )
 
-      setHandler(out, new OutHandler {
-        override def onPull(): Unit = pull(in)
-      })
+      setHandler(
+        out,
+        new OutHandler {
+          override def onPull(): Unit = pull(in)
+        }
+      )
     }
 }
 
 /**
-  *
   * val resultFuture = Source(1 to 5)
   * .via(new Filter(_ % 2 == 0))
   * .via(new Duplicator())
@@ -2863,16 +2865,24 @@ class Filter[A](p: A ⇒ Boolean) extends GraphStage[FlowShape[A, A]] {
 
   override def createLogic(inheritedAttributes: Attributes) =
     new GraphStageLogic(shape) {
-      setHandler(in, new InHandler {
-        override def onPush(): Unit = {
-          val elem = grab(in)
-          if (p(elem)) push(out, elem) else pull(in)
+      //inheritedAttributes.get[InputBuffer]
+
+      setHandler(
+        in,
+        new InHandler {
+          override def onPush(): Unit = {
+            val elem = grab(in)
+            if (p(elem)) push(out, elem) else pull(in)
+          }
         }
-      })
-      setHandler(out, new OutHandler {
-        override def onPull(): Unit =
-          pull(in)
-      })
+      )
+      setHandler(
+        out,
+        new OutHandler {
+          override def onPull(): Unit =
+            pull(in)
+        }
+      )
     }
 }
 
@@ -2887,7 +2897,6 @@ object DelayFlow {
     * given `delay` = 5 and `scaleFactor` = 0.5 and the input
     * `(1,0),(2,0),(3,0),(4,0),(5,0),(6,0),  (7,0),  (8,0) ...` results in the pairs
     * `(0,1),(0,2),...              ,(1,3.5),(2,4.5),(3, 5.5) ... `
-    *
     */
   def apply(delay: Int, scaleFactor: Double): Flow[Element, Element, NotUsed] =
     Flow[Element]
@@ -2944,7 +2953,6 @@ object MovingAvg {
   * given `delay` = 5 the input
   * `0, 1, 2, 3, 4, 5   , 6   , 7   , 8     ...` results in the pairs
   * `0,...        ,(5-0),(6-1),(7-2),(8-3) ... `
-  *
   */
 object TrailingDifference {
 
@@ -2958,11 +2966,12 @@ object TrailingDifference {
         val prev = slidingWindow(i)
         slidingWindow(i) = element
 
-        val it = if (seqNum >= capacity) {
-          //println(s"$seqNum - $i : $element - $prev")
-          scala.collection.immutable.Iterable(implicitly[Numeric[T]].minus(element, prev))
-        } else
-          scala.collection.immutable.Iterable(implicitly[Numeric[T]].zero)
+        val it =
+          if (seqNum >= capacity)
+            //println(s"$seqNum - $i : $element - $prev")
+            scala.collection.immutable.Iterable(implicitly[Numeric[T]].minus(element, prev))
+          else
+            scala.collection.immutable.Iterable(implicitly[Numeric[T]].zero)
 
         seqNum += 1L
 
@@ -3035,15 +3044,17 @@ class Duplicator[A] extends GraphStage[FlowShape[A, A]] {
         }
       )
 
-      setHandler(out, new OutHandler {
-        override def onPull(): Unit =
-          if (lastElem.isDefined) {
-            push(out, lastElem.get)
-            lastElem = None
-          } else {
-            pull(in)
-          }
-      })
+      setHandler(
+        out,
+        new OutHandler {
+          override def onPull(): Unit =
+            if (lastElem.isDefined) {
+              push(out, lastElem.get)
+              lastElem = None
+            } else
+              pull(in)
+        }
+      )
     }
 }
 
@@ -3054,23 +3065,27 @@ class DuplicatorN[A] extends GraphStage[FlowShape[A, A]] {
 
   val shape = FlowShape.of(in, out)
 
-  override def createLogic(inheritedAttributes: Attributes) = new GraphStageLogic(shape) {
-    setHandler(
-      in,
-      new InHandler {
-        override def onPush(): Unit = {
-          val elem = grab(in)
-          // this will temporarily suspend this handler until the two elems
-          // are emitted and then reinstates it
-          emitMultiple(out, immutable.Iterable(elem, elem))
+  override def createLogic(inheritedAttributes: Attributes) =
+    new GraphStageLogic(shape) {
+      setHandler(
+        in,
+        new InHandler {
+          override def onPush(): Unit = {
+            val elem = grab(in)
+            // this will temporarily suspend this handler until the two elems
+            // are emitted and then reinstates it
+            emitMultiple(out, immutable.Iterable(elem, elem))
+          }
         }
-      }
-    )
+      )
 
-    setHandler(out, new OutHandler {
-      override def onPull() = pull(in)
-    })
-  }
+      setHandler(
+        out,
+        new OutHandler {
+          override def onPull() = pull(in)
+        }
+      )
+    }
 }
 
 class TimedGate[A](silencePeriod: FiniteDuration) extends GraphStage[FlowShape[A, A]] {
@@ -3081,20 +3096,26 @@ class TimedGate[A](silencePeriod: FiniteDuration) extends GraphStage[FlowShape[A
   override def createLogic(inheritedAttributes: Attributes) =
     new TimerGraphStageLogic(shape) {
       var open = false
-      setHandler(in, new InHandler {
-        override def onPush(): Unit = {
-          val elem = grab(in)
-          if (open) pull(in)
-          else {
-            push(out, elem)
-            open = true
-            scheduleOnce(None, silencePeriod)
+      setHandler(
+        in,
+        new InHandler {
+          override def onPush(): Unit = {
+            val elem = grab(in)
+            if (open) pull(in)
+            else {
+              push(out, elem)
+              open = true
+              scheduleOnce(None, silencePeriod)
+            }
           }
         }
-      })
-      setHandler(out, new OutHandler {
-        override def onPull(): Unit = pull(in)
-      })
+      )
+      setHandler(
+        out,
+        new OutHandler {
+          override def onPull(): Unit = pull(in)
+        }
+      )
 
       override protected def onTimer(timerKey: Any): Unit =
         open = false
@@ -3228,8 +3249,7 @@ object Traverse {
       .run()
 
   /** Future.sequence, but with bounded parallelism */
-  def sequence[A](in: TraversableOnce[Future[A]], maxParallel: Int)(
-    implicit
+  def sequence[A](in: TraversableOnce[Future[A]], maxParallel: Int)(implicit
     mat: ActorMaterializer
   ): Future[Seq[A]] =
     traverse(in, maxParallel)(identity)

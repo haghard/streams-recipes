@@ -157,12 +157,15 @@ object scenario_2 extends IOApp with TimeWindows with GraphiteSupport {
       .foldMonoid(cats.Monoid[Long])*/
     //.unsafeRunAsync { r ⇒ println(s"final sum:$r"); }
 
-    io.redeem({ ex ⇒
-      println("Error: " + ex.getMessage)
-      ExitCode.Error
-    }, { r ⇒
-      println(s"Final sum:$r")
-      ExitCode.Success
-    })
+    io.redeem(
+      { ex ⇒
+        println("Error: " + ex.getMessage)
+        ExitCode.Error
+      },
+      { r ⇒
+        println(s"Final sum:$r")
+        ExitCode.Success
+      }
+    )
   }
 }
