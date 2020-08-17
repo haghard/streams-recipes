@@ -16,7 +16,6 @@ import scala.util.{Failure, Success}
 /**
   * https://github.com/moia-dev/streamee
   * https://github.com/hseeberger/xtream.git
-  *
   */
 object StreameeLikeExamples {
   //import io.moia.streamee._
@@ -159,5 +158,5 @@ object StreameeLikeExamples {
 
   }
   FlowWithContext.fromTuples(flow)
- */
+   */
 }

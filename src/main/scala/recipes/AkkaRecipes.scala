@@ -242,7 +242,6 @@ object AkkaRecipes extends App {
   }
 
   /**
-    *
     */
   def countElementsWindow[T](name: String, duration: FiniteDuration): Sink[T, akka.NotUsed] =
     Flow[T]
@@ -400,14 +399,11 @@ object AkkaRecipes extends App {
     }
 
   /**
-    *
-    *
     * We want the first sink to be the primary sink (source of true), whereas 2th and 3th sinks to be the best effort (some elements)
     *
     * Fast publisher and 3 sinks. The first sink runs as fast as it can, whereas 2th and 3th degrade over time.
     * 2th and 3th sinks get messages through buffers with OverflowStrategy.dropTail strategy, therefore the
     * overall pipeline rate doesn't degrade.
-    *
     */
   def scenario5: Graph[ClosedShape, akka.NotUsed] =
     GraphDSL.create() { implicit b ⇒
@@ -457,11 +453,9 @@ object AkkaRecipes extends App {
     }
 
   /**
-    *
     * Merge[In] – (N inputs, 1 output) picks randomly from inputs pushing them one by one to its output
     * Several sources with different rates fan-in in single merge followed by sink
     * Result: Sink rate = sum(sources)
-    *
     *
     * src1 merge src2 - merge 2 src
     * src1 zipWith src2 zipFunc  - merge 2 src + some work
@@ -474,7 +468,6 @@ object AkkaRecipes extends App {
     *
     * def connect(src: Source[Int, NotUsed]) =
     *       src.to(hub).run()
-    *
     */
   def scenario7: Graph[ClosedShape, akka.NotUsed] = {
     val latencies = List(20L, 30L, 40L, 45L).iterator
@@ -707,7 +700,7 @@ object AkkaRecipes extends App {
         .actorRefWithAck[DegradingTypedActorSource.TypedSrcProtocol, DegradingTypedActorSource.Confirm](
           ackTo = ackTo,
           ackMessage = DegradingTypedActorSource.Confirm,
-          completionMatcher = { case DegradingTypedActorSource.Completed      ⇒ CompletionStrategy.immediately },
+          completionMatcher = { case DegradingTypedActorSource.Completed ⇒ CompletionStrategy.immediately },
           failureMatcher = { case DegradingTypedActorSource.StreamFailure(ex) ⇒ ex }
         )
         .to(Sink.foreach[DegradingTypedActorSource.TypedSrcProtocol](m ⇒ println("out: " + m)))
@@ -914,8 +907,6 @@ object AkkaRecipes extends App {
   }
 
   /**
-    *
-    *
     */
   def scenario08: Graph[ClosedShape, akka.NotUsed] = {
     val source    = timedSource(ms, 1 second, 100 milliseconds, Int.MaxValue, "akka-source-08")
@@ -1036,7 +1027,6 @@ object AkkaRecipes extends App {
   /**
     * Fast sink and heartbeats sink.
     * Sink's rate is equal to sum of 2 sources
-    *
     */
   def scenario10: Graph[ClosedShape, akka.NotUsed] =
     GraphDSL.create() { implicit b ⇒
@@ -1142,8 +1132,7 @@ object AkkaRecipes extends App {
   /**
     * External Producer through Source.queue
     */
-  def scenario13_1(
-    implicit
+  def scenario13_1(implicit
     mat: Materializer
   ): Graph[ClosedShape, akka.NotUsed] = {
     implicit val Ctx    = mat.executionContext
@@ -1166,7 +1155,7 @@ object AkkaRecipes extends App {
      */
 
     def externalProducer(q: akka.stream.scaladsl.SourceQueueWithComplete[Int], pName: String, elem: Int): Unit =
-      if (elem < 10000) {
+      if (elem < 10000)
         (q offer elem).onComplete {
           case Success(QueueOfferResult.Enqueued) ⇒
             (pubStatsD send pName)
@@ -1175,7 +1164,7 @@ object AkkaRecipes extends App {
             println(s"error: elem $elem error" + ex.getMessage)
             sys.scheduler.scheduleOnce(1 seconds)(externalProducer(q, pName, elem))(ExtCtx) //retry
         }(ExtCtx)
-      } else {
+      else {
         println("External-producer is completed")
         q.complete()
         q.watchCompletion()
@@ -1282,12 +1271,15 @@ object AkkaRecipes extends App {
         // registered handlers.
         private var counter = 1
 
-        setHandler(out, new OutHandler {
-          override def onPull(): Unit = {
-            push(out, counter)
-            counter += 1
+        setHandler(
+          out,
+          new OutHandler {
+            override def onPull(): Unit = {
+              push(out, counter)
+              counter += 1
+            }
           }
-        })
+        )
       }
   }
 
@@ -1299,12 +1291,15 @@ object AkkaRecipes extends App {
       new GraphStageLogic(shape) {
         override def preStart(): Unit = pull(in)
 
-        setHandler(in, new InHandler {
-          override def onPush(): Unit = {
-            println(grab(in))
-            pull(in)
+        setHandler(
+          in,
+          new InHandler {
+            override def onPush(): Unit = {
+              println(grab(in))
+              pull(in)
+            }
           }
-        })
+        )
       }
   }
 
@@ -1340,12 +1335,13 @@ object AkkaRecipes extends App {
     proc.getOutputStream.close()
     val input = proc.getInputStream
 
-    def readChunk(): scala.concurrent.Future[ByteString] = Future {
-      val buffer = new Array[Byte](1024 * 6)
-      val read   = (input read buffer)
-      println(s"available: $read")
-      if (read > 0) ByteString.fromArray(buffer, 0, read) else ByteString.empty
-    }
+    def readChunk(): scala.concurrent.Future[ByteString] =
+      Future {
+        val buffer = new Array[Byte](1024 * 6)
+        val read   = input read buffer
+        println(s"available: $read")
+        if (read > 0) ByteString.fromArray(buffer, 0, read) else ByteString.empty
+      }
 
     val publisher = Source
       .repeat(0)
@@ -1692,7 +1688,7 @@ object AkkaRecipes extends App {
       val promise = Promise[Unit]
 
       val max = FiniteDuration(ThreadLocalRandom.current.nextInt(2000), MILLISECONDS)
-      sys.scheduler.scheduleOnce(max) { promise.success(()) }
+      sys.scheduler.scheduleOnce(max) {promise.success(())}
 
       val f = promise.future
       f.onComplete(_ ⇒ sys.log.info("onBatchComplete - {} ", batch.mkString(",")))
@@ -1710,7 +1706,7 @@ object AkkaRecipes extends App {
       FlowWithContext[HttpRequest, Promise[HttpResponse]]
         .withAttributes(Attributes.inputBuffer(1, 1))
         .mapAsync(2) { req: HttpRequest ⇒
-          Future { null.asInstanceOf[HttpResponse] }
+          Future {null.asInstanceOf[HttpResponse]}
         }
     //.map { req: HttpRequest =>  null.asInstanceOf[HttpResponse] }
 
@@ -1806,7 +1802,7 @@ object AkkaRecipes extends App {
               (i, Promise[Int])
             }
             .alsoTo(Flow[(Int, Promise[Int])].to(sink))
-            .mapAsync(1) { _._2.future }
+            .mapAsync(1) {_._2.future}
             .runWith(Sink.head)(mat)
         }
         .map(identity)

@@ -136,30 +136,29 @@ object Betting extends App {
       .to(
         Sink.foreachAsync(1) { batch ⇒
           Future {
-            batch.map {
-              cmd ⇒
-                //data from cache
-                if (cmd.knownUser)
-                  cmd.originCmd match {
-                    case PlaceBet(pId, amount) ⇒
-                      val maybeAmount = state.placedBets.get(pId)
-                      val updatedState = maybeAmount match {
-                        case Some(prevAmount) ⇒
-                          if (amount + prevAmount < 1000) state.copy(state.placedBets.updated(pId, amount + prevAmount))
-                          else state
-                        case None ⇒
-                          state.copy(state.placedBets + (pId → amount))
-                      }
-                      updatedState
-                    case other ⇒
-                  }
-                else {}
+            batch.map { cmd ⇒
+              //data from cache
+              if (cmd.knownUser)
+                cmd.originCmd match {
+                  case PlaceBet(pId, amount) ⇒
+                    val maybeAmount = state.placedBets.get(pId)
+                    val updatedState = maybeAmount match {
+                      case Some(prevAmount) ⇒
+                        if (amount + prevAmount < 1000) state.copy(state.placedBets.updated(pId, amount + prevAmount))
+                        else state
+                      case None ⇒
+                        state.copy(state.placedBets + (pId → amount))
+                    }
+                    updatedState
+                  case other ⇒
+                }
+              else {}
 
-                //
-                cmd.originCmd
+              //
+              cmd.originCmd
 
-                //data from cache
-                cmd.knownUser
+              //data from cache
+              cmd.knownUser
             }
 
             //apply cmd batch:

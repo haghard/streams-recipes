@@ -26,10 +26,11 @@ object Events {
 
   // Parser instances for our types.
   implicit val clickFromstring = new FromString[Click] {
-    def fromString(s: String): Option[Click] = s.split('\t').toList match {
-      case user :: track :: Nil ⇒ Some(Click(user, track))
-      case _                    ⇒ None
-    }
+    def fromString(s: String): Option[Click] =
+      s.split('\t').toList match {
+        case user :: track :: Nil ⇒ Some(Click(user, track))
+        case _                    ⇒ None
+      }
   }
 
   // A small helper
@@ -38,30 +39,33 @@ object Events {
     catch { case _: java.lang.NumberFormatException ⇒ None }
 
   implicit val playFromString = new FromString[Play] {
-    def fromString(s: String): Option[Play] = s.split('\t').toList match {
-      case user :: track :: Nil ⇒ safeToLong(track).map(Play(user, _))
-      case _                    ⇒ None
-    }
+    def fromString(s: String): Option[Play] =
+      s.split('\t').toList match {
+        case user :: track :: Nil ⇒ safeToLong(track).map(Play(user, _))
+        case _                    ⇒ None
+      }
   }
 
   implicit val pauseFromString = new FromString[Pause] {
-    def fromString(s: String): Option[Pause] = s.split('\t').toList match {
-      case user :: track :: ts :: Nil ⇒
-        safeToLong(track).flatMap { t ⇒
-          safeToLong(ts).map(Pause(user, t, _))
-        }
-      case _ ⇒ None
-    }
+    def fromString(s: String): Option[Pause] =
+      s.split('\t').toList match {
+        case user :: track :: ts :: Nil ⇒
+          safeToLong(track).flatMap { t ⇒
+            safeToLong(ts).map(Pause(user, t, _))
+          }
+        case _ ⇒ None
+      }
   }
 
   implicit val forwardFromString = new FromString[Forward] {
-    def fromString(s: String): Option[Forward] = s.split('\t').toList match {
-      case user :: track :: ts :: Nil ⇒
-        safeToLong(track).flatMap { t ⇒
-          safeToLong(ts).map(Forward(user, t, _))
-        }
-      case _ ⇒ None
-    }
+    def fromString(s: String): Option[Forward] =
+      s.split('\t').toList match {
+        case user :: track :: ts :: Nil ⇒
+          safeToLong(track).flatMap { t ⇒
+            safeToLong(ts).map(Forward(user, t, _))
+          }
+        case _ ⇒ None
+      }
   }
 
   // A typeclass to extract names from a list of events.
@@ -70,9 +74,9 @@ object Events {
   }
 
   // instances of Named for our events
-  implicit val namedClick   = new Named[Click]   { val name: String = "click"   }
-  implicit val namedPlay    = new Named[Play]    { val name: String = "play"    }
-  implicit val namedPause   = new Named[Pause]   { val name: String = "pause"   }
+  implicit val namedClick   = new Named[Click] { val name: String = "click" }
+  implicit val namedPlay    = new Named[Play] { val name: String = "play" }
+  implicit val namedPause   = new Named[Pause] { val name: String = "pause" }
   implicit val forwardPause = new Named[Forward] { val name: String = "forward" }
 
   // Named: base case
@@ -81,17 +85,18 @@ object Events {
   }
 
   // Named induction step: (E, Tail)
-  implicit def inductionStepNamed[E, Tail](
-    implicit
+  implicit def inductionStepNamed[E, Tail](implicit
     n: Named[E],
     tailNames: Named[Tail]
-  ): Named[(E, Tail)] = new Named[(E, Tail)] {
-    override val name: String = s"${n.name}, ${tailNames.name}"
-  }
+  ): Named[(E, Tail)] =
+    new Named[(E, Tail)] {
+      override val name: String = s"${n.name}, ${tailNames.name}"
+    }
 
   def getNamed[E](implicit names: Named[E]): String = names.name
 
-  /*** Parsing Events / Dynamic Dispatch ***/
+  /** * Parsing Events / Dynamic Dispatch **
+    */
   // A Typeclass for dynamic-dispatch on events
   trait HandleEvents[Events] {
     type Out
@@ -105,34 +110,33 @@ object Events {
   }
 
   // HandleEvents: induction step (E, Tail)
-  implicit def inductionStepHandleEvents[E, Tail](
-    implicit
+  implicit def inductionStepHandleEvents[E, Tail](implicit
     namedEvent: Named[E],
     fromString: FromString[E],
     tailHandles: HandleEvents[Tail]
-  ): HandleEvents[(E, Tail)] = new HandleEvents[(E, Tail)] {
+  ): HandleEvents[(E, Tail)] =
+    new HandleEvents[(E, Tail)] {
 
-    type Out = Either[tailHandles.Out, E]
+      type Out = Either[tailHandles.Out, E]
 
-    def handleEvent(eventName: String, payload: String): Either[String, Out] = {
-      println(s"check [$eventName: $payload] against ${namedEvent.name}")
-      if (eventName == namedEvent.name) {
-        println(s"detect ${namedEvent.name}")
-        fromString.fromString(payload) match {
-          case None    ⇒ Left(s"""Could not decode event "$eventName" with payload "$payload"""")
-          case Some(e) ⇒ Right(Right(e))
-        }
-      } else {
-        tailHandles.handleEvent(eventName, payload) match {
-          case Left(e)  ⇒ Left(e)
-          case Right(e) ⇒ Right(Left(e))
-        }
+      def handleEvent(eventName: String, payload: String): Either[String, Out] = {
+        println(s"check [$eventName: $payload] against ${namedEvent.name}")
+        if (eventName == namedEvent.name) {
+          println(s"detect ${namedEvent.name}")
+          fromString.fromString(payload) match {
+            case None    ⇒ Left(s"""Could not decode event "$eventName" with payload "$payload"""")
+            case Some(e) ⇒ Right(Right(e))
+          }
+        } else
+          tailHandles.handleEvent(eventName, payload) match {
+            case Left(e)  ⇒ Left(e)
+            case Right(e) ⇒ Right(Left(e))
+          }
       }
     }
-  }
 
-  def handleEvent[Events](eventName: String, payload: String)(
-    implicit names: HandleEvents[Events]
+  def handleEvent[Events](eventName: String, payload: String)(implicit
+    names: HandleEvents[Events]
   ): Either[String, names.Out] = names.handleEvent(eventName, payload)
 
   def unfold(r: Any): Event =

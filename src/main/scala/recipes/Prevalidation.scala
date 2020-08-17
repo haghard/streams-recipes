@@ -73,8 +73,8 @@ object Prevalidation extends App {
   )
 
   //fetch some data from cache
-  def prefetchDataForValidation(ordCmd: OrderedCmd)(
-    implicit ec: ExecutionContext
+  def prefetchDataForValidation(ordCmd: OrderedCmd)(implicit
+    ec: ExecutionContext
   ): Future[EnrichedCmd] =
     Future {
       //println(s"start: ${ordCmd.seqNum}")
@@ -100,10 +100,10 @@ object Prevalidation extends App {
       .mapAsyncUnordered(parallelism) { cmd ⇒
         prefetchDataForValidation(cmd)(mat.executionContext)
       }
-      .conflateWithSeed({ enrichedCmd: EnrichedCmd ⇒
+      .conflateWithSeed { enrichedCmd: EnrichedCmd ⇒
         immutable.SortedSet
           .empty[EnrichedCmd]((x: EnrichedCmd, y: EnrichedCmd) ⇒ if (x.seqNum < y.seqNum) -1 else 1) + enrichedCmd
-      })({ _ + _ })
+      }(_ + _)
 
   def preValidationFlow(bufferSize: Int = 1 << 8) =
     Source
