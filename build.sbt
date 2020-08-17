@@ -5,7 +5,7 @@ name := "stream-recipes"
 
 version := "0.1"
 
-scalaVersion := "2.13.1" //"2.12.8"
+scalaVersion := "2.13.3" //"2.12.8"
 
 //for cats on 2.12. No need when on 2.13
 //scalacOptions += "-Ypartial-unification"
@@ -55,7 +55,7 @@ resolvers ++= Seq(
 
 promptTheme := ScalapenosTheme
 
-val akkaV = "2.5.26"
+val akkaV = "2.5.31"
 val fs2V = "2.0.1"
 val scalazVersion = "7.2.28"
 
@@ -145,7 +145,7 @@ libraryDependencies ++= Seq(
   "ch.qos.logback" % "logback-classic" % "1.2.3",
 
   // li haoyi ammonite repl embed
-  ("com.lihaoyi" % "ammonite" % "1.9.2" % "test").cross(CrossVersion.full)
+  ("com.lihaoyi" % "ammonite" % "2.2.0" % "test").cross(CrossVersion.full)
 )
 
 //compile in Compile := (compile in Compile).dependsOn(compileAvro).value

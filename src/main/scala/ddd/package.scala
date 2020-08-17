@@ -65,12 +65,11 @@ package object ddd {
         cd: Option[Date]
       ): ValidationNel[String, (Option[Date], Option[Date])] =
         cd.map { c ⇒
-            if (c before od)
-              s"Close date [$c] cannot be earlier than open date [$od]"
-                .failureNel[(Option[Date], Option[Date])]
-            else (od.some, cd).successNel[String]
-          }
-          .getOrElse((od.some, cd).successNel[String])
+          if (c before od)
+            s"Close date [$c] cannot be earlier than open date [$od]"
+              .failureNel[(Option[Date], Option[Date])]
+          else (od.some, cd).successNel[String]
+        }.getOrElse((od.some, cd).successNel[String])
 
       private def validateRate(rate: BigDecimal) =
         if (rate <= BigDecimal(0))
@@ -97,8 +96,7 @@ package object ddd {
         balance: Balance
       ): ValidationNel[String, Account] =
         (validateAccountNo(no) |@| validateOpenCloseDate(openDate.getOrElse(today), closeDate) |@| validateRate(rate)) {
-          (n, d, r) ⇒
-            SavingsAccount(n, name, r, d._1, d._2, balance)
+          (n, d, r) ⇒ SavingsAccount(n, name, r, d._1, d._2, balance)
         }
 
       private def validateAccountAlreadyClosed(a: Account) =
@@ -135,10 +133,11 @@ package object ddd {
           }
         }
 
-      def rate(a: Account) = a match {
-        case SavingsAccount(_, _, r, _, _, _) ⇒ r.some
-        case _                                ⇒ None
-      }
+      def rate(a: Account) =
+        a match {
+          case SavingsAccount(_, _, r, _, _, _) ⇒ r.some
+          case _                                ⇒ None
+        }
     }
   }
 }

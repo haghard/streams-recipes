@@ -33,9 +33,8 @@ trait AccountModuleTask extends AccountModule[Task, Account, Amount, Balance] {
         repo
           .query(no)
           .fold(
-            { error ⇒
-              error.toString().failureNel[Account]
-            }, { account: Option[Account] ⇒
+            error ⇒ error.toString().failureNel[Account],
+            { account: Option[Account] ⇒
               account.fold(
                 accountType match {
                   case Checking ⇒
@@ -49,28 +48,23 @@ trait AccountModuleTask extends AccountModule[Task, Account, Amount, Balance] {
                         .flatMap(repo.store)
                     } getOrElse s"Rate needs to be given for savings account".failureNel[Account]
                 }
-              ) { r ⇒
-                s"Already existing account with no $no".failureNel[Account]
-              }
+              )(r ⇒ s"Already existing account with no $no".failureNel[Account])
             }
           )
       }(executor)
     }
 
   /**
-    *
     */
   override def debit(no: String, amount: Amount): AccountOperation[Account] =
     modify(no, amount, D)
 
   /**
-    *
     */
   override def credit(no: String, amount: Amount): AccountOperation[Account] =
     modify(no, amount, C)
 
   /**
-    *
     */
   private def modify(no: String, amount: Amount, dc: DC): AccountOperation[Account] =
     kleisli[Task, AccountRepo, ddd.Valid[Account]] { (repo: AccountRepo) ⇒
@@ -78,9 +72,8 @@ trait AccountModuleTask extends AccountModule[Task, Account, Amount, Balance] {
         repo
           .query(no)
           .fold(
-            { error ⇒
-              error.toString().failureNel[Account]
-            }, { a: Option[Account] ⇒
+            error ⇒ error.toString().failureNel[Account],
+            { a: Option[Account] ⇒
               a.fold(s"Account $no does not exist".failureNel[Account]) { a ⇒
                 dc match {
                   case D ⇒ Account.updateBalance(a, -amount).flatMap(repo.store)
@@ -93,17 +86,14 @@ trait AccountModuleTask extends AccountModule[Task, Account, Amount, Balance] {
     }
 
   override def balance(no: String): AccountOperation[Balance] =
-    kleisli[Task, AccountRepo, ddd.Valid[Balance]] { repo: AccountRepo ⇒
-      Task(repo.balance(no))
-    }
+    kleisli[Task, AccountRepo, ddd.Valid[Balance]] { repo: AccountRepo ⇒ Task(repo.balance(no)) }
 
   override def transfer(accounts: ddd.Valid[(String, String)], amount: Amount): AccountOperation[(Account, Account)] =
     accounts.fold(
-      { ex ⇒
-        Kleisli.kleisli[Task, AccountRepo, ddd.Valid[(Account, Account)]] { r: AccountRepo ⇒
-          Task.delay(Failure(ex))
-        }
-      }, { fromTo: (String, String) ⇒
+      ex ⇒
+        Kleisli
+          .kleisli[Task, AccountRepo, ddd.Valid[(Account, Account)]] { r: AccountRepo ⇒ Task.delay(Failure(ex)) },
+      { fromTo: (String, String) ⇒
         for {
           a ← debit(fromTo._1, amount)
           b ← credit(fromTo._2, amount)
@@ -116,8 +106,6 @@ trait AccountModuleTask extends AccountModule[Task, Account, Amount, Balance] {
     )
 
   /**
-    *
-    *
     */
   override def close(no: String, closeDate: Option[Date]): AccountOperation[Account] =
     kleisli[Task, AccountRepo, ddd.Valid[Account]] { repo: AccountRepo ⇒
@@ -125,9 +113,8 @@ trait AccountModuleTask extends AccountModule[Task, Account, Amount, Balance] {
         repo
           .query(no)
           .fold(
-            { error ⇒
-              error.toString().failureNel[Account]
-            }, { a: Option[Account] ⇒
+            error ⇒ error.toString().failureNel[Account],
+            { a: Option[Account] ⇒
               a.fold(s"Account $no does not exist".failureNel[Account]) { a ⇒
                 val cd = closeDate.getOrElse(ddd.account.today)
                 Account.close(a, cd).flatMap(repo.store)

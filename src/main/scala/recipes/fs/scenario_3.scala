@@ -18,12 +18,15 @@ object scenario_3 extends IOApp with TimeWindows with GraphiteSupport {
       .&&(uniqueSpec(1, Set(2, 3, 4, 6)))
     val io = expOr(catsIOops)
 
-    io.redeem({ ex ⇒
-      println("Error: " + ex.getMessage)
-      ExitCode.Error
-    }, { r ⇒
-      println(s"Out: $r")
-      ExitCode.Success
-    })
+    io.redeem(
+      { ex ⇒
+        println("Error: " + ex.getMessage)
+        ExitCode.Error
+      },
+      { r ⇒
+        println(s"Out: $r")
+        ExitCode.Success
+      }
+    )
   }
 }

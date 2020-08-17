@@ -144,10 +144,8 @@ package object fs {
         val qSrc: Stream[IO, Nothing] = source.map(Some(_)).through(q.enqueue).onComplete(onClose).drain
         val qSink: Stream[IO, B]      = q.dequeue.unNoneTerminate.through(_.evalMap(f))
 
-        val zero = qSink.filter(h(_) % shards.size == shards.head)
-        val sinks = shards.tail.foldLeft(zero) { (stream, ind) ⇒
-          stream.merge(qSink.filter(h(_) % shards.size == ind))
-        }
+        val zero  = qSink.filter(h(_) % shards.size == shards.head)
+        val sinks = shards.tail.foldLeft(zero)((stream, ind) ⇒ stream.merge(qSink.filter(h(_) % shards.size == ind)))
 
         //wait for either completes which in our case should be the sinks, because the src never terminates
         val r: Stream[IO, B] = qSrc.mergeHaltBoth(sinks)

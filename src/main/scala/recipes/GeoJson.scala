@@ -75,7 +75,7 @@ object GeoJsonProtocol extends DefaultJsonProtocol {
         "properties" → JsObject(f.properties),
         "geometry"   → f.geometry.toJson
       )
-      f.id.foreach(v ⇒ { buf += "id" → v })
+      f.id.foreach(v ⇒ buf += "id" → v)
       JsObject(buf.toMap)
     }
 

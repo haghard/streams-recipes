@@ -27,28 +27,24 @@ package object cake {
   //Integration code between Scalaz and Scala standard concurrency libraries
   object Task2Future {
 
-    def fromScala[A](future: SFuture[A])(
-      implicit
+    def fromScala[A](future: SFuture[A])(implicit
       ec: ExecutionContext
     ): ZTask[A] =
       scalaz.concurrent.Task.async(handlerConversion andThen future.onComplete)
 
-    def fromScalaDeferred[A](future: ⇒ SFuture[A])(
-      implicit
+    def fromScalaDeferred[A](future: ⇒ SFuture[A])(implicit
       ec: ExecutionContext
     ): ZTask[A] =
       scalaz.concurrent.Task.delay(fromScala(future)(ec)).flatMap(identity)
 
     def unsafeToScala[A](task: ZTask[A]): SFuture[A] = {
       val p = Promise[A]
-      task.runAsync { _ fold (p failure _, p success _) }
+      task.runAsync(_ fold (p failure _, p success _))
       p.future
     }
 
     private def handlerConversion[A]: ((Throwable \/ A) ⇒ Unit) ⇒ Try[A] ⇒ Unit =
-      callback ⇒ { t: Try[A] ⇒
-        \/.fromTryCatchNonFatal(t.get)
-      } andThen callback
+      callback ⇒ { t: Try[A] ⇒ \/.fromTryCatchNonFatal(t.get) } andThen callback
   }
 
   trait ZNondeterminism[M[_]] {
@@ -115,8 +111,7 @@ package object cake {
         Future("0".successNel[String])(scala.concurrent.ExecutionContext.Implicits.global)
     }
 
-    def apply[T, M[_]](
-      implicit
+    def apply[T, M[_]](implicit
       effect: M[ValidationNel[String, T]],
       hoTag: ClassTag[M[_]],
       outT: ClassTag[T]
@@ -233,7 +228,7 @@ package object cake {
     override lazy val dbApp = scalaz.Apply[Task]
 
     final class MySqlApi extends DbUserLike {
-      override def one(query: String) = Task { 1.successNel[String] }(Executor)
+      override def one(query: String) = Task(1.successNel[String])(Executor)
 
       override def batch(query: String): Task[ValidRecord] =
         Task {
@@ -294,30 +289,26 @@ package object cake {
     }
 
     object HListOfMonad {
-      def apply[M[_], In <: HList, Out <: HList](
-        implicit
+      def apply[M[_], In <: HList, Out <: HList](implicit
         isHM: HListOfMonad[M, In, Out],
         m: Monad[M]
       ): HListOfMonad[M, In, Out] = isHM
 
       implicit def IsHNilHListOfM[M[_]](implicit m: Monad[M]) =
         new HListOfMonad[M, HNil, HNil] {
-          override def parallelHList(l: HNil)(
-            implicit
+          override def parallelHList(l: HNil)(implicit
             nd: scalaz.Nondeterminism[M]
           ): M[HNil]                                   = m.pure(HNil)
           override def sequenceHList(l: HNil): M[HNil] = m.pure(HNil)
         }
 
-      implicit def hconsIsHListOfM[M[_], H, In <: HList, Out <: HList](
-        implicit
+      implicit def hconsIsHListOfM[M[_], H, In <: HList, Out <: HList](implicit
         ev: HListOfMonad[M, In, Out],
         m: Monad[M]
       ): HListOfMonad[M, M[H] :: In, H :: Out] =
         new HListOfMonad[M, M[H] :: In, H :: Out] {
           //concurrent
-          override def parallelHList(list: M[H] :: In)(
-            implicit
+          override def parallelHList(list: M[H] :: In)(implicit
             nd: scalaz.Nondeterminism[M]
           ): M[H :: Out] =
             nd.mapBoth(list.head, ev.parallelHList(list.tail))(_ :: _)
@@ -328,8 +319,7 @@ package object cake {
         }
     }
 
-    def zip[M[_], P <: Product, In <: HList, Out <: HList](p: P)(
-      implicit
+    def zip[M[_], P <: Product, In <: HList, Out <: HList](p: P)(implicit
       gen: Generic.Aux[P, In],
       ev: HListOfMonad[M, In, Out],
       tupler: Tupler[Out],
@@ -338,8 +328,7 @@ package object cake {
     ) =
       m.map(parallelHList(gen to p))(_.tupled)
 
-    def parallelHList[M[_], In <: HList, Out <: HList](l: In)(
-      implicit
+    def parallelHList[M[_], In <: HList, Out <: HList](l: In)(implicit
       M: HListOfMonad[M, In, Out],
       m: Monad[M],
       nd: scalaz.Nondeterminism[M]
@@ -351,19 +340,18 @@ package object cake {
     )(implicit M: HListOfMonad[M, In, Out], m: Monad[M]): M[Out] =
       M.sequenceHList(l)
 
-    case class NondeterministicHListApplicativeBuilder[M[_], In <: HList, Out <: HList](values: In)(
-      implicit m: Monad[M]
+    case class NondeterministicHListApplicativeBuilder[M[_], In <: HList, Out <: HList](values: In)(implicit
+      m: Monad[M]
     ) {
-      def asTuple[T](
-        implicit ev: HListOfMonad[M, In, Out],
+      def asTuple[T](implicit
+        ev: HListOfMonad[M, In, Out],
         m: Monad[M],
         tupler: Tupler.Aux[Out, T],
         nd: scalaz.Nondeterminism[M]
       ): M[T] =
         m.map(parallelHList(values))(_.tupled)
 
-      def apply[F, FOut](f: F)(
-        implicit
+      def apply[F, FOut](f: F)(implicit
         fnEv: FnToProduct.Aux[F, Out ⇒ FOut],
         ev: HListOfMonad[M, In, Out],
         nd: scalaz.Nondeterminism[M]
@@ -373,8 +361,7 @@ package object cake {
       def ||@||[X, T1](next: M[X]) = NondeterministicHListApplicativeBuilder[M, M[X] :: In, X :: Out](next :: values)
     }
 
-    implicit def ToApplicativeBuilder[M[_], V](value: M[V])(
-      implicit
+    implicit def ToApplicativeBuilder[M[_], V](value: M[V])(implicit
       ev: HListOfMonad[M, M[V] :: HNil, V :: HNil],
       m: Monad[M]
     ): NondeterministicHListApplicativeBuilder[M, M[V] :: HNil, V :: HNil] =
@@ -431,17 +418,13 @@ package object cake {
     * Generic validation function to accept anything that can be folded over along with
     * a function for transforming the data inside the containers
     *
-    *
     * We wrap all evaluations of f(a) on Validation.fromTryCatchNonFatal[B] to ensure
     * that all exceptions resulting from the transformation are properly captured.
-    *
     *
     * Accumulate all errors in the NonEmptyList in case of failure
     */
   def validate[F[_]: Foldable, A, B: Monoid](fa: F[A], f: A ⇒ B): ValidationNel[Throwable, B] =
-    fa.foldMap { a ⇒
-      Validation.fromTryCatchNonFatal[B](f(a)).toValidationNel
-    }
+    fa.foldMap(a ⇒ Validation.fromTryCatchNonFatal[B](f(a)).toValidationNel)
 
   def validate2[F[_]: Traverse, A, B](fa: F[A], f: A ⇒ B): ValidationNel[Throwable, F[B]] =
     Applicative[({ type l[a] = ValidationNel[Throwable, a] })#l]
@@ -488,9 +471,7 @@ package object cake {
   val isEven = (x: Int) ⇒ if (x % 2 == 0) x else throw new RuntimeException(s"${x} is an odd number")
 
   validate(List(2, 2, 8, 77, 4, 5, 6, 7), isEven)
-    .fold(er ⇒ er.map(_.getMessage).foreach(println(_)), { r: Int ⇒
-      println(r)
-    })
+    .fold(er ⇒ er.map(_.getMessage).foreach(println(_)), { r: Int ⇒ println(r) })
 
   validate(List(2, 2, 8, 77, 4, 5, 6, 7), isEven) match {
     case Success(r)      ⇒ println(r)
@@ -535,16 +516,14 @@ package object cake {
       */
     def gather: scalaz.concurrent.Task[String] =
       ((twitterApi batch "reduce page") ||@|| (dbApi batch "select page") ||@|| (dbApi batch "select page")) {
-        (a: ValidTweet, b: ValidRecord, c: ValidRecord) ⇒
-          s"[twitter:$a] - [db1:$b] - [db2:$c]"
+        (a: ValidTweet, b: ValidRecord, c: ValidRecord) ⇒ s"[twitter:$a] - [db1:$b] - [db2:$c]"
       }
 
     /**
-      *
-      *
       */
     def gatherPHList = {
-      val tasks = (twitterApi batch "reduce page") :: (dbApi batch "select page") :: (twitterApi batch "reduce page") :: shapeless.HNil
+      val tasks =
+        (twitterApi batch "reduce page") :: (dbApi batch "select page") :: (twitterApi batch "reduce page") :: shapeless.HNil
       parallelHList(tasks).map {
         hList: shapeless.::[ValidTweet, shapeless.::[ValidRecord, shapeless.::[ValidTweet, shapeless.HNil]]] ⇒
           (hList.head |@| hList.tail.head |@| hList.tail.tail.head) {
@@ -554,8 +533,6 @@ package object cake {
     }
 
     /**
-      *
-      *
       */
     def gatherZip: Task[Validation[NonEmptyList[String], String]] =
       zip((twitterApi batch "reduce page"), (dbApi batch "select page"), (twitterApi batch "reduce page"))
@@ -567,14 +544,14 @@ package object cake {
       * Sequentual with ApplicativeBuilder and Shapeless
       */
     def gatherSHList = {
-      val tasks = (twitterApi batch "reduce page") :: (dbApi batch "select page") :: (twitterApi batch "reduce page") :: shapeless.HNil
+      val tasks =
+        (twitterApi batch "reduce page") :: (dbApi batch "select page") :: (twitterApi batch "reduce page") :: shapeless.HNil
       sequenceHList(tasks)
     }
   }
 
   /**
     * Goals:
-    *
     */
   object ProgramWithTask extends ScalazTaskTwitter with MySqlTaskDbService with ZNondeterminism[Task] {
     import KleisliTaskSupport._
@@ -643,8 +620,7 @@ package object cake {
       */
     def gatherS4 =
       twitterApp.ap2((twitterApi batch "select page"), (dbApi batch "select page"))(Task {
-        (x: ValidTweet, y: ValidRecord) ⇒
-          (x |@| y) { case (a, b) ⇒ s"twitter:$a db:$b" }
+        (x: ValidTweet, y: ValidRecord) ⇒ (x |@| y) { case (a, b) ⇒ s"twitter:$a db:$b" }
       }(Executor))
 
     /**
@@ -703,5 +679,5 @@ package object cake {
     .onComplete(_.map { r ⇒ println(r); c.countDown() })(services.ApplicationFutureService.TwitterCtx)
 
   c.await()
- */
+   */
 }

@@ -118,14 +118,35 @@ https://blog.softwaremill.com/painlessly-passing-message-context-through-akka-st
 https://github.com/calvinlfer/Akka-Streams-custom-stream-processing-examples
 https://www.infoq.com/presentations/squbs/
 https://github.com/gosubpl/akka-online.git
+https://aleksandarskrbic.github.io/power-of-akka-streams/
 https://engineering.prezi.com/prox-part-2-akka-streams-with-cats-effect-f63c28199cad
 
 
+https://blog.softwaremill.com/painlessly-passing-message-context-through-akka-streams-1615b11efc2c
+https://blog.colinbreck.com/maximizing-throughput-for-akka-streams/
+https://blog.colinbreck.com/partitioning-akka-streams-to-maximize-throughput/
+the responding talk https://youtu.be/MzosGtjJdPg
+ 
+ 
+https://blog.colinbreck.com/integrating-akka-streams-and-akka-actors-part-i/
+https://blog.colinbreck.com/integrating-akka-streams-and-akka-actors-part-ii/
+https://blog.colinbreck.com/integrating-akka-streams-and-akka-actors-part-iii/
+https://blog.colinbreck.com/integrating-akka-streams-and-akka-actors-part-iv/
+https://blog.colinbreck.com/rethinking-streaming-workloads-with-akka-streams-part-i/
+https://blog.colinbreck.com/rethinking-streaming-workloads-with-akka-streams-part-ii/
 
-https://t.co/NqbxQPwp7M
+https://medium.com/swlh/akka-stream-a-walkthrough-from-simple-source-to-parallel-execution-6a7ec24d07d8
+https://softwaremill.com/windowing-data-in-akka-streams/
 
+
+https://doc.akka.io/docs/akka/current/stream/stream-customize.html
+https://doc.akka.io/docs/akka/current/stream/stream-customize.html#rate-decoupled-operators
+https://github.com/mkubala/akka-stream-contrib/blob/feature/101-mkubala-interval-based-rate-limiter/contrib/src/main/scala/akka/stream/contrib/IntervalBasedRateLimiter.scala
 
 https://github.com/svezfaz/akka-backpressure-scala-central-talk.git
+
+Stefano Bonetti - Monitoring Akka Streams: https://www.youtube.com/watch?v=4s1YzgrRR2A
+
 
 netstat -na | grep ${PORT}
 

@@ -16,7 +16,6 @@ import scala.util.{Failure, Success}
 /**
   * https://github.com/moia-dev/streamee
   * https://github.com/hseeberger/xtream.git
-  *
   */
 object StreameeLikeExamples {
   //import io.moia.streamee._
@@ -29,17 +28,16 @@ object StreameeLikeExamples {
     FlowWithContext[HttpRequest, ActorRef[HttpResponse]] //Promise[HttpResponse]
       .withAttributes(Attributes.inputBuffer(buffersSize, buffersSize))
       //.map { req: HttpRequest ⇒ null.asInstanceOf[HttpResponse] }
-      .mapAsync(2) { req: HttpRequest ⇒
-        Future { null.asInstanceOf[HttpResponse] }(ec)
-      }
+      .mapAsync(2) { req: HttpRequest ⇒ Future(null.asInstanceOf[HttpResponse])(ec) }
 
   def auth: FlowWithContext[HttpRequest, Promise[HttpResponse], HttpResponse, Promise[HttpResponse], Any] = {
     val flow = FlowWithContext[HttpRequest, Promise[HttpResponse]]
       .withAttributes(Attributes.inputBuffer(buffersSize, buffersSize))
       .asFlow
+      //.scan()
       .mapAsync[(HttpResponse, Promise[HttpResponse])](4) {
-        case ((req: HttpRequest, p: Promise[HttpResponse])) ⇒
-          Future { (null.asInstanceOf[HttpResponse], p) }(ec)
+        case (req: HttpRequest, p: Promise[HttpResponse]) ⇒
+          Future((null.asInstanceOf[HttpResponse], p))(ec)
       }
     //get back a FlowWithContext
     FlowWithContext.fromTuples[HttpRequest, Promise[HttpResponse], HttpResponse, Promise[HttpResponse], Any](flow)
@@ -160,5 +158,5 @@ object StreameeLikeExamples {
 
   }
   FlowWithContext.fromTuples(flow)
- */
+   */
 }
