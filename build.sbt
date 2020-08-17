@@ -83,6 +83,9 @@ libraryDependencies ++= Seq(
 
   "org.typelevel"     %% "cats-free"         %  "2.0.0",
 
+  //"io.monix" %% "monix" % "3.1.0",
+  "io.monix" %% "monix-bio" % "1.0.0",
+
   //"com.spinoco"       %% "fs2-zk"            % "0.1.6",
   //"com.spinoco"       %% "fs2-cassandra"     % "0.2.1",
   
@@ -91,7 +94,8 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-stream" % akkaV,
   "com.typesafe.akka" %% "akka-stream-typed" % akkaV,
 
-  "com.typesafe.akka" %% "akka-http" % "10.1.10",
+
+  "com.typesafe.akka" %% "akka-http" % "10.1.12",
 
   //"com.typesafe.akka" %% "akka-actor-typed" % akkaStreamV,
 

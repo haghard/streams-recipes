@@ -16,6 +16,7 @@ object scenario_3 extends IOApp with TimeWindows with GraphiteSupport {
 
     val expOr = (uniqueProd("b", Set("b", "c")) || knownSpec(Some(21L), Map(21L → "a", 3L → "b")))
       .&&(uniqueSpec(1, Set(2, 3, 4, 6)))
+
     val io = expOr(catsIOops)
 
     io.redeem(
