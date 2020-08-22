@@ -264,6 +264,27 @@ object AkkaRecipes extends App {
   private def buildProgress(i: Int, acc: Long, sec: Long) =
     s"${List.fill(i)(" ★ ").mkString} number of elements:$acc time window:$sec sec"
 
+  //CPU-intensive task
+  def spin[T](v: T) = {
+    val start = System.currentTimeMillis()
+    while((System.currentTimeMillis() - start) < ThreadLocalRandom.current().nextInt(20)) {}
+    v
+  }
+
+  def spinNonUniform(v: Int) = {
+    val max = if(v % 4 == 0) 100 else 20
+    val start = System.currentTimeMillis()
+    while((System.currentTimeMillis() - start) < max) {}
+    v
+  }
+
+  def nonBlocking[T](v: T): Future[T] = {
+    val p = Promise[T]
+    val to = FiniteDuration(ThreadLocalRandom.current().nextInt(20), MILLISECONDS)
+    sys.scheduler.scheduleOnce(to)(p.success(v))
+    p.future
+  }
+
   /**
     * Situation:
     * We have 3 sources with different rates.
@@ -284,18 +305,20 @@ object AkkaRecipes extends App {
         GraphDSL.create() { implicit b ⇒
           import GraphDSL.Implicits._
 
-          def conflate: FlowShape[T, T] =
+          val conflate: FlowShape[T, T] =
             b.add(
               Flow[T]
                 .withAttributes(Attributes.inputBuffer(1, 1))
-                .conflateWithSeed(identity)((c, _) ⇒ c)
+                .conflate((c, _) ⇒ c)
+                //.conflateWithSeed(identity)((c, _) ⇒ c)
             )
 
           val zip = b.add(ZipWith(Tuple3.apply[T, T, T] _).withAttributes(Attributes.inputBuffer(1, 1)))
+          val cpuTask = b.add(Flow[T].map(spin(_)).async)
 
-          in1 ~> conflate ~> zip.in0
-          in2 ~> conflate ~> zip.in1
-          in3 ~> conflate ~> zip.in2
+          in1 ~> cpuTask ~> conflate ~> zip.in0
+          in2 ~> cpuTask ~> conflate ~> zip.in1
+          in3 ~> cpuTask ~> conflate ~> zip.in2
 
           SourceShape(zip.out)
         }
