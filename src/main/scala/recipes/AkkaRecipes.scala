@@ -988,11 +988,8 @@ object AkkaRecipes extends App {
   }
 
   /**
-    * A Fast source with collapsed result and a fast sink.
-    * No buffer is required
-    *
-    * Allow to progress top flow independently from bottom
-    * using Conflate combinator
+    * The fast source with aggregates result and a fast sink.
+    * Allow to progress the top flow independently from the bottom flow using `conflate` combinator.
     */
   def scenario9_1: Graph[ClosedShape, akka.NotUsed] = {
     val sink = Sink.actorSubscriber(DegradingActor.props2("akka-source9_1", ms, 0L))
@@ -1007,14 +1004,12 @@ object AkkaRecipes extends App {
       import GraphDSL.Implicits._
       val src = timedSource(ms, 0 second, 200 milliseconds, Int.MaxValue, "akka-sink9_1")
 
-      val broadcast = b.add(Broadcast[Int](2))
-      val zip       = b.add(Zip[State, Int])
+      val broadcast = b.add(Broadcast[Int](2).withAttributes(Attributes.inputBuffer(1, 1)))
+      val zip       = b.add(Zip[State, Int].withAttributes(Attributes.inputBuffer(1, 1)))
 
       val flow = Flow[Int]
         .buffer(64, OverflowStrategy.backpressure)
-        .scan(State(0, 0)) { (state, el) ⇒
-          state.combine(el)
-        }
+        .scan(State(0, 0)) { (state, el) ⇒ state.combine(el) }
         .conflateWithSeed(identity)(Keep.left)
 
       val window = 1000 milliseconds
@@ -1129,16 +1124,18 @@ object AkkaRecipes extends App {
 
   //Detached flows with expand + conflate
   //Expand extrapolates additional elements to fill gaps when the consumer is faster than the producer.
+  //Conflate creates a summary of multiple elements or identity to be consumed downstream if the producer is faster than the consumer.
   def scenario12: Graph[ClosedShape, akka.NotUsed] = {
     val srcFast = timedSource(ms, 1 second, 200 milliseconds, Int.MaxValue, "akka-source12_1")
-      .conflate(_ + _)
+      //.conflate(_ + _)
+      .conflate((c, _) => c)
 
     val srcSlow = timedSource(ms, 1 second, 1000 milliseconds, Int.MaxValue, "akka-source12_0")
       .expand(Iterator.continually(_))
 
     GraphDSL.create() { implicit b ⇒
       import GraphDSL.Implicits._
-      val zip = b.add(Zip[Int, Int].withAttributes(Attributes.inputBuffer(16, 32)))
+      val zip = b.add(Zip[Int, Int].withAttributes(Attributes.inputBuffer(1, 1)))
 
       // format: OFF
       srcFast  ~>  zip.in0
