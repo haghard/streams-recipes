@@ -56,7 +56,7 @@ resolvers ++= Seq(
 promptTheme := ScalapenosTheme
 
 val akkaV = "2.5.31"
-val fs2V = "2.4.0"
+val fs2V = "2.4.4"
 val scalazVersion = "7.2.28"
 
 scalafmtOnCompile := true
