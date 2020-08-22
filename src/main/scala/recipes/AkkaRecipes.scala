@@ -1871,7 +1871,7 @@ object AkkaRecipes extends App {
       val (sink, publisher) =
         MergeHub
           .source[Int](perProducerBufferSize = 1)
-          //insert a buffer stage to decouple the downstream from the MergeHub. If/when the buffer fulls up and a new element arrives, it drops the new element.
+          //insert a buffer stage to decouple the downstream from the MergeHub. If/when the buffer fills up and a new element arrives, it drops the new element.
           //.via(Flow[Int].buffer(bufferSize, OverflowStrategy.dropNew).async(FixedDispatcher))
           .via(new BackPressuredStage[Int](bufferSize).async(FixedDispatcher))
           //.via(new DropTailStage[Int](bufferSize).async(FixedDispatcher))

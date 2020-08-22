@@ -122,9 +122,10 @@ object MoreStages {
       https://github.com/mkubala/akka-stream-contrib/blob/feature/101-mkubala-interval-based-rate-limiter/contrib/src/main/scala/akka/stream/contrib/IntervalBasedRateLimiter.scala
 
       Rate decoupled graph stages.
-      The main point being is that an onPush call does not always lead to calling push and
-        an onPull call does not always lead to calling pull.
-      We stop pulling upstream when the internal buffer's filled up.
+      The main point being is that an `onPush` does not always lead to calling `push` and
+        an `onPull` call does not always lead to calling `pull`.
+      We stop pulling upstream when the internal buffer is filled up.
+      This stage does what  default `Buffer` stage does`
    */
   class BackPressuredStage[A](watermark: Int) extends GraphStage[FlowShape[A, A]] {
     val in    = Inlet[A]("ib.in")
@@ -779,7 +780,7 @@ object MoreStages {
                 if (lastPushedSpan > 0) Some((lastPulled - lastPushed) * 100 / lastPushedSpan) else None
 
               //ratio between time spent for the pull and time spent for the push (percentage)
-              // 0 percent means -- never backpressured
+              // 0 percent means   -- never  backpressured
               // 100 percent means -- always backpressured
               //backpressureRatio.foreach(histogram.recordValue(_))
               lastPushed = now
