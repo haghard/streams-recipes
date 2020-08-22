@@ -83,10 +83,20 @@ object AkkaRecipes extends App {
       |     throughput = 100
       |  }
       |
-      | pinned-dispatcher {
-      |   type = PinnedDispatcher
-      |   executor = "thread-pool-executor"
-      | }
+      |  pinned-dispatcher {
+      |     type = PinnedDispatcher
+      |     executor = "thread-pool-executor"
+      |  }
+      |
+      |  stream {
+      |    materializer {
+      |      # Initial size of buffers used in stream elements
+      |      initial-input-buffer-size = 4
+      |      # Maximum size of buffers used in stream elements
+      |      max-input-buffer-size = 16
+      |      dispatcher = "akka.flow-dispatcher"
+      |    }
+      |  }
       |
       |}
     """.stripMargin
@@ -107,7 +117,7 @@ object AkkaRecipes extends App {
 
   val Settings = ActorMaterializerSettings
     .create(system = sys)
-    .withInputBuffer(16, 16)
+    .withInputBuffer(4, 16)
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher")
 
@@ -1886,7 +1896,7 @@ object AkkaRecipes extends App {
               .async(FixedDispatcher, bufferSize)
           )*/
           //.via(Flow[Int].addAttributes(Attributes.inputBuffer(bufferSize, bufferSize)).addAttributes(Attributes.asyncBoundary))
-          .toMat(Sink.asPublisher[Int](false))(Keep.both)
+          .toMat(Sink.asPublisher[Int](fanout = false))(Keep.both)
           //.addAttributes(Attributes.inputBuffer(bufferSize, bufferSize))
           //.addAttributes(Attributes.asyncBoundary) //to improve the performance we apply async boundaries so that the
           //.toMat(Sink.queue[Int])(Keep.both)

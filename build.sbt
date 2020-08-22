@@ -56,7 +56,7 @@ resolvers ++= Seq(
 promptTheme := ScalapenosTheme
 
 val akkaV = "2.5.31"
-val fs2V = "2.0.1"
+val fs2V = "2.4.0"
 val scalazVersion = "7.2.28"
 
 scalafmtOnCompile := true
@@ -80,6 +80,9 @@ libraryDependencies ++= Seq(
   "co.fs2"            %% "fs2-core"          %  fs2V, //"1.1.0-M1", //"0.10.5",
   "co.fs2"            %% "fs2-io"            %  fs2V,  //"1.1.0-M1", //"0.10.5",
   "co.fs2"            %% "fs2-reactive-streams" % fs2V,
+
+  // optional experimental library
+  "co.fs2"            %% "fs2-experimental"  % fs2V,
 
   "org.typelevel"     %% "cats-free"         %  "2.0.0",
 
