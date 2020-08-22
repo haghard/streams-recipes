@@ -403,13 +403,15 @@ object AkkaRecipes extends App {
 
       val bcast = b.add(akka.stream.scaladsl.Broadcast[Int](2)) //.addAttributes(Attributes.asyncBoundary)
 
+      // format: off
       (source alsoTo countElementsWindow("akka-scenario4", 5 seconds)) ~> bcast ~> fastSink
-      bcast ~> slowSink
+                                                                          bcast ~> slowSink
+      // format: on
       ClosedShape
     }
 
   /**
-    * We want the first sink to be the primary sink (source of true), whereas 2th and 3th sinks to be the best effort (some elements)
+    * We want the first sink to be the primary sink (source of true), whereas 2th and 3th sinks to be the best effort
     *
     * Fast publisher and 3 sinks. The first sink runs as fast as it can, whereas 2th and 3th degrade over time.
     * 2th and 3th sinks get messages through buffers with OverflowStrategy.dropTail strategy, therefore the
@@ -433,12 +435,16 @@ object AkkaRecipes extends App {
         )(Broadcast[Int](_))
       )*/
 
-      val bcast  = b.add(Broadcast[Int](3) /*.addAttributes(Attributes.asyncBoundary)*/ )
+      val bcast = b.add(
+        Broadcast[Int](3).addAttributes(Attributes.inputBuffer(1, 1)) /*.addAttributes(Attributes.asyncBoundary)*/
+      )
       val buffer = b.add(Flow[Int].buffer(1 << 7, OverflowStrategy.dropTail))
 
-      source ~> bcast ~> fastSink
-      bcast ~> buffer ~> degradingSink1
-      bcast ~> buffer ~> degradingSink2
+      // format: off
+      source ~> bcast           ~> fastSink
+                bcast ~> buffer ~> degradingSink1
+                bcast ~> buffer ~> degradingSink2
+      // format: on
       ClosedShape
     }
 
@@ -1060,10 +1066,12 @@ object AkkaRecipes extends App {
       }
     )
 
+  //Flows for skow consumer/producers
+
   /*
     For cases where back-pressuring is not a viable strategy, one may wants to drop events from the fast producer, or accumulate them
     while waiting for the slow producer, or vice versa interpolate the output of the slow producer to cope with the fast one.
-    This can be done with the conflate and expand operations.
+    This can be done with the conflate, expand and batch operations.
     The conflate operator allows us to fold elements of a fast producer attached to a slow consumer.
     For instance, dropping every event except for the last one would be just :
       val skipped = fastProducer.conflate(identity)((oldMsg, newMsg) => newMsg)
@@ -1097,9 +1105,11 @@ object AkkaRecipes extends App {
   }
 
   //Detached flows with expand + conflate
+  //Expand extrapolates additional elements to fill gaps when the consumer is faster than the producer.
   def scenario12: Graph[ClosedShape, akka.NotUsed] = {
     val srcFast = timedSource(ms, 1 second, 200 milliseconds, Int.MaxValue, "akka-source12_1")
       .conflate(_ + _)
+
     val srcSlow = timedSource(ms, 1 second, 1000 milliseconds, Int.MaxValue, "akka-source12_0")
       .expand(Iterator.continually(_))
 
