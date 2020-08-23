@@ -1969,9 +1969,11 @@ object AkkaRecipes extends App {
 
       val processing = b.add(Flow[(Int, Int)].map(nums ⇒ nums._1 - nums._2))
 
-      broadcast ~> Flow[Int].buffer(offset, akka.stream.OverflowStrategy.backpressure) ~> zip.in0
-      broadcast ~> Flow[Int].drop(offset) ~> zip.in1
-      zip.out ~> processing
+      // format: off
+      broadcast ~> Flow[Int].buffer(offset, OverflowStrategy.backpressure) ~> zip.in0
+      broadcast ~> Flow[Int].drop(offset)                                  ~> zip.in1
+                                                                              zip.out ~> processing
+      // format: on
 
       FlowShape(broadcast.in, processing.outlet)
     }
