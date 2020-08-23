@@ -1014,6 +1014,9 @@ object AkkaRecipes extends App {
 
       val window = 1000 milliseconds
 
+      //Potential deadlock ??? What if the flow receives more than 64 elements per `window`
+      //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
+
       // format: off
       src ~> broadcast ~> flow.async                         ~> zip.in0
              broadcast ~> Flow[Int].dropWithin(window).async ~> zip.in1
@@ -1037,8 +1040,11 @@ object AkkaRecipes extends App {
         val zip     = b.add(ZipWith[T, Unit, T](Keep.left).withAttributes(Attributes.inputBuffer(1, 1)))
         val dropOne = b.add(Flow[T].drop(1))
 
+        // format: off
         Source.tick(Duration.Zero, interval, ()) ~> zip.in1
-        zip.out ~> dropOne.in
+                                                    zip.out ~> dropOne.in
+        // format: on
+
         FlowShape(zip.in0, dropOne.outlet)
       }
     )
