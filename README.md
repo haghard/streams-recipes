@@ -170,6 +170,7 @@ fs2+scalaJs https://tech.ovoenergy.com/frontend-development-with-scala-js/
 https://www.youtube.com/watch?v=B1wb4fIdtn4
 https://www.youtube.com/watch?v=x3GLwl1FxcA
 https://www.youtube.com/watch?v=mStYwML3JZk + https://speakerdeck.com/mpilquist/fs3-evolving-a-streaming-platform
+https://www.youtube.com/watch?v=oluPEFlXumw
 
 Profunktor:
     https://www.youtube.com/watch?v=FWYXqYQWAc0
@@ -192,5 +193,11 @@ Traverse HList -
     https://blog.free2move.com/shapeless-hlists-and-how-to-traverse-them/
     https://olegpy.com/traversing-hlists/
         
+
+Resource management 
+https://medium.com/@bszwej/composable-resource-management-in-scala-ce902bda48b2
+
+Fabio Labella—How do Fibers Work? A Peek Under the Hood
+https://www.youtube.com/watch?v=x5_MmZVLiSM&list=PL9KXdMOfekva4SJJqLDXQ73nMXt8-3pz7&index=4
 
   
