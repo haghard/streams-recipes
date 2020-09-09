@@ -66,7 +66,7 @@ scalafmtOnCompile := true
 libraryDependencies ++= Seq(
   "org.scalaz"        %% "scalaz-core"        % scalazVersion,
   "org.scalaz"        %% "scalaz-concurrent"  % scalazVersion,
-  "org.scalaz"        %% "scalaz-effect"      % scalazVersion,
+  //"org.scalaz"        %% "scalaz-effect"      % scalazVersion,
 
   "com.chuusai"       %% "shapeless"          % "2.3.3",
 
@@ -84,7 +84,7 @@ libraryDependencies ++= Seq(
   // optional experimental library
   "co.fs2"            %% "fs2-experimental"  % fs2V,
 
-  "org.typelevel"     %% "cats-free"         %  "2.0.0",
+  "org.typelevel"     %% "cats-free"         %  "2.1.1",
 
   //"io.monix" %% "monix" % "3.1.0",
   "io.monix" %% "monix-bio" % "1.0.0",
