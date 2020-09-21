@@ -1,11 +1,12 @@
 package recipes.ws
 
+import java.util.UUID
 import java.util.concurrent.ThreadLocalRandom
 
 import akka.stream.{ActorMaterializer, FlowShape, Graph, KillSwitches, SourceShape}
 import akka.actor.{ActorRef, ActorSystem}
 import akka.http.scaladsl.Http
-import akka.http.scaladsl.model.StatusCodes
+import akka.http.scaladsl.model.{HttpRequest, StatusCodes, Uri}
 import akka.http.scaladsl.model.ws.{Message, TextMessage, WebSocketRequest, WebSocketUpgradeResponse}
 import akka.stream.scaladsl.{Flow, GraphDSL, Keep, Sink, Source}
 import recipes.ws.WindTurbineSimulator.{FailedUpgrade, Upgraded}
@@ -59,6 +60,25 @@ class WebSocketClient(id: String, endpoint: String, supervisor: ActorRef)(implic
   val webSocket: Flow[Message, Message, Future[WebSocketUpgradeResponse]] = {
     val websocketUri = s"$endpoint/$id"
     //Http().cachedHostConnectionPool()
+
+    //https://doc.akka.io/docs/akka-http/current/client-side/host-level.html
+    //The connection pool underlying a pool client flow is cached.
+    // There will never be more than a single pool live at any time.
+
+    /*
+      val address = Uri("google.com").authority.host.address()
+
+      //A string is used to tag requests
+      val poolClientFlow = Http().newHostConnectionPool[String](address, 8080)
+      //val poolClientFlow = Http().cachedHostConnectionPool[String](address, 8080)
+      val corelationId = UUID.randomUUID().toString
+      val req: HttpRequest = null
+      Source.single(req -> corelationId)
+        .via(poolClientFlow)
+        .recoverWithRetries(3, { case th: Throwable => ??? })
+        .runForeach(???)
+    */
+
     Http().webSocketClientFlow(WebSocketRequest(websocketUri))
   }
 
