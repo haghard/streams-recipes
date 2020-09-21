@@ -117,7 +117,7 @@ object AkkaRecipes extends App {
 
   val Settings = ActorMaterializerSettings
     .create(system = sys)
-    .withInputBuffer(4, 16)
+    .withInputBuffer(1 << 2, 1 << 4)
     .withSupervisionStrategy(decider)
     .withDispatcher("akka.flow-dispatcher")
 
@@ -131,6 +131,9 @@ object AkkaRecipes extends App {
   //RunnableGraph.fromGraph(scenario22(sys)).run()(ActorMaterializer(Settings)(sys))
 
   //RunnableGraph.fromGraph(scenario23(sys)).run()(ActorMaterializer(Settings)(sys))
+
+  val ex = scala.concurrent.ExecutionContext.fromExecutor(
+    java.util.concurrent.Executors.newWorkStealingPool())
 
   val mat: Materializer = ActorMaterializer(Settings)(sys)
   implicit val ec       = mat.executionContext
@@ -1963,6 +1966,43 @@ object AkkaRecipes extends App {
 
       ClosedShape
     }
+  }
+
+  // https://doc.akka.io/docs/akka/current/stream/stream-dynamic.html#using-the-partitionhub
+  def scenario32 = {
+
+    val (input0, output0) =
+      Source
+        .queue[Long](1 << 3, OverflowStrategy.backpressure)
+        .toMat(
+          PartitionHub.sink[Long](
+            (size, elem) => math.abs(elem.hashCode % size),
+            startAfterNrOfConsumers = 3,
+            bufferSize = 3)
+        )(Keep.both).run()(mat)
+
+      // New instance of the partitioner function and its state is created for each materialization of the PartitionHub.
+      def roundRobin(): (PartitionHub.ConsumerInfo, Int) => Long = {
+        var i = -1L
+        (info, elem) => {
+          i += 1
+          info.consumerIdByIdx((i % info.size).toInt)
+        }
+      }
+
+      val (input, output) =
+        Source
+          .queue[Int](1 << 4, OverflowStrategy.backpressure)
+          .toMat(PartitionHub.statefulSink(() => roundRobin(), startAfterNrOfConsumers = 3, bufferSize = 3))(Keep.both)
+          .run()(mat)
+
+      output.to(Sink.foreach[Int](in => println(s"0: $in"))).run()(mat)
+      output.to(Sink.foreach[Int](in => println(s"1: $in"))).run()(mat)
+      output.to(Sink.foreach[Int](in => println(s"2: $in"))).run()(mat)
+
+      input.offer(1)
+
+    ???
   }
 
   //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
