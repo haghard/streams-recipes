@@ -288,6 +288,24 @@ object AkkaRecipes extends App {
     p.future
   }
 
+
+  val buffer = Attributes.inputBuffer(1, 1)
+  val async  = Attributes.asyncBoundary
+  //val attr1 = akka.stream.ActorAttributes.maxFixedBufferSize(1)
+  //ActorAttributes.supervisionStrategy(???)
+  //ActorAttributes.dispatcher("")
+
+  val decider: Supervision.Decider = {
+    case _: ArithmeticException => Supervision.Resume
+    case _ => Supervision.Stop
+  }
+
+  //customize supervision stage per stage
+  Flow[Int]
+    .map(_ * 2) //if this stage throws ArithmeticException we Resume
+    .withAttributes(ActorAttributes.supervisionStrategy(decider).and(buffer))
+    .map(_ * 3)
+
   /**
     * Situation:
     * We have 3 sources with different rates.
