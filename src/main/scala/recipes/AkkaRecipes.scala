@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 import akka.NotUsed
 import akka.actor._
+import akka.actor.ActorRef
 import akka.actor.typed.{Behavior, PreRestart}
 import akka.actor.typed.scaladsl.Behaviors
 import akka.http.scaladsl.Http
@@ -24,7 +25,7 @@ import akka.stream.actor._
 import akka.stream.scaladsl._
 import akka.stream.stage._
 import akka.stream.typed.scaladsl.{ActorSink, ActorSource}
-import akka.util.ByteString
+import akka.util.{ByteString, Timeout}
 import com.esri.core.geometry.Point
 import com.typesafe.config.ConfigFactory
 import org.reactivestreams.Publisher
@@ -138,7 +139,8 @@ object AkkaRecipes extends App {
   val mat: Materializer = ActorMaterializer(Settings)(sys)
   implicit val ec       = mat.executionContext
 
-  scenario32(ec, sys.scheduler)
+  //scenario32(ec, sys.scheduler)
+  scenario33()
 
   //scenario7_1(mat)
   //scenario7_2(mat)
@@ -2022,6 +2024,43 @@ object AkkaRecipes extends App {
     scala.concurrent.Await.result(f, Duration.Inf)
   }
 
+  def scenario33() = {
+    import akka.actor.typed.scaladsl.adapter._
+    import akka.stream.typed.scaladsl.ActorFlow
+
+    val bufferSize = 1 << 4
+
+    def persistFlow(entity: akka.actor.typed.ActorRef[StorageActor.Protocol])(
+      implicit persistTimeout: Timeout
+    ): Flow[Int, StorageActor.Protocol, akka.NotUsed] = {
+      def persistFlow =
+        ActorFlow.ask[Int, StorageActor.Store, StorageActor.Protocol](1)(entity)(StorageActor.Store(_, _))
+          .withAttributes(Attributes.inputBuffer(1, 1))
+
+      RestartFlow.withBackoff(300.millis, 600.millis, 0.3)(() ⇒ persistFlow)
+    }
+
+    val name = "akka-sink-33"
+    val actor = sys.spawn(StorageActor(name), name)
+
+    val (sinkHub, sourceHub) =
+      MergeHub
+        .source[Int](bufferSize)
+        .via(persistFlow(actor)(akka.util.Timeout(100.millis)))
+        .toMat(BroadcastHub.sink[StorageActor.Protocol](2))(Keep.both)
+        .run()(mat)
+
+    sourceHub
+      .to(Sink.foreach[StorageActor.Protocol](in => println(s"${Thread.currentThread().getName}: out0: $in"))).run()(mat)
+
+    sourceHub
+      .to(Sink.foreach[StorageActor.Protocol](in => println(s"${Thread.currentThread().getName}: out1: $in"))).run()(mat)
+
+    timedSource(ms, 1000.millis, 1000.millis, 10000, "source_33")
+      .to(sinkHub)
+      .run()(mat)
+  }
+
   //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
   //Using a Balancing Buffer to Avoid Deadlock
   def trailingDifference(offset: Int): Graph[FlowShape[Int, Int], akka.NotUsed] =
@@ -2675,6 +2714,25 @@ object DegradingTypedActorSinkPb {
           ctx.log.error(s"Other signal: $other  !!!")
           Behaviors.stopped
       }
+}
+
+object StorageActor {
+
+  import akka.actor.typed.Behavior
+  import akka.actor.typed.scaladsl.Behaviors
+
+  sealed trait Protocol
+  final case class Ack(value: Int)                                            extends Protocol
+  final case class Store(value: Int, replyTo: akka.actor.typed.ActorRef[Ack]) extends Protocol
+
+  def apply(name: String): Behavior[Protocol] =
+    Behaviors.receive[Protocol] { case (ctx, data: Store) ⇒
+      //ctx.log.info("Got {}", data.value)
+      if (ThreadLocalRandom.current().nextDouble() > 0.7) Thread.sleep(120)
+      ctx.log.info("Ack {}", data.value)
+      data.replyTo.tell(Ack(data.value))
+      Behaviors.same
+    }
 }
 
 object DegradingTypedActorSink {
