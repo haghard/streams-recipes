@@ -13,8 +13,7 @@ import org.reactivestreams.Publisher
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.{Failure, Success}
 
-/**
-  * https://github.com/moia-dev/streamee
+/** https://github.com/moia-dev/streamee
   * https://github.com/hseeberger/xtream.git
   */
 object StreameeLikeExamples {
@@ -35,9 +34,8 @@ object StreameeLikeExamples {
       .withAttributes(Attributes.inputBuffer(buffersSize, buffersSize))
       .asFlow
       //.scan()
-      .mapAsync[(HttpResponse, Promise[HttpResponse])](4) {
-        case (req: HttpRequest, p: Promise[HttpResponse]) ⇒
-          Future((null.asInstanceOf[HttpResponse], p))(ec)
+      .mapAsync[(HttpResponse, Promise[HttpResponse])](4) { case (req: HttpRequest, p: Promise[HttpResponse]) ⇒
+        Future((null.asInstanceOf[HttpResponse], p))(ec)
       }
     //get back a FlowWithContext
     FlowWithContext.fromTuples[HttpRequest, Promise[HttpResponse], HttpResponse, Promise[HttpResponse], Any](flow)
@@ -60,8 +58,8 @@ object StreameeLikeExamples {
       .viaMat(KillSwitches.single)(Keep.both)
       .via(auth)
       //.to(Sink.foreach { case (response, promise) ⇒ promise.complete(Success(response)) })
-      .toMat(Sink.foreach { case (response, promise) ⇒ promise.trySuccess(response) }) {
-        case ((sink, switch), done) ⇒ (sink, switch, done)
+      .toMat(Sink.foreach { case (response, promise) ⇒ promise.trySuccess(response) }) { case ((sink, switch), done) ⇒
+        (sink, switch, done)
       }
       .run()
 

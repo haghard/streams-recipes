@@ -60,11 +60,10 @@ object Betting extends App {
      """.stripMargin
   )
 
-  val decider: akka.stream.Supervision.Decider = {
-    case ex: Throwable ⇒
-      ex.printStackTrace
-      println(s"Caught error: ${ex.getMessage}")
-      akka.stream.Supervision.Stop
+  val decider: akka.stream.Supervision.Decider = { case ex: Throwable ⇒
+    ex.printStackTrace
+    println(s"Caught error: ${ex.getMessage}")
+    akka.stream.Supervision.Stop
   }
 
   implicit val sys: ActorSystem =
@@ -109,8 +108,8 @@ object Betting extends App {
       .conflateWithSeed { enrichedData: EnrichedCmd ⇒
         immutable.SortedSet
           .empty[EnrichedCmd]((x: EnrichedCmd, y: EnrichedCmd) ⇒ if (x.seqNum < y.seqNum) -1 else 1) + enrichedData
-      }({
-        case (acc, enrichedData) ⇒ acc + enrichedData
+      }({ case (acc, enrichedData) ⇒
+        acc + enrichedData
       })
 
   /*def preProcessing0(state: GTState, bufferSize: Int = 1 << 8) =

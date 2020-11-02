@@ -530,16 +530,15 @@ object MoreStages {
         }
 
         private def tryPush(): Unit =
-          pending.foreach {
-            case (el, out) ⇒
-              if (isAvailable(out)) {
-                push(out, el)
-                tryPull(in)
-                pending = None
+          pending.foreach { case (el, out) ⇒
+            if (isAvailable(out)) {
+              push(out, el)
+              tryPull(in)
+              pending = None
 
-                if (isClosed(in))
-                  completeStage()
-              }
+              if (isClosed(in))
+                completeStage()
+            }
           }
       }
   }

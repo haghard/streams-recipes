@@ -97,10 +97,9 @@ trait AccountModuleTask extends AccountModule[Task, Account, Amount, Balance] {
         for {
           a ← debit(fromTo._1, amount)
           b ← credit(fromTo._2, amount)
-        } yield (a |@| b) {
-          case (a, b) ⇒
-            println("action [transfer]: " + Thread.currentThread().getName)
-            (a, b)
+        } yield (a |@| b) { case (a, b) ⇒
+          println("action [transfer]: " + Thread.currentThread().getName)
+          (a, b)
         }
       }
     )

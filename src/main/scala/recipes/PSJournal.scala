@@ -25,8 +25,7 @@ Thread safety of custom processing stages.
   The state encapsulated can be safely modified from the provided callbacks, without any further synchronization.
  */
 
-/**
-  * A Source that has one output and no inputs, it models a source of cassandra rows
+/** A Source that has one output and no inputs, it models a source of cassandra rows
   * associated with a persistenceId starting with offset.
   *
   * The impl is based on this

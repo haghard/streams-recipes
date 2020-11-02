@@ -55,7 +55,7 @@ resolvers ++= Seq(
 
 promptTheme := ScalapenosTheme
 
-val akkaV = "2.5.31"
+val akkaV = "2.5.32"
 val fs2V = "2.4.4"
 val scalazVersion = "7.2.28"
 
@@ -97,7 +97,7 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-stream" % akkaV,
   "com.typesafe.akka" %% "akka-stream-typed" % akkaV,
 
-  "com.typesafe.akka" %% "akka-http" % "10.2.0",
+  "com.typesafe.akka" %% "akka-http" % "10.2.1",
 
   //"com.typesafe.akka" %% "akka-actor-typed" % akkaStreamV,
 

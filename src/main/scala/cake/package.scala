@@ -398,11 +398,10 @@ package object cake {
         //import KleisliFutureSupport._
         //ND.both(a, b).kleisliR
         ND.mapBoth(a, b) { (l, r) ⇒
-          (l |@| r) {
-            case (a, b) ⇒
-              val res = m.append(a, b)
-              println(s"${Thread.currentThread.getName}: monoid op($a, $b) = $res")
-              res
+          (l |@| r) { case (a, b) ⇒
+            val res = m.append(a, b)
+            println(s"${Thread.currentThread.getName}: monoid op($a, $b) = $res")
+            res
           }
         }
     }
@@ -414,8 +413,7 @@ package object cake {
       override def append(a: Or[T], b: Or[T]) = (a |@| b){case (a,b) => m.append(a,b)}
     }*/
 
-  /**
-    * Generic validation function to accept anything that can be folded over along with
+  /** Generic validation function to accept anything that can be folded over along with
     * a function for transforming the data inside the containers
     *
     * We wrap all evaluations of f(a) on Validation.fromTryCatchNonFatal[B] to ensure
@@ -509,8 +507,7 @@ package object cake {
 
     case class Parser[T](parse: ValidationNel[String, T] ⇒ Option[T])
 
-    /**
-      * Concurrent execution
+    /** Concurrent execution
       * Use ApplicativeBuilder and Shapeless
       * It allows doing the same things as original Applicative Builder but this is not limited to 12 elements.
       */
@@ -526,8 +523,8 @@ package object cake {
         (twitterApi batch "reduce page") :: (dbApi batch "select page") :: (twitterApi batch "reduce page") :: shapeless.HNil
       parallelHList(tasks).map {
         hList: shapeless.::[ValidTweet, shapeless.::[ValidRecord, shapeless.::[ValidTweet, shapeless.HNil]]] ⇒
-          (hList.head |@| hList.tail.head |@| hList.tail.tail.head) {
-            case (a, b, c) ⇒ s"A:$a - B:$b - C:$c"
+          (hList.head |@| hList.tail.head |@| hList.tail.tail.head) { case (a, b, c) ⇒
+            s"A:$a - B:$b - C:$c"
           }
       }
     }
@@ -540,8 +537,7 @@ package object cake {
           (tupler._1 |@| tupler._2 |@| tupler._3) { case (a, b, c) ⇒ s"A:$a B:$b C:$c" }
         }
 
-    /**
-      * Sequentual with ApplicativeBuilder and Shapeless
+    /** Sequentual with ApplicativeBuilder and Shapeless
       */
     def gatherSHList = {
       val tasks =
@@ -550,8 +546,7 @@ package object cake {
     }
   }
 
-  /**
-    * Goals:
+  /** Goals:
     */
   object ProgramWithTask extends ScalazTaskTwitter with MySqlTaskDbService with ZNondeterminism[Task] {
     import KleisliTaskSupport._
@@ -576,11 +571,10 @@ package object cake {
 
     //Concurrent execution
     def gatherP2 =
-      ND.mapBoth((twitterApi batch "reduce page"), (dbApi batch "select page")) {
-        case (x, y) ⇒
-          (x |@| y) {
-            case (a, b) ⇒ s"${Thread.currentThread.getName} - twitter:$a db:$b"
-          }
+      ND.mapBoth((twitterApi batch "reduce page"), (dbApi batch "select page")) { case (x, y) ⇒
+        (x |@| y) { case (a, b) ⇒
+          s"${Thread.currentThread.getName} - twitter:$a db:$b"
+        }
       }
 
     /*
@@ -589,8 +583,7 @@ package object cake {
       }
      */
 
-    /**
-      * Sequentual execution
+    /** Sequentual execution
       * Imposes a total order on the sequencing of effects throughout the computation
       */
     def gatherS1 =
@@ -598,8 +591,7 @@ package object cake {
         ((x |@| y) { case (a, b) ⇒ s"twitter:$a db:$b" })
       }
 
-    /**
-      * Sequentual
+    /** Sequentual
       */
     def gatherS2 =
       for {
@@ -607,30 +599,26 @@ package object cake {
         y ← dbApi batch "select page"
       } yield ((x |@| y) { case (a, b) ⇒ s"twitter:$a db:$b" })
 
-    /**
-      * Sequentual
+    /** Sequentual
       */
     def gatherS3 =
       dbApp.apply2((twitterApi batch "select page"), (dbApi batch "select page")) { (x, y) ⇒
         ((x |@| y) { case (a, b) ⇒ s"twitter:$a db:$b" })
       }
 
-    /**
-      * Sequentual
+    /** Sequentual
       */
     def gatherS4 =
       twitterApp.ap2((twitterApi batch "select page"), (dbApi batch "select page"))(Task {
         (x: ValidTweet, y: ValidRecord) ⇒ (x |@| y) { case (a, b) ⇒ s"twitter:$a db:$b" }
       }(Executor))
 
-    /**
-      * Sequentual with ApplicativeBuilder
+    /** Sequentual with ApplicativeBuilder
       */
     def gatherS5: scalaz.concurrent.Task[scalaz.Validation[scalaz.NonEmptyList[String], String]] =
       ((twitterApi batch "reduce page") |@| (dbApi batch "select page")) { (x, y) ⇒
-        (x |@| y) {
-          case (a, b) ⇒
-            s"${Thread.currentThread().getName} - twitter:$a db:$b"
+        (x |@| y) { case (a, b) ⇒
+          s"${Thread.currentThread().getName} - twitter:$a db:$b"
         }
       }
 

@@ -56,12 +56,11 @@ object StatefulProcess {
     }*/
 
     val f = FlowWithContext[Cmd, Promise[Seq[Reply]]].asFlow
-      .scan(userState) {
-        case (state, (cmd, p)) ⇒
-          cmd match {
-            case AddUser(id) ⇒ state.copy(state.users + id, id, p)
-            case RmUser(id)  ⇒ state.copy(state.users - id, id, p)
-          }
+      .scan(userState) { case (state, (cmd, p)) ⇒
+        cmd match {
+          case AddUser(id) ⇒ state.copy(state.users + id, id, p)
+          case RmUser(id)  ⇒ state.copy(state.users - id, id, p)
+        }
       }
       /*.map { state ⇒
         if (state.current != -1L) (Seq(Added(state.current)), state.p)
@@ -92,10 +91,9 @@ object StatefulProcess {
       Source
         .queue[(Cmd, Promise[Seq[Reply]])](1 << 2, OverflowStrategy.dropNew)
         .via(stateFlow(UserState()))
-        .toMat(Sink.foreach {
-          case (replies, p) ⇒
-            println("replies: " + replies)
-            p.trySuccess(replies)
+        .toMat(Sink.foreach { case (replies, p) ⇒
+          println("replies: " + replies)
+          p.trySuccess(replies)
         })(Keep.left)
         //.withAttributes(ActorAttributes.supervisionStrategy(akka.stream.Supervision.resumingDecider))
         .addAttributes(ActorAttributes.supervisionStrategy(akka.stream.Supervision.resumingDecider))
@@ -123,10 +121,9 @@ object StatefulProcess {
               case Enqueued ⇒
                 p.future
                   .map(_ ⇒ id)
-                  .recoverWith {
-                    case err: Throwable ⇒
-                      println("Time-out: " + id + ":" + err.getMessage)
-                      akka.pattern.after(500.millis, sch)(produce(id, processor))
+                  .recoverWith { case err: Throwable ⇒
+                    println("Time-out: " + id + ":" + err.getMessage)
+                    akka.pattern.after(500.millis, sch)(produce(id, processor))
                   }
               case Dropped ⇒
                 println(s"Dropped: $id")

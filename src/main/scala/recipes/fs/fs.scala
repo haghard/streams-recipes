@@ -65,8 +65,7 @@ package object fs {
   implicit class StreamOps[A](val source: Stream[IO, A]) extends AnyRef {
     //import cats.implicits._
 
-    /**
-      * Decouples producer from consumer using a non-blocking queue for backpressure, enabling them to operate at its own rates.
+    /** Decouples producer from consumer using a non-blocking queue for backpressure, enabling them to operate at its own rates.
       * Allows `bufferSize` elements to be consumed ahead of time and put into the queue while the downstream consumer processes
       * the previous chunk of elements. Outputs chunks of size `bufferSize` or less for the last chunk.
       * If we hit `bufferSize`, then `enqueue` operation semantically blocks until there is a free space in the queue.
@@ -153,8 +152,7 @@ package object fs {
       }
 
     //looks like the most correct implementation from balanceN, balanceN2
-    /**
-      * The use case for `broadcastN3` method is as follows:
+    /** The use case for `broadcastN3` method is as follows:
       * You have a queue of incoming elements, each element needs to be processed using some user provided function.
       * The processing must be done sequentially for all elements that belong to the same partition, but two elements
       * belonging to different partitions can be processed concurrently.
@@ -171,16 +169,15 @@ package object fs {
       Stream.eval(queues).flatMap { qs ⇒
         val sinks: Stream[IO, B] =
           Stream
-            .emits(qs.zipWithIndex.map {
-              case (q, ind) ⇒
-                q.dequeue.unNoneTerminate.evalMap(f(ind))
+            .emits(qs.zipWithIndex.map { case (q, ind) ⇒
+              q.dequeue.unNoneTerminate.evalMap(f(ind))
             })
             .parJoin(parallelism)
 
         val balancedSrc: Stream[IO, Nothing] = source
-            .mapAccumulate(-1L)((seqNum, elem) ⇒ (seqNum + 1L, elem))
-            .evalMap { case (seqNum, elem) ⇒ qs((seqNum % parallelism).toInt).enqueue1(Some(elem)) }
-            .drain ++
+          .mapAccumulate(-1L)((seqNum, elem) ⇒ (seqNum + 1L, elem))
+          .evalMap { case (seqNum, elem) ⇒ qs((seqNum % parallelism).toInt).enqueue1(Some(elem)) }
+          .drain ++
           Stream
             .emits(qs)
             .evalMap(_.enqueue1(None))

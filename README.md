@@ -113,6 +113,10 @@ https://blog.softwaremill.com/painlessly-passing-message-context-through-akka-st
 
 
 ## Akka streams links ##
+
+https://akka.io/blog/article/2016/08/25/simple-sink-source-with-graphstage
+
+
 http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
 https://blog.softwaremill.com/painlessly-passing-message-context-through-akka-streams-1615b11efc2c
 https://github.com/calvinlfer/Akka-Streams-custom-stream-processing-examples

@@ -83,8 +83,8 @@ package object ddd {
         closeDate: Option[Date],
         balance: Balance
       ): ValidationNel[String, Account] =
-        (validateAccountNo(no) |@| validateOpenCloseDate(openDate.getOrElse(today), closeDate)) {
-          case (n, d) ⇒ CheckingAccount(n, name, d._1, d._2, balance)
+        (validateAccountNo(no) |@| validateOpenCloseDate(openDate.getOrElse(today), closeDate)) { case (n, d) ⇒
+          CheckingAccount(n, name, d._1, d._2, balance)
         }
 
       def savingsAccount(

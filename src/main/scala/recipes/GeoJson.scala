@@ -30,8 +30,7 @@ class RichGeometry(val geometry: Geometry, val spatialReference: SpatialReferenc
     GeometryEngine.disjoint(geometry, other, spatialReference)
 }
 
-/**
-  * Helper object for implicitly creating RichGeometry wrappers
+/** Helper object for implicitly creating RichGeometry wrappers
   * for a given Geometry instance.
   */
 object RichGeometry extends Serializable {

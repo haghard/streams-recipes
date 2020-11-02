@@ -9,20 +9,17 @@ import ddd.account.Account
 
 trait AccountRepo {
 
-  /**
-    * @param no
+  /** @param no
     * @return
     */
   def query(no: String): ValidationNel[String, Option[Account]]
 
-  /**
-    * @param a
+  /** @param a
     * @return
     */
   def store(a: Account): ValidationNel[String, Account]
 
-  /**
-    * @param no
+  /** @param no
     * @return
     */
   def balance(no: String): ValidationNel[String, Balance] =
@@ -33,14 +30,12 @@ trait AccountRepo {
       }
     )
 
-  /**
-    * @param openedOn
+  /** @param openedOn
     * @return
     */
   def query(openedOn: Date): ValidationNel[String, Seq[Account]]
 
-  /**
-    * @return
+  /** @return
     */
   def all: ValidationNel[String, Seq[Account]]
 }

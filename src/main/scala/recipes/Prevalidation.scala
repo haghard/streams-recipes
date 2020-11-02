@@ -54,11 +54,10 @@ object Prevalidation extends App {
      """.stripMargin
   )
 
-  val decider: akka.stream.Supervision.Decider = {
-    case ex: Throwable ⇒
-      ex.printStackTrace
-      println(s"Caught error: ${ex.getMessage}")
-      akka.stream.Supervision.Stop
+  val decider: akka.stream.Supervision.Decider = { case ex: Throwable ⇒
+    ex.printStackTrace
+    println(s"Caught error: ${ex.getMessage}")
+    akka.stream.Supervision.Stop
   }
 
   implicit val sys: ActorSystem =

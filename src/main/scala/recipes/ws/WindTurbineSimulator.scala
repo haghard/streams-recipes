@@ -50,9 +50,8 @@ class WindTurbineSimulator(id: String, endpoint: String)(implicit mat: ActorMate
       context become active
   }
 
-  def active: Receive = {
-    case Terminated ⇒
-      log.error(s"$id : WebSocket connection terminated")
-      throw WindTurbineSimulatorException(id)
+  def active: Receive = { case Terminated ⇒
+    log.error(s"$id : WebSocket connection terminated")
+    throw WindTurbineSimulatorException(id)
   }
 }

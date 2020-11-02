@@ -77,7 +77,7 @@ class WebSocketClient(id: String, endpoint: String, supervisor: ActorRef)(implic
         .via(poolClientFlow)
         .recoverWithRetries(3, { case th: Throwable => ??? })
         .runForeach(???)
-    */
+     */
 
     Http().webSocketClientFlow(WebSocketRequest(websocketUri))
   }

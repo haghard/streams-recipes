@@ -17,8 +17,7 @@ object InvariantsDsl {
   type Errors = NonEmptyList[String]
   type R[T]   = cats.data.Validated[Errors, T]
 
-  /**
-    * This trait is generic in the type of data structure being used to represent this dsl.
+  /** This trait is generic in the type of data structure being used to represent this dsl.
     *
     * All operations supported by this dsl.
     */
@@ -45,8 +44,7 @@ object InvariantsDsl {
       }
   }
 
-  /**
-    * Given any type class PredicateDsl a DslElement[T] is going to be able to produces an F[T] in PredicateDsl[T]
+  /** Given any type class PredicateDsl a DslElement[T] is going to be able to produces an F[T] in PredicateDsl[T]
     */
   trait DslElement[T] {
     def apply[F[_]](implicit P: PredicateDsl[F]): F[T]
