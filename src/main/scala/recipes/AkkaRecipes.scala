@@ -12,6 +12,7 @@ import akka.actor._
 import akka.actor.ActorRef
 import akka.actor.typed.{Behavior, PreRestart}
 import akka.actor.typed.scaladsl.Behaviors
+import akka.event.{Logging, LoggingAdapter}
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.ws.Message
 import akka.http.scaladsl.model.{HttpRequest, HttpResponse}
@@ -140,7 +141,7 @@ object AkkaRecipes extends App {
   implicit val ec       = mat.executionContext
 
   //scenario32(ec, sys.scheduler)
-  scenario33()
+  scenario33(sys.log)
 
   //scenario7_1(mat)
   //scenario7_2(mat)
@@ -2024,37 +2025,78 @@ object AkkaRecipes extends App {
     scala.concurrent.Await.result(f, Duration.Inf)
   }
 
-  def scenario33() = {
+  def scenario33(log: LoggingAdapter) = {
     import akka.actor.typed.scaladsl.adapter._
     import akka.stream.typed.scaladsl.ActorFlow
 
     val bufferSize = 1 << 4
+    val name = "akka-sink-33"
+    val deliveryTo = akka.util.Timeout(100.millis)
+    val actor = sys.spawn(StorageActor(name), name)
 
-    def persistFlow(entity: akka.actor.typed.ActorRef[StorageActor.Protocol])(
-      implicit persistTimeout: Timeout
+    /*val retry: Graph[SourceShape[StorageActor.Protocol], akka.NotUsed] =
+      GraphDSL.create() { implicit b ⇒
+        val data: StorageActor.Protocol = ???
+        val flow                        = b.add(Source.tick(1.seconds, 1.seconds, data))
+        SourceShape(flow.out)
+      }*/
+
+    // The time-outed element is dropped but the overall stream continues
+    def deliverFlow(entity: akka.actor.typed.ActorRef[StorageActor.Protocol])(
+      implicit deliverTimeout: Timeout, log: LoggingAdapter
     ): Flow[Int, StorageActor.Protocol, akka.NotUsed] = {
-      def persistFlow =
+      def faultTolerantFlow =
         ActorFlow.ask[Int, StorageActor.Store, StorageActor.Protocol](1)(entity)(StorageActor.Store(_, _))
-          .withAttributes(Attributes.inputBuffer(1, 1))
+         .log("DeliverFlow", _.toString)(log)
+         .withAttributes(
+           Attributes.inputBuffer(1, 1)
+             .and(ActorAttributes.supervisionStrategy({ case _ => Supervision.Resume }))
+             .and(Attributes.logLevels(Logging.InfoLevel))
+         )
 
-      RestartFlow.withBackoff(300.millis, 600.millis, 0.3)(() ⇒ persistFlow)
+         /*.recoverWithRetries(100, {
+            case err: akka.stream.WatchedActorTerminatedException =>
+              throw err
+              //the target actor is terminated
+            case err: java.util.concurrent.TimeoutException =>
+              println("Timeout !!!")
+              //the ask exceeds the timeout passed in
+              Source.single(StorageActor.Ack(-1))
+            case err: Throwable =>
+              println("Unexpected !!!")
+              throw err
+          })*/
+      faultTolerantFlow
     }
 
-    val name = "akka-sink-33"
-    val actor = sys.spawn(StorageActor(name), name)
+    // same as `deliverFlow` but with backoff
+    def deliverFlowWithBackoff(entity: akka.actor.typed.ActorRef[StorageActor.Protocol])(
+      implicit deliverTimeout: Timeout
+    ): Flow[Int, StorageActor.Protocol, akka.NotUsed] = {
+      def faultTolerantFlow =
+        ActorFlow.ask[Int, StorageActor.Store, StorageActor.Protocol](1)(entity)(StorageActor.Store(_, _))
+         .log("DeliverFlowWithBackoff", _.toString)(log)
+         .withAttributes(Attributes.inputBuffer(1, 1).and(Attributes.logLevels(Logging.InfoLevel)))
+      RestartFlow.withBackoff(100.millis, 1000.millis, 0.3)(() ⇒ faultTolerantFlow)
+    }
 
     val (sinkHub, sourceHub) =
       MergeHub
         .source[Int](bufferSize)
-        .via(persistFlow(actor)(akka.util.Timeout(100.millis)))
+        .log("MergeHub.source", _.toString)(log)
+        .withAttributes(Attributes.logLevels(Logging.InfoLevel))
+        .via(deliverFlow(actor)(deliveryTo, log))
+        //.via(deliverFlowWithBackoff(actor)(deliveryTo))
         .toMat(BroadcastHub.sink[StorageActor.Protocol](2))(Keep.both)
         .run()(mat)
 
-    sourceHub
-      .to(Sink.foreach[StorageActor.Protocol](in => println(s"${Thread.currentThread().getName}: out0: $in"))).run()(mat)
+    sourceHub.to(
+      Sink.foreach[StorageActor.Protocol](el => log.info(s"went thought out0: $el"))
+    ).run()(mat)
 
-    sourceHub
-      .to(Sink.foreach[StorageActor.Protocol](in => println(s"${Thread.currentThread().getName}: out1: $in"))).run()(mat)
+    sourceHub.to(
+      Sink.foreach[StorageActor.Protocol](el => log.info(s"went thought out1: $el"))
+    ).run()(mat)
 
     timedSource(ms, 1000.millis, 1000.millis, 10000, "source_33")
       .to(sinkHub)
@@ -2727,10 +2769,9 @@ object StorageActor {
 
   def apply(name: String): Behavior[Protocol] =
     Behaviors.receive[Protocol] { case (ctx, data: Store) ⇒
-      //ctx.log.info("Got {}", data.value)
       if (ThreadLocalRandom.current().nextDouble() > 0.7) Thread.sleep(120)
-      ctx.log.info("Ack {}", data.value)
       data.replyTo.tell(Ack(data.value))
+      //ctx.log.info("{} acknowledged", data.value)
       Behaviors.same
     }
 }
