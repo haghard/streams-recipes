@@ -878,7 +878,7 @@ object AkkaRecipes extends App {
     val (sinkHub, queue) =
       MergeHub
         .source[Int](bufferSize)
-        .toMat(Sink.queue[Int].addAttributes(Attributes.inputBuffer(bufferSize, bufferSize)))(Keep.both)
+        .toMat(Sink.queue[Int].withAttributes(Attributes.inputBuffer(bufferSize, bufferSize)))(Keep.both)
         .run()(mat)
 
     def attachSources(sink: Sink[Int, NotUsed], i: Int, limit: Int = 5): Future[Unit] = {
@@ -1094,7 +1094,7 @@ object AkkaRecipes extends App {
       }
     )
 
-  //Flows for skow consumer/producers
+  //Flows for either slow consumer or producer
 
   /*
     For cases where back-pressuring is not a viable strategy, one may wants to drop events from the fast producer, or accumulate them

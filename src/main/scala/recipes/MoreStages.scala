@@ -1,10 +1,12 @@
 package recipes
 
 import java.io.{File, FileOutputStream}
+import java.util
 import java.util.concurrent.ThreadLocalRandom
 
 import akka.actor.ActorRef
 import akka.stream.ActorAttributes.SupervisionStrategy
+import akka.stream.Attributes.InputBuffer
 import akka.stream._
 import akka.stream.scaladsl.SinkQueueWithCancel
 import akka.stream.stage.GraphStageLogic.StageActor
@@ -557,13 +559,18 @@ object MoreStages {
     How to use:
       Source.fromGraph(new ActorSource[ByteString](sourceRef) ...
       sourceRef ! message
+
+      Similar to `akka.stream.impl.ActorRefBackpressureSinkStage`
    */
   final class ActorBasedSource[T: ClassTag](sourceFeeder: ActorRef) extends GraphStage[SourceShape[T]] {
     val out: Outlet[T]                 = Outlet("out")
     override val shape: SourceShape[T] = SourceShape(out)
 
-    override def createLogic(attributes: Attributes): GraphStageLogic =
+    override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
       new GraphStageLogic(shape) with StageLogging {
+        val maxBuffer = inheritedAttributes.get[InputBuffer](InputBuffer(16, 16)).max
+        require(maxBuffer > 0, "Buffer size must be greater than 0")
+
         lazy val actorStage: StageActor = getStageActor(onReceive)
         val buffer                      = mutable.Queue[T]()
 
@@ -599,8 +606,10 @@ object MoreStages {
         def onReceive(x: (ActorRef, Any)): Unit =
           x._2 match {
             case msg: T ⇒
-              buffer enqueue msg
-              tryPush()
+              if (buffer.size > maxBuffer) {
+                buffer.enqueue(msg)
+                tryPush()
+              } else failStage(Overflow(s"Exceeded buffer size $maxBuffer"))
             case other ⇒
               failStage(throw new Exception(s"Unexpected message type ${other.getClass.getSimpleName}"))
           }
