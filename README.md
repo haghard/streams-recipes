@@ -102,6 +102,14 @@ Note - the default username/password for the Grafana UI is admin/admin.
 
 ### TumblingWindow, Sliding, SessionInactivity and SessionValue windows ###
 
+
+ The following timing windows:
+
+    Tumbling window - windows that have a fixed (time) size and do not overlap. In this case time is divided into non-overlapping parts and each data element belongs to a single window.
+    Sliding windows - windows parameterized by length and step. These windows overlap, and each data element can belong to multiple windows.
+    Inactivity based session windows - windows defining session on the inactivity period (session completes if no data arrives within inactivity data interval).
+    Value based session windows - windows defining session based on the message parameter (in addition session in this case will complete in the case of inactivity)
+
 https://www.lightbend.com/blog/comparing-runtimes-in-cloudflow-akka-streams-vs-apache-flink
 
 https://flink.apache.org/news/2015/12/04/Introducing-windows.html
