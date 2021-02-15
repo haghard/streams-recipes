@@ -129,7 +129,7 @@ object MoreStages {
       We stop pulling upstream when the internal buffer is filled up.
       This stage does what  default `Buffer` stage does`
    */
-  class BackPressuredStage[A](watermark: Int) extends GraphStage[FlowShape[A, A]] {
+  final class BackPressuredStage[A](watermark: Int) extends GraphStage[FlowShape[A, A]] {
     val in    = Inlet[A]("ib.in")
     val out   = Outlet[A]("ib.out")
     val shape = FlowShape.of(in, out)

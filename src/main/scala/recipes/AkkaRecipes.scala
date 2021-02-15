@@ -729,9 +729,10 @@ object AkkaRecipes extends App {
               awaitConfirmation(next, src)
             }
 
-          Behaviors.receiveMessage[DegradingTypedActorSource.Confirm] { case DegradingTypedActorSource.Connect(src) ⇒
-            src.tell(DegradingTypedActorSource.IntValue(0))
-            awaitConfirmation(0, src)
+          Behaviors.receiveMessage[DegradingTypedActorSource.Confirm] {
+            case DegradingTypedActorSource.Connect(src) ⇒
+              src.tell(DegradingTypedActorSource.IntValue(0))
+              awaitConfirmation(0, src)
           }
 
         },
@@ -2708,10 +2709,11 @@ object DegradingTypedActorSinkPb {
   case class Failed(ex: Throwable) extends AckProtocol
 
   def apply(name: String, gr: GraphiteMetrics, delayPerMsg: Long, initialDelay: Long): Behavior[AckProtocol] =
-    Behaviors.receive[AckProtocol] { case (ctx, _ @Init(sender)) ⇒
-      ctx.log.info(s"Init $name !!!")
-      sender.tell(Ack)
-      go(name, gr, 0L, delayPerMsg, initialDelay)
+    Behaviors.receive[AckProtocol] {
+      case (ctx, _ @Init(sender)) ⇒
+        ctx.log.info(s"Init $name !!!")
+        sender.tell(Ack)
+        go(name, gr, 0L, delayPerMsg, initialDelay)
     }
 
   private def go(

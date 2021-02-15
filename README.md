@@ -100,8 +100,9 @@ You should then have a datasource that points to the Graphite metric data within
 Note - the default username/password for the Grafana UI is admin/admin.
 
 
+### TumblingWindow, Sliding, SessionInactivity and SessionValue windows ###
 
-### windows ###
+https://www.lightbend.com/blog/comparing-runtimes-in-cloudflow-akka-streams-vs-apache-flink
 
 https://flink.apache.org/news/2015/12/04/Introducing-windows.html
 https://efekahraman.github.io/2019/01/session-windows-in-akka-streams
@@ -110,6 +111,7 @@ https://blog.kunicki.org/blog/2016/07/20/implementing-a-custom-akka-streams-grap
 https://github.com/efekahraman/akka-streams-session-window
 https://softwaremill.com/implementing-a-custom-akka-streams-graph-stage/
 https://blog.softwaremill.com/painlessly-passing-message-context-through-akka-streams-1615b11efc2c
+
 
 
 ## Akka streams links ##
