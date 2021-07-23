@@ -1,12 +1,11 @@
 package recipes
 
-import java.io.{File, FileInputStream}
-import java.net.{InetAddress, InetSocketAddress}
 import java.nio.ByteBuffer
+import java.io.FileInputStream
 import java.nio.channels.DatagramChannel
 import java.util.concurrent.ThreadLocalRandom
+import java.net.{InetAddress, InetSocketAddress}
 import java.util.concurrent.atomic.AtomicInteger
-
 import akka.NotUsed
 import akka.actor._
 import akka.actor.ActorRef
@@ -17,8 +16,6 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.ws.Message
 import akka.http.scaladsl.model.{HttpRequest, HttpResponse}
 import akka.routing.ConsistentHashingRouter.ConsistentHashMapping
-import akka.stream.Attributes.InputBuffer
-import akka.stream.QueueOfferResult.Enqueued
 import akka.stream._
 import akka.stream.actor.ActorPublisherMessage.{Cancel, Request}
 import akka.stream.actor.ActorSubscriberMessage.{OnComplete, OnError, OnNext}
@@ -34,8 +31,7 @@ import recipes.AkkaRecipes.{CircularFifo, LogEntry, SimpleMAState}
 import recipes.BalancerRouter._
 import recipes.BatchProducer.Item
 import recipes.ConsistentHashingRouter.{CHWork, DBObject2}
-import recipes.MoreStages.{BackPressuredStage, BackpressureMeasurementStage, DisjunctionStage, DropHeadStage, DropTailStage, QueueSrc, SimpleRingBuffer}
-import recipes.DegradingTypedActorSink.{IntValue, Protocol, RecoverableSinkFailure}
+import recipes.MoreStages.{BackPressuredStage, BackpressureMeasurementStage, DisjunctionStage, SimpleRingBuffer}
 import recipes.Sinks.{DegradingGraphiteSink, GraphiteSink, GraphiteSink3}
 import recipes.StatefulProcess.ProcessorError
 
@@ -106,6 +102,7 @@ object AkkaRecipes extends App {
     """.stripMargin
   )
 
+  //StatsD
   val ms =
     new InetSocketAddress(InetAddress.getByName("127.0.0.1" /*"192.168.77.83"*/ ), 8125)
 
@@ -141,7 +138,10 @@ object AkkaRecipes extends App {
   implicit val ec       = mat.executionContext
 
   //scenario32(ec, sys.scheduler)
-  scenario33(sys.log)
+  //scenario33(sys.log)
+  scenario34(sys.log)
+  //StdIn.readLine()
+  //sys.terminate()
 
   //scenario7_1(mat)
   //scenario7_2(mat)
@@ -158,61 +158,10 @@ object AkkaRecipes extends App {
   //scenario2_1
   //RunnableGraph.fromGraph(scenario31).run()(ActorMaterializer(Settings)(sys))
 
-  //https://blog.colinbreck.com/integrating-akka-streams-and-akka-actors-part-iii/
-  /*
-  Source(1 to 100000)
-    .throttle(
-      elements = 100,
-      per = 1.second,
-      maximumBurst = 100,
-      mode = ThrottleMode.shaping
-    )
-    .map { i ⇒
-      val id = java.util.UUID.randomUUID.toString
-      windTurbineShardRegionProxy ! EntityEnvelope(id, StartSimulator)
-    }.runWith(Sink.ignore)
-   */
-
   /*
   case object CurrentThreadExecutionContext extends ExecutionContextExecutor {
     def execute(runnable: Runnable): Unit     = runnable.run()
     def reportFailure(cause: Throwable): Unit = throw cause
-  }
-
-  val graph = scenario27(sys).run()(mat)
-
-  def enqueue(elem: Int) = {
-    //println(s"${Thread.currentThread.getName}: $elem")
-    val future: Future[Handler[Int]] =
-      Future {
-        Thread.sleep(1000)
-        sys.log.info("remote call0: {}", elem)
-        //println(s"${Thread.currentThread.getName}: remote call0: $elem")
-        elem
-      }(CurrentThreadExecutionContext)
-      //Future.successful(elem)
-        .map { e ⇒
-          sys.log.info("remote call1: {}", e)
-          Thread.sleep(200)
-          Handler(Success(e))
-        }(CurrentThreadExecutionContext)
-
-    graph.offer(future).onComplete {
-      case Success(r /*QueueOfferResult.Enqueued*/ ) ⇒
-        sys.log.info("{}:{}", r, elem)
-      //case Success(QueueOfferResult.Dropped) ⇒ println("Dropped")
-      case Failure(error) ⇒
-        sys.log.error(s"Error: ", error)
-    }
-    //Thread.sleep(200)
-  }
-
-  (0 to 50).foreach(enqueue)
-
-  Thread.sleep(5000)
-  graph.complete
-  graph.watchCompletion().onComplete { _ ⇒
-    println("Completion !!!!")
   }
    */
 
@@ -643,7 +592,7 @@ object AkkaRecipes extends App {
       src.to(sinkRef.sink).run()(mat)
     }*/
 
-    //This sink can be materialized (ie. run) arbitrary times
+    //This sink can be materialized arbitrary times and each
     val sinkHub: Sink[Int, NotUsed] =
       MergeHub
         .source[Int](1 << 6)
@@ -729,10 +678,9 @@ object AkkaRecipes extends App {
               awaitConfirmation(next, src)
             }
 
-          Behaviors.receiveMessage[DegradingTypedActorSource.Confirm] {
-            case DegradingTypedActorSource.Connect(src) ⇒
-              src.tell(DegradingTypedActorSource.IntValue(0))
-              awaitConfirmation(0, src)
+          Behaviors.receiveMessage[DegradingTypedActorSource.Confirm] { case DegradingTypedActorSource.Connect(src) ⇒
+            src.tell(DegradingTypedActorSource.IntValue(0))
+            awaitConfirmation(0, src)
           }
 
         },
@@ -2031,30 +1979,39 @@ object AkkaRecipes extends App {
     import akka.stream.typed.scaladsl.ActorFlow
 
     val bufferSize = 1 << 4
-    val name = "akka-sink-33"
-    val deliveryTo = akka.util.Timeout(100.millis)
-    val actor = sys.spawn(StorageActor(name), name)
+    val name = "ack-flow-33"
+    val deliveryTimeOut = akka.util.Timeout(100.millis)
 
-    /*val retry: Graph[SourceShape[StorageActor.Protocol], akka.NotUsed] =
-      GraphDSL.create() { implicit b ⇒
-        val data: StorageActor.Protocol = ???
-        val flow                        = b.add(Source.tick(1.seconds, 1.seconds, data))
-        SourceShape(flow.out)
-      }*/
+    /*val b = Behaviors
+      .supervise(StorageActor(name))
+      .onFailure[Exception](akka.actor.typed.SupervisorStrategy.resume)*/
+
+    val storageActor = sys.spawn(StorageActor(name), name)
 
     // The time-outed element is dropped but the overall stream continues
-    def deliverFlow(entity: akka.actor.typed.ActorRef[StorageActor.Protocol])(
+    def deliverFlow(
+      entity: akka.actor.typed.ActorRef[StorageActor.Protocol]
+    )(
       implicit deliverTimeout: Timeout, log: LoggingAdapter
-    ): Flow[Int, StorageActor.Protocol, akka.NotUsed] = {
+    ): Flow[Int, StorageActor.Ack, akka.NotUsed] = {
+
       def faultTolerantFlow =
-        ActorFlow.ask[Int, StorageActor.Store, StorageActor.Protocol](1)(entity)(StorageActor.Store(_, _))
-         .log("DeliverFlow", _.toString)(log)
+        ActorFlow.ask[Int, StorageActor.Store, StorageActor.Ack](1)(entity)(StorageActor.Store(_, _))
+         .log(name, _.toString)(log)
          .withAttributes(
            Attributes.inputBuffer(1, 1)
-             .and(ActorAttributes.supervisionStrategy({ case _ => Supervision.Resume }))
+             .and(ActorAttributes.supervisionStrategy(
+               {
+                 case _: akka.pattern.AskTimeoutException =>
+                   log.error(s"$name timeout !!!")
+                   Supervision.Resume
+                 case NonFatal(ex) =>
+                    log.error(ex, "Unexpected error !")
+                    Supervision.Stop
+               })
+             )
              .and(Attributes.logLevels(Logging.InfoLevel))
          )
-
          /*.recoverWithRetries(100, {
             case err: akka.stream.WatchedActorTerminatedException =>
               throw err
@@ -2071,37 +2028,63 @@ object AkkaRecipes extends App {
     }
 
     // same as `deliverFlow` but with backoff
-    def deliverFlowWithBackoff(entity: akka.actor.typed.ActorRef[StorageActor.Protocol])(
+    /*def deliverFlowWithBackoff(entity: akka.actor.typed.ActorRef[StorageActor.Protocol])(
       implicit deliverTimeout: Timeout
     ): Flow[Int, StorageActor.Protocol, akka.NotUsed] = {
       def faultTolerantFlow =
-        ActorFlow.ask[Int, StorageActor.Store, StorageActor.Protocol](1)(entity)(StorageActor.Store(_, _))
+        ActorFlow.ask[Int, StorageActor.Store, StorageActor.Ack](1)(entity)(StorageActor.Store(_, _))
          .log("DeliverFlowWithBackoff", _.toString)(log)
          .withAttributes(Attributes.inputBuffer(1, 1).and(Attributes.logLevels(Logging.InfoLevel)))
       RestartFlow.withBackoff(100.millis, 1000.millis, 0.3)(() ⇒ faultTolerantFlow)
-    }
+    }*/
 
     val (sinkHub, sourceHub) =
       MergeHub
         .source[Int](bufferSize)
         .log("MergeHub.source", _.toString)(log)
         .withAttributes(Attributes.logLevels(Logging.InfoLevel))
-        .via(deliverFlow(actor)(deliveryTo, log))
+        .via(deliverFlow(storageActor)(deliveryTimeOut, log))
         //.via(deliverFlowWithBackoff(actor)(deliveryTo))
-        .toMat(BroadcastHub.sink[StorageActor.Protocol](2))(Keep.both)
+        .toMat(BroadcastHub.sink(2))(Keep.both)
         .run()(mat)
 
     sourceHub.to(
-      Sink.foreach[StorageActor.Protocol](el => log.info(s"went thought out0: $el"))
+      new GraphiteSink[StorageActor.Ack]("sink33.0", 0, ms)
+      //Sink.foreach(el => log.info(s"went through sink33.0: $el"))
     ).run()(mat)
+
 
     sourceHub.to(
-      Sink.foreach[StorageActor.Protocol](el => log.info(s"went thought out1: $el"))
+      new GraphiteSink[StorageActor.Ack]("sink33.1", 2, ms)
+      //Sink.foreach(el => log.info(s"went through sink33.1: $el"))
     ).run()(mat)
 
-    timedSource(ms, 1000.millis, 1000.millis, 10000, "source_33")
+    timedSource(ms, 1000.millis, 20.millis, Int.MaxValue, "source33")
       .to(sinkHub)
       .run()(mat)
+  }
+
+  def scenario34(log: LoggingAdapter) = {
+    val batchSize = 1 << 5
+    val batchFrequency = 100.millis
+    val parallelism = 2
+
+    val sink =
+      MergeHub
+        .source[Int](perProducerBufferSize = 4)
+        .groupedWithin(batchSize, batchFrequency)
+        .log("MergeHub.groupedWithin", _.size.toString)(log)
+        .withAttributes(Attributes.logLevels(Logging.InfoLevel))
+        .mapAsync(parallelism) { nums =>
+          val (a, b) = nums.splitAt(nums.size / parallelism)
+          //Future.traverse(Seq(a, b)) { e => Future { Thread.sleep(25); e }}.map(_.flatMap(identity[Seq[Int]]))
+          Future.sequence(Seq(Future { Thread.sleep(30); a }, Future { Thread.sleep(20); b })).map(_.flatMap(identity[Seq[Int]]))
+        }
+        .to(new GraphiteSink[Seq[Int]]("sink34", 0, ms))
+        .run()(mat)
+
+    timedSource(ms, 100.millis, 10.millis, Int.MaxValue, "source34")
+      .runWith(sink)(mat)
   }
 
   //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
@@ -2709,11 +2692,10 @@ object DegradingTypedActorSinkPb {
   case class Failed(ex: Throwable) extends AckProtocol
 
   def apply(name: String, gr: GraphiteMetrics, delayPerMsg: Long, initialDelay: Long): Behavior[AckProtocol] =
-    Behaviors.receive[AckProtocol] {
-      case (ctx, _ @Init(sender)) ⇒
-        ctx.log.info(s"Init $name !!!")
-        sender.tell(Ack)
-        go(name, gr, 0L, delayPerMsg, initialDelay)
+    Behaviors.receive[AckProtocol] { case (ctx, _ @Init(sender)) ⇒
+      ctx.log.info(s"Init $name !!!")
+      sender.tell(Ack)
+      go(name, gr, 0L, delayPerMsg, initialDelay)
     }
 
   private def go(
@@ -2765,16 +2747,20 @@ object StorageActor {
   import akka.actor.typed.Behavior
   import akka.actor.typed.scaladsl.Behaviors
 
+  final case class Ack(value: Int)
+
   sealed trait Protocol
-  final case class Ack(value: Int)                                            extends Protocol
   final case class Store(value: Int, replyTo: akka.actor.typed.ActorRef[Ack]) extends Protocol
 
   def apply(name: String): Behavior[Protocol] =
-    Behaviors.receive[Protocol] { case (ctx, data: Store) ⇒
-      if (ThreadLocalRandom.current().nextDouble() > 0.7) Thread.sleep(120)
-      data.replyTo.tell(Ack(data.value))
-      //ctx.log.info("{} acknowledged", data.value)
-      Behaviors.same
+    Behaviors.setup { ctx ⇒
+      ctx.log.info("Started: {}", name)
+      Behaviors.receiveMessage[Protocol] { case Store(value, replyTo) ⇒
+        if (ThreadLocalRandom.current().nextDouble() < .95)
+          replyTo.tell(Ack(value))
+
+        Behaviors.same
+      }
     }
 }
 

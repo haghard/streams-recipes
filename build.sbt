@@ -5,7 +5,7 @@ name := "stream-recipes"
 
 version := "0.1"
 
-scalaVersion := "2.13.3" //"2.12.8"
+scalaVersion := "2.13.6" //"2.12.8"
 
 //for cats on 2.12. No need when on 2.13
 //scalacOptions += "-Ypartial-unification"
@@ -60,6 +60,8 @@ val fs2V = "2.4.4"
 val scalazVersion = "7.2.28"
 
 scalafmtOnCompile := true
+
+run / fork := true
 
 //val Origami = "1.0-20150902134048-8d00462"
 
@@ -151,7 +153,7 @@ libraryDependencies ++= Seq(
   "ch.qos.logback" % "logback-classic" % "1.2.3",
 
   // li haoyi ammonite repl embed
-  ("com.lihaoyi" % "ammonite" % "2.2.0" % "test").cross(CrossVersion.full)
+  "com.lihaoyi" % "ammonite" % "2.3.8-124-2da846d2" % "test" cross CrossVersion.full
 )
 
 //compile in Compile := (compile in Compile).dependsOn(compileAvro).value

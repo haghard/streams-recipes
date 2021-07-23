@@ -5,7 +5,9 @@ ScalazStream, AkkaStream, Fs2 recipes
 https://piotrminkowski.wordpress.com/2017/08/29/visualizing-jenkins-pipeline-results-in-grafana/
 
  
-Run grafana + graphite docker image   
+Run grafana + graphite docker image
+
+https://hub.docker.com/r/kamon/grafana_graphite/, https://github.com/kamon-io/docker-grafana-graphite
 
 ``` 
     docker run -it -p 80:80 -p 8125:8125/udp -p 8126:8126 kamon/grafana_graphite
@@ -123,6 +125,10 @@ https://blog.softwaremill.com/painlessly-passing-message-context-through-akka-st
 
 
 ## Akka streams links ##
+
+https://github.com/henrikengstrom/devnexus2018/tree/master/code-examples
+https://github.com/henrikengstrom/devnexus2018/commit/c739b5e75017e34ee79208f29960543f563fccb5#diff-8e79c32b47879000a02fdb2f97c2335749379fd0d26c679050d8c416412b81b1
+
 
 https://akka.io/blog/article/2016/08/25/simple-sink-source-with-graphstage
 
