@@ -8,12 +8,15 @@ import akka.stream.stage.{GraphStage, GraphStageLogic, InHandler, StageLogging}
 object Sinks {
 
   //Constant delay
-  final class GraphiteSink[T](name: String, delay: Long, override val address: InetSocketAddress)
+  final class StatsDCounterSink[T](name: String, delay: Long, override val address: InetSocketAddress)
       extends GraphStage[SinkShape[T]]
       with GraphiteMetrics {
 
     val in: Inlet[T]                 = Inlet("GraphiteSink")
     override val shape: SinkShape[T] = SinkShape(in)
+
+    override protected def initialAttributes: Attributes =
+      Attributes.name("sink").and(ActorAttributes.dispatcher(AkkaRecipes.FixedDispatcher))
 
     override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
       new GraphStageLogic(shape) {
@@ -38,7 +41,7 @@ object Sinks {
       }
   }
 
-  final class GraphiteSink3(name: String, delay: Long, override val address: InetSocketAddress)
+  final class StatsDCounterSink3(name: String, delay: Long, override val address: InetSocketAddress)
       extends GraphStage[SinkShape[(Int, Int, Int)]]
       with GraphiteMetrics {
 
@@ -67,7 +70,7 @@ object Sinks {
   }
 
   //Degrade with each new message
-  final class DegradingGraphiteSink[T](name: String, delayPerMsg: Long, override val address: InetSocketAddress)
+  final class StatsDCounterDegradingSink[T](name: String, delayPerMsg: Long, override val address: InetSocketAddress)
       extends GraphStage[SinkShape[T]]
       with GraphiteMetrics {
 

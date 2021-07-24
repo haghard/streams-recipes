@@ -32,7 +32,7 @@ import recipes.BalancerRouter._
 import recipes.BatchProducer.Item
 import recipes.ConsistentHashingRouter.{CHWork, DBObject2}
 import recipes.MoreStages.{BackPressuredStage, BackpressureMeasurementStage, DisjunctionStage, SimpleRingBuffer}
-import recipes.Sinks.{DegradingGraphiteSink, GraphiteSink, GraphiteSink3}
+import recipes.Sinks.{StatsDCounterDegradingSink, StatsDCounterSink, StatsDCounterSink3}
 import recipes.StatefulProcess.ProcessorError
 
 import scala.collection.{immutable, mutable}
@@ -103,6 +103,9 @@ object AkkaRecipes extends App {
   )
 
   //StatsD
+  //https://github.com/statsd/statsd/blob/master/docs/metric_types.md
+  //https://github.com/statsd/statsd/blob/master/examples/StatsdClient.java
+  //https://github.com/statsd/statsd/blob/master/examples/StatsD.scala
   val ms =
     new InetSocketAddress(InetAddress.getByName("127.0.0.1" /*"192.168.77.83"*/ ), 8125)
 
@@ -138,8 +141,10 @@ object AkkaRecipes extends App {
   implicit val ec       = mat.executionContext
 
   //scenario32(ec, sys.scheduler)
-  //scenario33(sys.log)
-  scenario34(sys.log)
+  scenario33(sys.log)
+
+  //scenario34(sys.log)
+
   //StdIn.readLine()
   //sys.terminate()
 
@@ -299,7 +304,7 @@ object AkkaRecipes extends App {
     last3(fastest, middle, slowest)
       .alsoTo(countElementsWindow[(Int, Int, Int)]("akka-scenario0", 2 seconds))
       .async
-      .to(new GraphiteSink3("sink_0", 0, ms))
+      .to(new StatsDCounterSink3("sink_0", 0, ms))
   }
 
   /** A source and a sink run at the same rate.
@@ -308,7 +313,7 @@ object AkkaRecipes extends App {
     GraphDSL.create() { implicit builder ⇒
       import GraphDSL.Implicits._
       val source = timedSource(ms, 1 second, 20 milliseconds, Int.MaxValue, "source_1")
-      val sink   = new GraphiteSink[Int]("sink_1", 0, ms)
+      val sink   = new StatsDCounterSink[Int]("sink_1", 0, ms)
 
       (source alsoTo tumblingWindowWithFilter("akka-scenario1", 2 seconds)(_ >= 97L)) ~> sink
       ClosedShape
@@ -321,7 +326,7 @@ object AkkaRecipes extends App {
     */
   def scenario2: Graph[ClosedShape, akka.NotUsed] = {
     val src           = timedSource(ms, 0 second, 10 milliseconds, Int.MaxValue, "source_2")
-    val degradingSink = new DegradingGraphiteSink[Int]("sink_2", 1L, ms)
+    val degradingSink = new StatsDCounterDegradingSink[Int]("sink_2", 1L, ms)
     val buffer        = Flow[Int].buffer(1 << 7, OverflowStrategy.backpressure).async
 
     src
@@ -343,7 +348,7 @@ object AkkaRecipes extends App {
   //same as scenario2 but with InternalBufferStage
   def scenario2_1: Graph[ClosedShape, akka.NotUsed] = {
     val source = timedSource(ms, 10.milliseconds, 10.milliseconds, Int.MaxValue, "source_2_1")
-    val sink   = new DegradingGraphiteSink[Int]("sink_2_1", 1L, ms)
+    val sink   = new StatsDCounterDegradingSink[Int]("sink_2_1", 1L, ms)
 
     source
       .alsoTo(countElementsWindow("akka-scenario2_1", 10 seconds))
@@ -359,7 +364,7 @@ object AkkaRecipes extends App {
     */
   def scenario3: Graph[ClosedShape, akka.NotUsed] = {
     val source        = timedSource(ms, 10 milliseconds, 10 milliseconds, Int.MaxValue, "source_3")
-    val degradingSink = new DegradingGraphiteSink[Int]("sink_3", 2L, ms)
+    val degradingSink = new StatsDCounterDegradingSink[Int]("sink_3", 2L, ms)
     val buffer        = Flow[Int].buffer(1 << 7, OverflowStrategy.dropHead)
 
     source
@@ -385,8 +390,8 @@ object AkkaRecipes extends App {
       import GraphDSL.Implicits._
 
       val source   = timedSource(ms, 1 second, 10 milliseconds, Int.MaxValue, "source_4")
-      val fastSink = new GraphiteSink[Int]("sink_4", 0, ms)
-      val slowSink = new DegradingGraphiteSink[Int]("sink_4_deg", 1L, ms)
+      val fastSink = new StatsDCounterSink[Int]("sink_4", 0, ms)
+      val slowSink = new StatsDCounterDegradingSink[Int]("sink_4_deg", 1L, ms)
 
       val bcast = b.add(akka.stream.scaladsl.Broadcast[Int](2)) //.addAttributes(Attributes.asyncBoundary)
 
@@ -408,9 +413,9 @@ object AkkaRecipes extends App {
       import GraphDSL.Implicits._
       val source = timedSource(ms, 0 second, 10 milliseconds, Int.MaxValue, "source_5")
 
-      val fastSink       = new GraphiteSink[Int]("sink_5", 0L, ms)
-      val degradingSink1 = new DegradingGraphiteSink[Int]("sink_5_1_deg_0", 1L, ms)
-      val degradingSink2 = new DegradingGraphiteSink[Int]("sink_5_1_deg_1", 2L, ms)
+      val fastSink       = new StatsDCounterSink[Int]("sink_5", 0L, ms)
+      val degradingSink1 = new StatsDCounterDegradingSink[Int]("sink_5_1_deg_0", 1L, ms)
+      val degradingSink2 = new StatsDCounterDegradingSink[Int]("sink_5_1_deg_1", 2L, ms)
 
       /*
       source.to(
@@ -443,8 +448,8 @@ object AkkaRecipes extends App {
       import GraphDSL.Implicits._
       val source = timedSource(ms, 0 milliseconds, 10 milliseconds, Int.MaxValue, "source_6")
 
-      val fastSink = new GraphiteSink[Int]("sink_6_0", 0L, ms)
-      val slowSink = new DegradingGraphiteSink[Int]("sink_6_1", 2L, ms)
+      val fastSink = new StatsDCounterSink[Int]("sink_6_0", 0L, ms)
+      val slowSink = new StatsDCounterDegradingSink[Int]("sink_6_1", 2L, ms)
 
       val balancer = b.add(Balance[Int](2))
 
@@ -1636,7 +1641,7 @@ object AkkaRecipes extends App {
       }
       .via(DelayFlow(window, .1).filter(_._1 > 0)) //ignore first window
       //.via(DelayFlow(window, .5).filter(_._1 > 0))
-      .to(new GraphiteSink[(Double, Double)]("sink_24", 0, ms))
+      .to(new StatsDCounterSink[(Double, Double)]("sink_24", 0, ms))
   }
 
   def scenario25: Graph[ClosedShape, akka.NotUsed] = {
@@ -1644,14 +1649,14 @@ object AkkaRecipes extends App {
     src
       .map(_.toDouble)
       .via(TrailingDifference[Double](5).drop(5)) //ignore first window
-      .to(new GraphiteSink[Double]("sink_25", 0, ms))
+      .to(new StatsDCounterSink[Double]("sink_25", 0, ms))
   }
 
   def scenario26: Graph[ClosedShape, akka.NotUsed] = {
     val src = timedSource(ms, 1.second, 1.seconds, Int.MaxValue, "akka-source_26", start = 1)
     src
       .via(MovingAvg[Int](8))
-      .to(new GraphiteSink[Double]("sink_26", 0, ms))
+      .to(new StatsDCounterSink[Double]("sink_26", 0, ms))
   }
 
   case class Handler[T](handler: Try[T])
@@ -1891,7 +1896,7 @@ object AkkaRecipes extends App {
       timedSource(ms, 1.second, 12.millis, Int.MaxValue, "akka-source_31_1", start = 2000000) ~> sink
       //timedSource(ms, 1.second, 10.millis, Int.MaxValue, "akka-source_31_2", start = 3000000) ~> sink
 
-      Source.fromPublisher(publisher) ~> new DegradingGraphiteSink[Int]("akka-sink_31", 1L, ms)
+      Source.fromPublisher(publisher) ~> new StatsDCounterDegradingSink[Int]("akka-sink_31", 1L, ms)
 
       /*Sink.foreach { i: Int ⇒
         println(s"${Thread.currentThread.getName}: Out:$i")
@@ -2049,20 +2054,42 @@ object AkkaRecipes extends App {
         .run()(mat)
 
     sourceHub.to(
-      new GraphiteSink[StorageActor.Ack]("sink33.0", 0, ms)
+      new StatsDCounterSink[StorageActor.Ack]("sink33.0", 0, ms)
       //Sink.foreach(el => log.info(s"went through sink33.0: $el"))
     ).run()(mat)
 
 
-    sourceHub.to(
-      new GraphiteSink[StorageActor.Ack]("sink33.1", 2, ms)
-      //Sink.foreach(el => log.info(s"went through sink33.1: $el"))
-    ).run()(mat)
+   val throughFlowSink =    
+      Flow[StorageActor.Ack]
+        .wireTap(Sink.foreach[StorageActor.Ack](el => log.info(s"went through sink33.1: $el")))
+        //.alsoTo(Sink.foreach(el => log.info(s"went through sink33.1: $el")))
+        .to(new StatsDCounterSink[StorageActor.Ack]("sink33.1", 2, ms))
+        //.mapMaterializedValue(_ => NotUsed)
+
+    sourceHub.to(throughFlowSink).run()(mat)
+
+    /*
+    val killSwitch = KillSwitches.shared("xxx")
+    timedSource(ms, 1000.millis, 20.millis, Int.MaxValue, "source33")
+      .via(termination(killSwitch, ???))
+    killSwitch.shutdown()
+    */
 
     timedSource(ms, 1000.millis, 20.millis, Int.MaxValue, "source33")
       .to(sinkHub)
       .run()(mat)
   }
+
+  def termination[T](killSwitch: SharedKillSwitch, completionPromise: Promise[Unit]): Flow[T, T, NotUsed] =
+    Flow[T]
+      .via(killSwitch.flow)
+      .alsoTo(
+        Sink.onComplete {
+          case Success(_) ⇒ completionPromise.success(())
+          case Failure(e) ⇒ completionPromise.failure(e)
+        }
+      )
+  
 
   def scenario34(log: LoggingAdapter) = {
     val batchSize = 1 << 5
@@ -2080,7 +2107,7 @@ object AkkaRecipes extends App {
           //Future.traverse(Seq(a, b)) { e => Future { Thread.sleep(25); e }}.map(_.flatMap(identity[Seq[Int]]))
           Future.sequence(Seq(Future { Thread.sleep(30); a }, Future { Thread.sleep(20); b })).map(_.flatMap(identity[Seq[Int]]))
         }
-        .to(new GraphiteSink[Seq[Int]]("sink34", 0, ms))
+        .to(new StatsDCounterSink[Seq[Int]]("sink34", 0, ms))
         .run()(mat)
 
     timedSource(ms, 100.millis, 10.millis, Int.MaxValue, "source34")

@@ -11,6 +11,11 @@ https://hub.docker.com/r/kamon/grafana_graphite/, https://github.com/kamon-io/do
 
 ``` 
     docker run -it -p 80:80 -p 8125:8125/udp -p 8126:8126 kamon/grafana_graphite
+    
+        
+    docker run -it -p 80:80 -p 8125:8125/udp -v /data/grafana:/opt/grafana -v /data/graphite:/opt/graphite -p 8126:8126 kamon/grafana_graphite       
+    
+    
 ```
 
 ### Akka-streams links ###
@@ -221,3 +226,5 @@ Fabio Labella—How do Fibers Work? A Peek Under the Hood
 https://www.youtube.com/watch?v=x5_MmZVLiSM&list=PL9KXdMOfekva4SJJqLDXQ73nMXt8-3pz7&index=4
 
   
+                          
+docker-compose --remove-orphans -f docker/docker-compose.yml up
