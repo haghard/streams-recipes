@@ -141,9 +141,9 @@ object AkkaRecipes extends App {
   implicit val ec       = mat.executionContext
 
   //scenario32(ec, sys.scheduler)
-  scenario33(sys.log)
-
+  //scenario33(sys.log)
   //scenario34(sys.log)
+  scenario35(sys.log)
 
   //StdIn.readLine()
   //sys.terminate()
@@ -2064,32 +2064,24 @@ object AkkaRecipes extends App {
         .wireTap(Sink.foreach[StorageActor.Ack](el => log.info(s"went through sink33.1: $el")))
         //.alsoTo(Sink.foreach(el => log.info(s"went through sink33.1: $el")))
         .to(new StatsDCounterSink[StorageActor.Ack]("sink33.1", 2, ms))
-        //.mapMaterializedValue(_ => NotUsed)
 
     sourceHub.to(throughFlowSink).run()(mat)
-
-    /*
-    val killSwitch = KillSwitches.shared("xxx")
-    timedSource(ms, 1000.millis, 20.millis, Int.MaxValue, "source33")
-      .via(termination(killSwitch, ???))
-    killSwitch.shutdown()
-    */
 
     timedSource(ms, 1000.millis, 20.millis, Int.MaxValue, "source33")
       .to(sinkHub)
       .run()(mat)
   }
 
-  def termination[T](killSwitch: SharedKillSwitch, completionPromise: Promise[Unit]): Flow[T, T, NotUsed] =
+  def terminationFlow[T](killSwitch: SharedKillSwitch, completion: Promise[Unit]): Flow[T, T, NotUsed] =
     Flow[T]
       .via(killSwitch.flow)
       .alsoTo(
         Sink.onComplete {
-          case Success(_) ⇒ completionPromise.success(())
-          case Failure(e) ⇒ completionPromise.failure(e)
+          case Success(_) ⇒ completion.success(())
+          case Failure(e) ⇒ completion.failure(e)
         }
       )
-  
+
 
   def scenario34(log: LoggingAdapter) = {
     val batchSize = 1 << 5
@@ -2112,6 +2104,29 @@ object AkkaRecipes extends App {
 
     timedSource(ms, 100.millis, 10.millis, Int.MaxValue, "source34")
       .runWith(sink)(mat)
+  }
+
+  def scenario35(log: LoggingAdapter) = {
+    val p = Promise[Unit]()
+    val killSwitch = KillSwitches.shared("scenario35")
+
+    p.future.flatMap { _ =>
+      //killSwitch.shutdown()
+      println("Done")
+      sys.terminate()
+    }
+
+    val completion =
+      timedSource(ms, 1000.millis, 50.millis, 100, "source35")
+        .via(terminationFlow(killSwitch, p))
+        .toMat(Sink.foreach[Int](el => log.info(s"went through sink35: $el")))(Keep.right).run()(mat)
+
+    completion.onComplete(_ => println("completion"))
+
+      //.to(Sink.foreach[Int](el => log.info(s"went through sink35: $el"))).run()
+
+      //.runWith(Sink.foreach[Int](el => log.info(s"went through sink35: $el")))
+
   }
 
   //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/

@@ -56,6 +56,9 @@ https://skillsmatter.com/skillscasts/6869-workshop-end-to-end-asynchronous-back-
 Examples using Akka HTTP with Streaming
 https://github.com/ktoso/akka-http-streaming-response-examples
 
+https://github.com/pbernet/akka_streams_tutorial
+
+
 ## akka.stream.contrib
 https://github.com/akka/akka-stream-contrib/tree/master/src/main/scala/akka/stream/contrib
 
