@@ -10,7 +10,7 @@ object Sinks {
   //Constant delay
   final class StatsDCounterSink[T](name: String, delay: Long, override val address: InetSocketAddress)
       extends GraphStage[SinkShape[T]]
-      with GraphiteMetrics {
+      with StatsDMetrics {
 
     val in: Inlet[T]                 = Inlet("GraphiteSink")
     override val shape: SinkShape[T] = SinkShape(in)
@@ -43,7 +43,7 @@ object Sinks {
 
   final class StatsDCounterSink3(name: String, delay: Long, override val address: InetSocketAddress)
       extends GraphStage[SinkShape[(Int, Int, Int)]]
-      with GraphiteMetrics {
+      with StatsDMetrics {
 
     private val in: Inlet[(Int, Int, Int)]         = Inlet("GraphiteSink")
     override val shape: SinkShape[(Int, Int, Int)] = SinkShape(in)
@@ -72,7 +72,7 @@ object Sinks {
   //Degrade with each new message
   final class StatsDCounterDegradingSink[T](name: String, delayPerMsg: Long, override val address: InetSocketAddress)
       extends GraphStage[SinkShape[T]]
-      with GraphiteMetrics {
+      with StatsDMetrics {
 
     val in: Inlet[T]                 = Inlet("GraphiteSink")
     override val shape: SinkShape[T] = SinkShape(in)

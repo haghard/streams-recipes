@@ -143,7 +143,8 @@ object AkkaRecipes extends App {
   //scenario32(ec, sys.scheduler)
   //scenario33(sys.log)
   //scenario34(sys.log)
-  scenario35(sys.log)
+  //scenario35(sys.log)
+  scenario36(sys.log)
 
   //StdIn.readLine()
   //sys.terminate()
@@ -574,7 +575,7 @@ object AkkaRecipes extends App {
 
     //StreamRefs
 
-    //1. You have a source you'd like to
+    //1. You have a source you'd like to shard with N subscribers
     /*val src = Source.fromIterator(() => Iterator.range(0, 10))
     src.runWith(StreamRefs.sourceRef())(mat).map { srcRef =>
       //here we should send srcRef to the remote side so that the remote side could do the following
@@ -748,7 +749,7 @@ object AkkaRecipes extends App {
        */
 
       ActorSink.actorRefWithAck[Int, DegradingTypedActorSinkPb.AckProtocol, DegradingTypedActorSinkPb.Ack](
-        sys.spawn(DegradingTypedActorSinkPb(name, GraphiteMetrics(ms), 10, 0), name),
+        sys.spawn(DegradingTypedActorSinkPb(name, StatsDMetrics(ms), 10, 0), name),
         DegradingTypedActorSinkPb.Next(_, _),
         DegradingTypedActorSinkPb.Init(_),
         DegradingTypedActorSinkPb.Ack,
@@ -1140,7 +1141,7 @@ object AkkaRecipes extends App {
     implicit val Ctx    = mat.executionContext
     implicit val ExtCtx = sys.dispatchers.lookup("akka.blocking-dispatcher")
 
-    val pubStatsD = new GraphiteMetrics {
+    val pubStatsD = new StatsDMetrics {
       override val address = ms
     }
 
@@ -2059,7 +2060,7 @@ object AkkaRecipes extends App {
     ).run()(mat)
 
 
-   val throughFlowSink =    
+   val throughFlowSink =
       Flow[StorageActor.Ack]
         .wireTap(Sink.foreach[StorageActor.Ack](el => log.info(s"went through sink33.1: $el")))
         //.alsoTo(Sink.foreach(el => log.info(s"went through sink33.1: $el")))
@@ -2102,6 +2103,7 @@ object AkkaRecipes extends App {
         .to(new StatsDCounterSink[Seq[Int]]("sink34", 0, ms))
         .run()(mat)
 
+
     timedSource(ms, 100.millis, 10.millis, Int.MaxValue, "source34")
       .runWith(sink)(mat)
   }
@@ -2127,6 +2129,33 @@ object AkkaRecipes extends App {
 
       //.runWith(Sink.foreach[Int](el => log.info(s"went through sink35: $el")))
 
+  }
+
+  def scenario36(log: LoggingAdapter) = {
+    val actor =
+      //sys.actorOf(BackoffSupervisor.props(BackoffOpts.onFailure(Core.props("akka-core-36"), "core", 1.millis, 4.millis, .1)))
+      sys.actorOf(Core.props("akka-core-36"), "core")
+
+    def src =
+      Source.actorRef[Long](1 << 5, OverflowStrategy.fail)
+        .mapMaterializedValue { ref =>
+          actor ! Core.Connect(ref)
+          NotUsed
+        }
+
+    //.concatMat(Source.maybe[Long])(Keep.right)
+    src
+      .log("pass thought", _.toString)(log)
+      .via(Flow[Long].mapAsync(1) {m => Future { Thread.sleep(120); m.toString }})
+      .to(Sink.actorRef(actor, Core.Completed))
+      .withAttributes(Attributes.logLevels(Logging.InfoLevel))
+      /*.withAttributes(
+         ActorAttributes.supervisionStrategy({ case NonFatal(ex) =>
+            log.error(ex, "Boom !!!")
+            Supervision.Stop
+         }).and(Attributes.logLevels(Logging.InfoLevel))
+       )*/
+      .run()(mat)
   }
 
   //http://blog.lancearlaus.com/akka/streams/scala/2015/05/27/Akka-Streams-Balancing-Buffer/
@@ -2216,10 +2245,10 @@ object AkkaRecipes extends App {
 
 }
 
-object GraphiteMetrics {
+object StatsDMetrics {
 
   def apply(address0: InetSocketAddress) =
-    new GraphiteMetrics() {
+    new StatsDMetrics() {
       override val sendBuffer = ByteBuffer.allocate(1 << 7)
       override val address    = address0
 
@@ -2233,7 +2262,7 @@ object GraphiteMetrics {
     }
 }
 
-trait GraphiteMetrics {
+trait StatsDMetrics {
   val Encoding   = "utf-8"
   val sendBuffer = ByteBuffer.allocate(512)
   val channel    = DatagramChannel.open()
@@ -2408,6 +2437,50 @@ class BalancerRouter extends ActorSubscriber with ActorLogging {
   }
 }
 
+object Core {
+  case class Connect(ref: ActorRef)
+  case object Completed
+  case object Tick
+
+  def props(name: String) = Props(new Core(name))
+}
+
+class Core(name: String) extends Actor with ActorLogging with Stash {
+  implicit val ec = context.system.dispatcher
+
+  override def preStart(): Unit =
+    println("preStart: " + self.path)
+
+  def awaitConnection: Receive = {
+    case c: Core.Connect ⇒
+      val cancelable = context.system.scheduler.schedule(3.seconds, 90.millis, self, Core.Tick)
+      unstashAll()
+      context.become(active(c.ref, cancelable))
+
+    case _ ⇒
+      stash()
+  }
+
+  def active(srcRef: ActorRef, cancelable: akka.actor.Cancellable): Receive = {
+    case Core.Tick ⇒
+      srcRef.forward(System.currentTimeMillis())
+
+    case numStrOut: String ⇒
+    //numStrOut
+
+    case akka.actor.Status.Failure(e: akka.stream.BufferOverflowException) ⇒
+      //throw new Exception(s"BufferOverflowException !!!")
+      println(e.msg)
+      cancelable.cancel()
+      context.stop(self)
+
+    case other ⇒
+      throw new Exception(s"Unexpected msg ${other.getClass.getName} in active")
+  }
+
+  override def receive: Receive = awaitConnection
+}
+
 class Worker(name: String) extends Actor with ActorLogging {
   override def receive = { case Work(id) ⇒
     Thread.sleep(java.util.concurrent.ThreadLocalRandom.current.nextInt(100, 150))
@@ -2425,7 +2498,7 @@ class ChRoutee(name: String, workerId: Int) extends Actor with ActorLogging {
   }
 }
 
-class RecordsSink(name: String, val address: InetSocketAddress) extends Actor with ActorLogging with GraphiteMetrics {
+class RecordsSink(name: String, val address: InetSocketAddress) extends Actor with ActorLogging with StatsDMetrics {
   override def receive = { case BalancerRouter.Done(_) ⇒
     send(s"$name:1|c")
   }
@@ -2439,7 +2512,7 @@ class RecordsSink(name: String, val address: InetSocketAddress) extends Actor wi
   */
 class TopicReader(name: String, val address: InetSocketAddress, delay: Long)
     extends ActorPublisher[Int]
-    with GraphiteMetrics {
+    with StatsDMetrics {
   val Limit      = 10000
   var progress   = 0
   val observeGap = 1000
@@ -2478,7 +2551,7 @@ object PubSubSink {
 class PubSubSink private (name: String, val address: InetSocketAddress, delay: Long)
     extends ActorSubscriber
     with ActorPublisher[Long]
-    with GraphiteMetrics {
+    with StatsDMetrics {
   private val queue = mutable.Queue[Long]()
 
   override protected val requestStrategy = new MaxInFlightRequestStrategy(10) {
@@ -2537,7 +2610,7 @@ object SyncActor {
 
 class SyncActor private (name: String, val address: InetSocketAddress, delay: Long, limit: Long)
     extends ActorSubscriber
-    with GraphiteMetrics {
+    with StatsDMetrics {
   var count                              = 0
   override protected val requestStrategy = OneByOneRequestStrategy
 
@@ -2600,7 +2673,7 @@ object BatchActor {
 
 class BatchActor private (name: String, val address: InetSocketAddress, delay: Long, bufferSize: Int)
     extends ActorSubscriber
-    with GraphiteMetrics {
+    with StatsDMetrics {
   private val queue = new mutable.Queue[Int]()
 
   override protected val requestStrategy = new MaxInFlightRequestStrategy(bufferSize) {
@@ -2639,7 +2712,7 @@ object DegradingActor {
 
 class DegradingActor private (val name: String, val address: InetSocketAddress, delayPerMsg: Long, initialDelay: Long)
     extends ActorSubscriber
-    with GraphiteMetrics {
+    with StatsDMetrics {
 
   var delay       = 0L
   var lastSeenMsg = 0
@@ -2733,7 +2806,7 @@ object DegradingTypedActorSinkPb {
 
   case class Failed(ex: Throwable) extends AckProtocol
 
-  def apply(name: String, gr: GraphiteMetrics, delayPerMsg: Long, initialDelay: Long): Behavior[AckProtocol] =
+  def apply(name: String, gr: StatsDMetrics, delayPerMsg: Long, initialDelay: Long): Behavior[AckProtocol] =
     Behaviors.receive[AckProtocol] { case (ctx, _ @Init(sender)) ⇒
       ctx.log.info(s"Init $name !!!")
       sender.tell(Ack)
@@ -2742,7 +2815,7 @@ object DegradingTypedActorSinkPb {
 
   private def go(
     name: String,
-    gr: GraphiteMetrics,
+    gr: StatsDMetrics,
     delay: Long,
     delayPerMsg: Long,
     initialDelay: Long
@@ -2819,7 +2892,7 @@ object DegradingTypedActorSink {
   case class IntValue(value: Int)                     extends Protocol
   case class RecoverableSinkFailure(cause: Throwable) extends Exception(cause) with NoStackTrace
 
-  def apply(name: String, gr: GraphiteMetrics, delayPerMsg: Long, initialDelay: Long): Behavior[Protocol] =
+  def apply(name: String, gr: StatsDMetrics, delayPerMsg: Long, initialDelay: Long): Behavior[Protocol] =
     Behaviors.setup[Protocol] { ctx ⇒
       ctx.log.info(s"Start $name !!!")
       go(name, gr, 0L, delayPerMsg, initialDelay)
@@ -2827,7 +2900,7 @@ object DegradingTypedActorSink {
 
   private def go(
     name: String,
-    gr: GraphiteMetrics,
+    gr: StatsDMetrics,
     delay: Long,
     delayPerMsg: Long,
     initialDelay: Long
@@ -2873,7 +2946,7 @@ class DegradingActorSink private (
   delayPerMsg: Long,
   initialDelay: Long
 ) extends Actor
-    with GraphiteMetrics {
+    with StatsDMetrics {
 
   def this(name: String, statsD: InetSocketAddress) =
     this(name, statsD, 0, 0)
@@ -2931,7 +3004,7 @@ class DegradingActorSink private (
 
 class DbCursorPublisher(name: String, val Limit: Long, val address: InetSocketAddress)
     extends ActorPublisher[Long]
-    with GraphiteMetrics
+    with StatsDMetrics
     with ActorLogging {
   var limit      = 0L
   var seqN       = 0L

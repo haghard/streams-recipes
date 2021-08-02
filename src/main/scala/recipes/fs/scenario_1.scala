@@ -7,7 +7,7 @@ import cats.effect._
 import cats.implicits._
 import fs2._
 import fs2.concurrent.{Queue, Signal, SignallingRef}
-import recipes.{GraphiteMetrics, GraphiteSupport, TimeWindows}
+import recipes.{GraphiteSupport, StatsDMetrics, TimeWindows}
 
 import scala.concurrent.duration._
 import scala.concurrent.ExecutionContext
@@ -48,7 +48,7 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
 
   //type Pipe[F[_], -I, +O] = Stream[F, I] => Stream[F, O]
   def pipe2Graphite[F[_]: Sync, T](
-    monitoring: GraphiteMetrics,
+    monitoring: StatsDMetrics,
     message: String
   ): Pipe[F, T, T] /*Stream[F, T] => Stream[F, T]*/ =
     _.evalTap { _ ⇒
@@ -57,7 +57,7 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
     }
 
   def pipe2GraphitePar[F[_]: Sync: LiftIO, T](
-    monitoring: GraphiteMetrics,
+    monitoring: StatsDMetrics,
     message: String
   ): Stream[F, T] ⇒ Stream[F, T] =
     _.evalTap(_ ⇒ (IO.shift *> IO(send(monitoring, message))).runAsync(_ ⇒ IO.unit).to[F])
@@ -71,7 +71,7 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
     latency: FiniteDuration,
     timeWindow: Long,
     msg: String,
-    monitoring: GraphiteMetrics,
+    monitoring: StatsDMetrics,
     q: Queue[IO, Long]
   ): Stream[IO, Unit] =
     Stream
@@ -81,10 +81,10 @@ object scenario_1 extends IOApp with TimeWindows with GraphiteSupport {
       //.evalMap(state ⇒ send(monitoring, msg).map(_ ⇒ state.item))
       .through(q.enqueue)
 
-  def graphiteSink[A](monitoring: GraphiteMetrics, message: String): Pipe[IO, A, Unit] =
+  def graphiteSink[A](monitoring: StatsDMetrics, message: String): Pipe[IO, A, Unit] =
     _.evalMap(_ ⇒ send(monitoring, message))
 
-  def graphitePipe[A, B](monitoring: GraphiteMetrics, message: String, f: A ⇒ B): Pipe[IO, A, B] =
+  def graphitePipe[A, B](monitoring: StatsDMetrics, message: String, f: A ⇒ B): Pipe[IO, A, B] =
     _.evalMap(i ⇒ send(monitoring, message).map(_ ⇒ f(i)))
 
   def testSink(i: Long) =
