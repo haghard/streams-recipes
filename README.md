@@ -178,6 +178,10 @@ https://github.com/svezfaz/akka-backpressure-scala-central-talk.git
 Stefano Bonetti - Monitoring Akka Streams: https://www.youtube.com/watch?v=4s1YzgrRR2A
 
 
+https://github.com/nolangrace/akka-playground
+https://github.com/nolangrace/akka-playground/blob/master/src/main/scala/com/example/ActorAndMergeHub.scala
+
+
 netstat -na | grep ${PORT}
 
 ## FS2 links ##
