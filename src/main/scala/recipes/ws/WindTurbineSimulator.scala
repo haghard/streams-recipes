@@ -6,8 +6,15 @@ import akka.http.scaladsl.model.StatusCode
 import akka.actor.{Actor, ActorLogging, Props}
 
 //https://blog.colinbreck.com/integrating-akka-streams-and-akka-actors-part-ii/
-
 //The following actor simulates a wind turbine
+
+/**
+  * Other examples:
+  *
+  * https://github.com/aacevedoosorio/streams/blob/ff2fed03a96daf79e1dd8d7ac81921535b3df72d/src/main/scala/com/acevedo/actors/DistributedWindTurbineSimulator.scala
+  * https://github.com/aacevedoosorio/streams/blob/ff2fed03a96daf79e1dd8d7ac81921535b3df72d/src/main/scala/com/acevedo/actors/WindTurbineSimulator.scala
+  *
+  */
 object WindTurbineSimulator {
 
   def props(id: String, endpoint: String)(implicit materializer: ActorMaterializer) =
